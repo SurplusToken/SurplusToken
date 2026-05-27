@@ -315,6 +315,22 @@ func (m *mockBillingCache) InvalidateAPIKeyRateLimit(context.Context, int64) err
 	return nil
 }
 
+func (m *mockBillingCache) GetUserPlatformQuotaCache(context.Context, int64, string) (*UserPlatformQuotaCacheEntry, bool, error) {
+	return nil, false, nil
+}
+
+func (m *mockBillingCache) SetUserPlatformQuotaCache(context.Context, int64, string, *UserPlatformQuotaCacheEntry, time.Duration) error {
+	return nil
+}
+
+func (m *mockBillingCache) DeleteUserPlatformQuotaCache(context.Context, int64, string) error {
+	return nil
+}
+
+func (m *mockBillingCache) IncrUserPlatformQuotaUsageCache(context.Context, int64, string, float64, time.Duration) error {
+	return nil
+}
+
 // --- 测试 ---
 
 func TestUpdateBalance_Success(t *testing.T) {
