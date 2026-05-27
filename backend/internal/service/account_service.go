@@ -100,6 +100,7 @@ type CreateAccountRequest struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra"`
 	ProxyID            *int64         `json:"proxy_id"`
+	OwnerUserID        *int64         `json:"owner_user_id"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	GroupIDs           []int64        `json:"group_ids"`
@@ -142,6 +143,10 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := validateSurplusAIUpstreamAccountType(req.Type); err != nil {
+		return nil, err
+	}
+
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -158,6 +163,7 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Credentials: req.Credentials,
 		Extra:       req.Extra,
 		ProxyID:     req.ProxyID,
+		OwnerUserID: req.OwnerUserID,
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
 		Status:      StatusActive,
@@ -237,6 +243,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
+	}
+	if err := validateSurplusAIUpstreamAccountType(account.Type); err != nil {
+		return nil, err
 	}
 
 	// 更新字段

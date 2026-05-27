@@ -109,7 +109,7 @@ func (m *groupAwareMockAccountRepo) ListSchedulableUngroupedByPlatform(ctx conte
 	var result []Account
 	for _, acc := range m.allAccounts {
 		if acc.Platform == platform && acc.IsSchedulable() && len(acc.AccountGroups) == 0 {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -124,7 +124,7 @@ func (m *groupAwareMockAccountRepo) ListSchedulableUngroupedByPlatforms(ctx cont
 	var result []Account
 	for _, acc := range m.allAccounts {
 		if platformSet[acc.Platform] && acc.IsSchedulable() && len(acc.AccountGroups) == 0 {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -135,7 +135,7 @@ func (m *groupAwareMockAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx cont
 	var result []Account
 	for _, acc := range m.allAccounts {
 		if acc.Platform == platform && acc.IsSchedulable() && accountBelongsToGroup(acc, groupID) {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -150,7 +150,7 @@ func (m *groupAwareMockAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx con
 	var result []Account
 	for _, acc := range m.allAccounts {
 		if platformSet[acc.Platform] && acc.IsSchedulable() && accountBelongsToGroup(acc, groupID) {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil

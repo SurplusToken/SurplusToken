@@ -27,7 +27,7 @@ type schedulerTestOpenAIAccountRepo struct {
 func (r schedulerTestOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
 	for i := range r.accounts {
 		if r.accounts[i].ID == id {
-			return &r.accounts[i], nil
+			return surplusAITestDefaultOAuthAccountPtr(&r.accounts[i]), nil
 		}
 	}
 	return nil, errors.New("account not found")
@@ -37,7 +37,7 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx 
 	var result []Account
 	for _, acc := range r.accounts {
 		if acc.Platform == platform {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -47,7 +47,7 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableByPlatform(ctx context.Co
 	var result []Account
 	for _, acc := range r.accounts {
 		if acc.Platform == platform {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -251,7 +251,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 		{
 			ID:          36001,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -260,7 +260,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 		{
 			ID:          36002,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -308,7 +308,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 		{
 			ID:          36011,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -317,13 +317,13 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 		{
 			ID:          36012,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    5,
 			Extra: map[string]any{
-				"openai_apikey_responses_websockets_v2_enabled": true,
+				"openai_oauth_responses_websockets_v2_enabled": true,
 			},
 		},
 	}
@@ -362,7 +362,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 		{
 			ID:          36021,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -402,19 +402,19 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPrev
 		{
 			ID:          37001,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    5,
 			Extra: map[string]any{
-				"openai_apikey_responses_websockets_v2_enabled": true,
+				"openai_oauth_responses_websockets_v2_enabled": true,
 			},
 		},
 		{
 			ID:          37002,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -584,12 +584,12 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_PreviousResponseSticky(
 	account := Account{
 		ID:          1001,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 2,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	cache := &schedulerTestGatewayCache{}
@@ -687,7 +687,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 		{
 			ID:          21001,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -696,7 +696,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 		{
 			ID:          21002,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -718,8 +718,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 
 	concurrencyCache := schedulerTestConcurrencyCache{
 		acquireResults: map[int64]bool{
-			21001: false, // sticky 账号已满
-			21002: true,  // 若回退负载均衡会命中该账号（本测试要求不能切换）
+			21001: false, // sticky account is busy
+			21002: true,  // fallback account would be available but must not be selected
 		},
 		waitCounts: map[int64]int{
 			21001: 999,
@@ -815,7 +815,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 		{
 			ID:          2201,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -824,13 +824,13 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 		{
 			ID:          2202,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    5,
 			Extra: map[string]any{
-				"openai_apikey_responses_websockets_v2_enabled": true,
+				"openai_oauth_responses_websockets_v2_enabled": true,
 			},
 		},
 	}
@@ -841,7 +841,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 	}
 	cfg := newSchedulerTestOpenAIWSV2Config()
 
-	// 构造“HTTP-only 账号负载更低”的场景，验证 required transport 会强制过滤。
+	// HTTP-only account has lower load; required transport should still filter it.
 	concurrencyCache := schedulerTestConcurrencyCache{
 		loadMap: map[int64]*AccountLoadInfo{
 			2201: {AccountID: 2201, LoadRate: 0, WaitingCount: 0},
@@ -924,7 +924,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 		{
 			ID:          3001,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -933,7 +933,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 		{
 			ID:          3002,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -942,7 +942,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 		{
 			ID:          3003,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -965,7 +965,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			3003: {AccountID: 3003, LoadRate: 10, WaitingCount: 0},
 		},
 		acquireResults: map[int64]bool{
-			3003: false, // top1 失败，必须回退到 top-K 的下一候选
+			3003: false, // top1 fails; fallback should try the next top-K candidate
 			3002: true,
 		},
 	}
@@ -1007,7 +1007,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics(t *testing.T) {
 	account := Account{
 		ID:          4001,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
@@ -1170,7 +1170,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		{
 			ID:          5101,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
@@ -1179,7 +1179,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		{
 			ID:          5102,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
@@ -1188,7 +1188,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		{
 			ID:          5103,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
@@ -1241,7 +1241,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		}
 	}
 
-	// 多 session 应该能打散到多个账号，避免“恒定单账号命中”。
+	// Multiple sessions should distribute across more than one account.
 	require.GreaterOrEqual(t, len(selected), 2)
 }
 
@@ -1323,7 +1323,7 @@ func TestClamp01_AllBranches(t *testing.T) {
 
 func TestCalcLoadSkewByMoments_Branches(t *testing.T) {
 	require.Equal(t, 0.0, calcLoadSkewByMoments(1, 1, 1))
-	// variance < 0 分支：sumSquares/count - mean^2 为负值时应钳制为 0。
+	// Negative variance should be clamped to zero.
 	require.Equal(t, 0.0, calcLoadSkewByMoments(1, 0, 2))
 	require.GreaterOrEqual(t, calcLoadSkewByMoments(6, 20, 3), 0.0)
 }
@@ -1410,12 +1410,12 @@ func TestDefaultOpenAIAccountScheduler_IsAccountTransportCompatible_Branches(t *
 	account := &Account{
 		ID:          8801,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	require.True(t, scheduler.isAccountTransportCompatible(account, OpenAIUpstreamTransportResponsesWebsocketV2))

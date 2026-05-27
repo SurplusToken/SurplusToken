@@ -66,7 +66,7 @@ func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedul
 			{
 				ID:          1,
 				Platform:    PlatformOpenAI,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Concurrency: 1,
@@ -82,7 +82,7 @@ func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedul
 			1: {
 				ID:          1,
 				Platform:    PlatformOpenAI,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Concurrency: 1,
@@ -109,8 +109,8 @@ func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedul
 	if selection == nil || selection.Account == nil {
 		t.Fatalf("expected selected account")
 	}
-	if got := selection.Account.GetOpenAIApiKey(); got != "sk-live" {
-		t.Fatalf("expected hydrated api key, got %q", got)
+	if got := selection.Account.GetCredential("api_key"); got != "sk-live" {
+		t.Fatalf("expected hydrated credential, got %q", got)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestGatewaySelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedu
 			{
 				ID:          9,
 				Platform:    PlatformAnthropic,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Concurrency: 1,
@@ -156,7 +156,7 @@ func TestGatewaySelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedu
 			9: {
 				ID:          9,
 				Platform:    PlatformAnthropic,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Concurrency: 1,

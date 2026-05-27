@@ -56,7 +56,7 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
 				groupID: {
-					{ID: 1, Platform: service.PlatformGemini},
+					{ID: 1, Platform: service.PlatformGemini, Type: service.AccountTypeOAuth},
 				},
 			},
 		},
@@ -89,8 +89,11 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 			byGroup: map[int64][]service.Account{
 				groupID: {
 					{
-						ID:       1,
-						Platform: service.PlatformAnthropic,
+						ID:          1,
+						Platform:    service.PlatformAnthropic,
+						Type:        service.AccountTypeOAuth,
+						Status:      service.StatusActive,
+						Schedulable: true,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
 								"claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -98,8 +101,11 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 						},
 					},
 					{
-						ID:       2,
-						Platform: service.PlatformGemini,
+						ID:          2,
+						Platform:    service.PlatformGemini,
+						Type:        service.AccountTypeOAuth,
+						Status:      service.StatusActive,
+						Schedulable: true,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
 								"gemini-2.5-flash": "gemini-2.5-flash",

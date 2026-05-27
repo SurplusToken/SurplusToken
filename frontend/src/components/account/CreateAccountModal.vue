@@ -185,6 +185,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -215,6 +216,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'bedrock'"
             :class="[
@@ -245,6 +247,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'service_account'"
             :class="[
@@ -311,6 +314,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -386,6 +390,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -428,6 +433,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="accountCategory = 'service_account'"
             :class="[
@@ -747,6 +753,7 @@
           </button>
 
           <button
+            v-if="!surplusAIOAuthOnly"
             type="button"
             @click="antigravityAccountType = 'upstream'"
             :class="[
@@ -775,7 +782,7 @@
       </div>
 
       <!-- Upstream config (only for Antigravity upstream type) -->
-      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'upstream'" class="space-y-4">
+      <div v-if="!surplusAIOAuthOnly && form.platform === 'antigravity' && antigravityAccountType === 'upstream'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
           <input
@@ -801,7 +808,7 @@
       </div>
 
       <!-- Vertex Service Account -->
-      <div v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'" class="space-y-4">
+      <div v-if="!surplusAIOAuthOnly && (form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'" class="space-y-4">
         <div>
           <label class="input-label">Service Account JSON</label>
           <input
@@ -982,7 +989,7 @@
       </div>
 
       <!-- Add Method (only for Anthropic OAuth-based type) -->
-      <div v-if="form.platform === 'anthropic' && isOAuthFlow">
+      <div v-if="!surplusAIOAuthOnly && form.platform === 'anthropic' && isOAuthFlow">
         <label class="input-label">{{ t('admin.accounts.addMethod') }}</label>
         <div class="mt-2 flex gap-4">
           <label class="flex cursor-pointer items-center">
@@ -1009,7 +1016,7 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <div v-if="!surplusAIOAuthOnly && form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1393,7 +1400,7 @@
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
-      <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
+      <div v-if="!surplusAIOAuthOnly && form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockAuthMode') }}</label>
@@ -2777,7 +2784,7 @@
     <div v-else class="space-y-5">
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
-        :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
+        add-method="oauth"
         :auth-url="currentAuthUrl"
         :session-id="currentSessionId"
         :loading="currentOAuthLoading"
@@ -3276,6 +3283,7 @@ interface TempUnschedRuleForm {
 }
 
 // State
+const surplusAIOAuthOnly = true
 const step = ref(1)
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
@@ -3535,6 +3543,9 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (surplusAIOAuthOnly) {
+    return true
+  }
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -3604,6 +3615,13 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (surplusAIOAuthOnly) {
+      accountCategory.value = 'oauth-based'
+      addMethod.value = 'oauth'
+      antigravityAccountType.value = 'oauth'
+      form.type = 'oauth'
+      return
+    }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -3639,6 +3657,12 @@ watch(
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
+    if (surplusAIOAuthOnly) {
+      accountCategory.value = 'oauth-based'
+      addMethod.value = 'oauth'
+      antigravityAccountType.value = 'oauth'
+      form.type = 'oauth'
+    }
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
@@ -4284,6 +4308,13 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (surplusAIOAuthOnly) {
+    accountCategory.value = 'oauth-based'
+    addMethod.value = 'oauth'
+    antigravityAccountType.value = 'oauth'
+    form.type = 'oauth'
+  }
+
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!form.name.trim()) {
@@ -4506,7 +4537,7 @@ const handleGenerateUrl = async () => {
   } else if (form.platform === 'antigravity') {
     await antigravityOAuth.generateAuthUrl(form.proxy_id)
   } else {
-    await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
+    await oauth.generateAuthUrl('oauth', form.proxy_id)
   }
 }
 
@@ -4532,6 +4563,10 @@ const createAccountAndFinish = async (
   credentials: Record<string, unknown>,
   extra?: Record<string, unknown>
 ) => {
+  if (surplusAIOAuthOnly && type !== 'oauth') {
+    appStore.showError('SurplusAI only allows OAuth upstream accounts')
+    return
+  }
   if (!applyTempUnschedConfig(credentials)) {
     return
   }
@@ -5084,10 +5119,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 
   try {
     const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
-    const endpoint =
-      addMethod.value === 'oauth'
-        ? '/admin/accounts/exchange-code'
-        : '/admin/accounts/exchange-setup-token-code'
+    const endpoint = '/admin/accounts/exchange-code'
 
     const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
       session_id: oauth.sessionId.value,
@@ -5155,7 +5187,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-    await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
+    await createAccountAndFinish(form.platform, 'oauth', credentials, extra)
   } catch (error: any) {
     oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
     appStore.showError(oauth.error.value)
@@ -5201,10 +5233,7 @@ const handleCookieAuth = async (sessionKey: string) => {
       return
     }
 
-    const endpoint =
-      addMethod.value === 'oauth'
-        ? '/admin/accounts/cookie-auth'
-        : '/admin/accounts/setup-token-cookie-auth'
+    const endpoint = '/admin/accounts/cookie-auth'
 
     let successCount = 0
     let failedCount = 0
@@ -5289,7 +5318,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           name: accountName,
           notes: form.notes,
           platform: form.platform,
-          type: addMethod.value, // Use addMethod as type: 'oauth' or 'setup-token'
+          type: 'oauth',
           credentials,
           extra,
           proxy_id: form.proxy_id,

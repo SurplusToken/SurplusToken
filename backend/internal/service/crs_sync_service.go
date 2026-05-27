@@ -267,9 +267,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		if targetType == "" {
 			targetType = "oauth"
 		}
-		if targetType != AccountTypeOAuth && targetType != AccountTypeSetupToken {
+		if !isSurplusAIUpstreamAccountTypeAllowed(targetType) {
 			item.Action = "skipped"
-			item.Error = "unsupported authType: " + targetType
+			item.Error = "SurplusAI only syncs OAuth upstream accounts"
 			result.Skipped++
 			result.Items = append(result.Items, item)
 			continue
@@ -417,104 +417,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			Kind:         src.Kind,
 			Name:         src.Name,
 		}
-
-		apiKey, _ := src.Credentials["api_key"].(string)
-		if strings.TrimSpace(apiKey) == "" {
-			item.Action = "failed"
-			item.Error = "missing api_key"
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		proxyID, err := s.mapOrCreateProxy(ctx, input.SyncProxies, &proxies, src.Proxy, fmt.Sprintf("crs-%s", src.Name))
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "proxy sync failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		credentials := sanitizeCredentialsMap(src.Credentials)
-		priority := clampPriority(src.Priority)
-		concurrency := 3
-		if src.MaxConcurrentTasks > 0 {
-			concurrency = src.MaxConcurrentTasks
-		}
-		status := mapCRSStatus(src.IsActive, src.Status)
-
-		extra := map[string]any{
-			"crs_account_id": src.ID,
-			"crs_kind":       src.Kind,
-			"crs_synced_at":  now,
-		}
-
-		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "db lookup failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		if existing == nil {
-			if !shouldCreateAccount(src.ID, selectedSet) {
-				item.Action = "skipped"
-				item.Error = "not selected"
-				result.Skipped++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			account := &Account{
-				Name:        defaultName(src.Name, src.ID),
-				Platform:    PlatformAnthropic,
-				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
-				Extra:       extra,
-				ProxyID:     proxyID,
-				Concurrency: concurrency,
-				Priority:    priority,
-				Status:      status,
-				Schedulable: src.Schedulable,
-			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
-				item.Action = "failed"
-				item.Error = "create failed: " + err.Error()
-				result.Failed++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			item.Action = "created"
-			result.Created++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		existing.Extra = mergeMap(existing.Extra, extra)
-		existing.Name = defaultName(src.Name, src.ID)
-		existing.Platform = PlatformAnthropic
-		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
-		if proxyID != nil {
-			existing.ProxyID = proxyID
-		}
-		existing.Concurrency = concurrency
-		existing.Priority = priority
-		existing.Status = status
-		existing.Schedulable = src.Schedulable
-
-		if err := s.accountRepo.Update(ctx, existing); err != nil {
-			item.Action = "failed"
-			item.Error = "update failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		item.Action = "updated"
-		result.Updated++
+		item.Action = "skipped"
+		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
 
@@ -657,120 +562,16 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		result.Items = append(result.Items, item)
 	}
 
-	// OpenAI Responses API Key -> sub2api openai apikey
+	// OpenAI Responses API Key -> skipped by SurplusAI OAuth-only policy.
 	for _, src := range exported.Data.OpenAIResponsesAccounts {
 		item := SyncFromCRSItemResult{
 			CRSAccountID: src.ID,
 			Kind:         src.Kind,
 			Name:         src.Name,
 		}
-
-		apiKey, _ := src.Credentials["api_key"].(string)
-		if strings.TrimSpace(apiKey) == "" {
-			item.Action = "failed"
-			item.Error = "missing api_key"
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		if baseURL, ok := src.Credentials["base_url"].(string); !ok || strings.TrimSpace(baseURL) == "" {
-			src.Credentials["base_url"] = "https://api.openai.com"
-		}
-		// 🔧 Remove /v1 suffix from base_url for OpenAI accounts
-		cleanBaseURL(src.Credentials, "/v1")
-
-		proxyID, err := s.mapOrCreateProxy(
-			ctx,
-			input.SyncProxies,
-			&proxies,
-			src.Proxy,
-			fmt.Sprintf("crs-%s", src.Name),
-		)
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "proxy sync failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		credentials := sanitizeCredentialsMap(src.Credentials)
-		priority := clampPriority(src.Priority)
-		concurrency := 3
-		status := mapCRSStatus(src.IsActive, src.Status)
-
-		extra := map[string]any{
-			"crs_account_id": src.ID,
-			"crs_kind":       src.Kind,
-			"crs_synced_at":  now,
-		}
-
-		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "db lookup failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		if existing == nil {
-			if !shouldCreateAccount(src.ID, selectedSet) {
-				item.Action = "skipped"
-				item.Error = "not selected"
-				result.Skipped++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			account := &Account{
-				Name:        defaultName(src.Name, src.ID),
-				Platform:    PlatformOpenAI,
-				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
-				Extra:       extra,
-				ProxyID:     proxyID,
-				Concurrency: concurrency,
-				Priority:    priority,
-				Status:      status,
-				Schedulable: src.Schedulable,
-			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
-				item.Action = "failed"
-				item.Error = "create failed: " + err.Error()
-				result.Failed++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			item.Action = "created"
-			result.Created++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		existing.Extra = mergeMap(existing.Extra, extra)
-		existing.Name = defaultName(src.Name, src.ID)
-		existing.Platform = PlatformOpenAI
-		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
-		if proxyID != nil {
-			existing.ProxyID = proxyID
-		}
-		existing.Concurrency = concurrency
-		existing.Priority = priority
-		existing.Status = status
-		existing.Schedulable = src.Schedulable
-
-		if err := s.accountRepo.Update(ctx, existing); err != nil {
-			item.Action = "failed"
-			item.Error = "update failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		item.Action = "updated"
-		result.Updated++
+		item.Action = "skipped"
+		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
 
@@ -896,112 +697,16 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		result.Items = append(result.Items, item)
 	}
 
-	// Gemini API Key -> sub2api gemini apikey
+	// Gemini API Key -> skipped by SurplusAI OAuth-only policy.
 	for _, src := range exported.Data.GeminiAPIKeyAccounts {
 		item := SyncFromCRSItemResult{
 			CRSAccountID: src.ID,
 			Kind:         src.Kind,
 			Name:         src.Name,
 		}
-
-		apiKey, _ := src.Credentials["api_key"].(string)
-		if strings.TrimSpace(apiKey) == "" {
-			item.Action = "failed"
-			item.Error = "missing api_key"
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		proxyID, err := s.mapOrCreateProxy(ctx, input.SyncProxies, &proxies, src.Proxy, fmt.Sprintf("crs-%s", src.Name))
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "proxy sync failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		credentials := sanitizeCredentialsMap(src.Credentials)
-		if baseURL, ok := credentials["base_url"].(string); !ok || strings.TrimSpace(baseURL) == "" {
-			credentials["base_url"] = "https://generativelanguage.googleapis.com"
-		}
-
-		extra := make(map[string]any)
-		if src.Extra != nil {
-			for k, v := range src.Extra {
-				extra[k] = v
-			}
-		}
-		extra["crs_account_id"] = src.ID
-		extra["crs_kind"] = src.Kind
-		extra["crs_synced_at"] = now
-
-		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
-		if err != nil {
-			item.Action = "failed"
-			item.Error = "db lookup failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		if existing == nil {
-			if !shouldCreateAccount(src.ID, selectedSet) {
-				item.Action = "skipped"
-				item.Error = "not selected"
-				result.Skipped++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			account := &Account{
-				Name:        defaultName(src.Name, src.ID),
-				Platform:    PlatformGemini,
-				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
-				Extra:       extra,
-				ProxyID:     proxyID,
-				Concurrency: 3,
-				Priority:    clampPriority(src.Priority),
-				Status:      mapCRSStatus(src.IsActive, src.Status),
-				Schedulable: src.Schedulable,
-			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
-				item.Action = "failed"
-				item.Error = "create failed: " + err.Error()
-				result.Failed++
-				result.Items = append(result.Items, item)
-				continue
-			}
-			item.Action = "created"
-			result.Created++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		existing.Extra = mergeMap(existing.Extra, extra)
-		existing.Name = defaultName(src.Name, src.ID)
-		existing.Platform = PlatformGemini
-		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
-		if proxyID != nil {
-			existing.ProxyID = proxyID
-		}
-		existing.Concurrency = 3
-		existing.Priority = clampPriority(src.Priority)
-		existing.Status = mapCRSStatus(src.IsActive, src.Status)
-		existing.Schedulable = src.Schedulable
-
-		if err := s.accountRepo.Update(ctx, existing); err != nil {
-			item.Action = "failed"
-			item.Error = "update failed: " + err.Error()
-			result.Failed++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
-		item.Action = "updated"
-		result.Updated++
+		item.Action = "skipped"
+		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
 
@@ -1358,6 +1063,9 @@ func (s *CRSSyncService) PreviewFromCRS(ctx context.Context, input SyncFromCRSIn
 	}
 
 	classify := func(crsID, kind, name, platform, accountType string) {
+		if !isSurplusAIUpstreamAccountTypeAllowed(accountType) {
+			return
+		}
 		preview := CRSPreviewAccount{
 			CRSAccountID: crsID,
 			Kind:         kind,

@@ -205,6 +205,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/accounts/pool',
+    name: 'AccountPool',
+    component: () => import('@/views/user/AccountPoolView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Account Pool',
+      titleKey: 'accountPool.title',
+      descriptionKey: 'accountPool.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
@@ -700,6 +712,22 @@ const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/wechat/payment/callback',
 ]
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
+const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = [
+  '/subscriptions',
+  '/purchase',
+  '/orders',
+  '/redeem',
+  '/affiliate',
+  '/payment/qrcode',
+  '/payment/stripe',
+  '/payment/airwallex',
+  '/payment/stripe-popup',
+  '/admin/subscriptions',
+  '/admin/redeem',
+  '/admin/promo-codes',
+  '/admin/affiliates',
+  '/admin/orders',
+]
 
 function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
   if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
@@ -751,6 +779,11 @@ router.beforeEach(async (to, _from, next) => {
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
   const requiresAdmin = to.meta.requiresAdmin === true
+
+  if (SURPLUSAI_INTERNAL_RESTRICTED_PATHS.some((path) => to.path === path || to.path.startsWith(path + '/'))) {
+    next(authStore.isAuthenticated && authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+    return
+  }
 
   if (to.path === '/setup') {
     try {
@@ -806,7 +839,6 @@ router.beforeEach(async (to, _from, next) => {
     next('/dashboard')
     return
   }
-
 
   // Check payment requirement (internal payment system only)
   if (to.meta.requiresPayment) {

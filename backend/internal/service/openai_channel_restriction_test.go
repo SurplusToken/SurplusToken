@@ -28,7 +28,7 @@ func TestOpenAISelectAccountForModelWithExclusions_ChannelMappedRestrictionRejec
 
 	svc := &OpenAIGatewayService{
 		accountRepo: stubOpenAIAccountRepo{accounts: []Account{
-			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true},
+			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
 		}},
 		channelService: channelSvc,
 	}
@@ -58,6 +58,7 @@ func TestOpenAISelectAccountForModelWithExclusions_UpstreamRestrictionSkipsDisal
 			{
 				ID:          1,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Priority:    10,
@@ -68,6 +69,7 @@ func TestOpenAISelectAccountForModelWithExclusions_UpstreamRestrictionSkipsDisal
 			{
 				ID:          2,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Priority:    20,
@@ -108,6 +110,7 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyRestrictedUpstreamFalls
 			{
 				ID:          1,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Priority:    10,
@@ -118,6 +121,7 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyRestrictedUpstreamFalls
 			{
 				ID:          2,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Priority:    20,

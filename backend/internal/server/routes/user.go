@@ -77,6 +77,17 @@ func RegisterUserRoutes(
 			channels.GET("/available", h.AvailableChannel.List)
 		}
 
+		// 用户 OAuth 账号池
+		accounts := authenticated.Group("/accounts")
+		{
+			accounts.GET("/pool", h.AccountPool.ListPool)
+			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
+			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
+			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
+			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
+			accounts.PATCH("/:id/limits", h.AccountPool.UpdateLimits)
+		}
+
 		// 使用记录
 		usage := authenticated.Group("/usage")
 		{

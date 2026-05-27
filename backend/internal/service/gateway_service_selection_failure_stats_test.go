@@ -17,6 +17,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          1,
 			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 		},
@@ -24,6 +25,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          2,
 			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: false,
 		},
@@ -31,6 +33,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          3,
 			Platform:    PlatformAntigravity,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 		},
@@ -38,6 +41,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          4,
 			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Credentials: map[string]any{
@@ -50,6 +54,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          5,
 			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Extra: map[string]any{
@@ -64,6 +69,7 @@ func TestCollectSelectionFailureStats(t *testing.T) {
 		{
 			ID:          6,
 			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 		},
@@ -100,6 +106,7 @@ func TestDiagnoseSelectionFailure_UnschedulableDetail(t *testing.T) {
 	acc := &Account{
 		ID:          7,
 		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: false,
 	}
@@ -120,6 +127,7 @@ func TestDiagnoseSelectionFailure_ModelRateLimitedDetail(t *testing.T) {
 	acc := &Account{
 		ID:          8,
 		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Extra: map[string]any{

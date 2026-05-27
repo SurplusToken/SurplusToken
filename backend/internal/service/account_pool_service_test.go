@@ -1,0 +1,267 @@
+//go:build unit
+
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/stretchr/testify/require"
+)
+
+type accountPoolRepoStub struct {
+	accountRepoStub
+
+	created      *Account
+	accounts     []Account
+	pagination   *pagination.PaginationResult
+	accountsByID map[int64]*Account
+	updated      *Account
+	extraUpdates map[string]any
+}
+
+func (s *accountPoolRepoStub) Create(ctx context.Context, account *Account) error {
+	copied := *account
+	if copied.ID == 0 {
+		copied.ID = 101
+	}
+	if copied.CreatedAt.IsZero() {
+		copied.CreatedAt = time.Now()
+	}
+	copied.UpdatedAt = copied.CreatedAt
+	s.created = &copied
+	*account = copied
+	return nil
+}
+
+func (s *accountPoolRepoStub) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error) {
+	if s.pagination != nil {
+		return s.accounts, s.pagination, nil
+	}
+	return s.accounts, &pagination.PaginationResult{
+		Total:    int64(len(s.accounts)),
+		Page:     params.Page,
+		PageSize: params.PageSize,
+		Pages:    1,
+	}, nil
+}
+
+func (s *accountPoolRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if s.accountsByID == nil {
+		return nil, ErrAccountNotFound
+	}
+	account := s.accountsByID[id]
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	copied := *account
+	if account.Extra != nil {
+		copied.Extra = make(map[string]any, len(account.Extra))
+		for k, v := range account.Extra {
+			copied.Extra[k] = v
+		}
+	}
+	return &copied, nil
+}
+
+func (s *accountPoolRepoStub) Update(ctx context.Context, account *Account) error {
+	copied := *account
+	s.updated = &copied
+	return nil
+}
+
+func (s *accountPoolRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	s.extraUpdates = make(map[string]any, len(updates))
+	for k, v := range updates {
+		s.extraUpdates[k] = v
+	}
+	return nil
+}
+
+func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:                    "  Team OpenAI  ",
+		Platform:                PlatformOpenAI,
+		Type:                    AccountTypeOAuth,
+		Credentials:             map[string]any{"refresh_token": "secret"},
+		WindowCostLimit:         floatPtr(25),
+		QuotaWeeklyLimit:        floatPtr(100),
+		QuotaWeeklyMinRemaining: floatPtr(15),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	require.Equal(t, int64(42), *repo.created.OwnerUserID)
+	require.Equal(t, AccountTypeOAuth, repo.created.Type)
+	require.Equal(t, "Team OpenAI", repo.created.Name)
+	require.True(t, repo.created.Schedulable)
+	require.Equal(t, 25.0, repo.created.Extra["window_cost_limit"])
+	require.Equal(t, 15.0, repo.created.Extra["quota_weekly_min_remaining"])
+	require.True(t, item.IsMine)
+}
+
+func TestAccountServiceCreateUserOAuthAccountRejectsNonOAuthType(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	_, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:        "bad",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "secret"},
+	})
+
+	require.ErrorIs(t, err, ErrUserOAuthOnly)
+	require.Nil(t, repo.created)
+}
+
+func TestAccountServiceUserAccountOwnership(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.SetUserAccountSchedulable(context.Background(), ownerID, 7, false)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	require.False(t, repo.updated.Schedulable)
+
+	_, err = svc.SetUserAccountSchedulable(context.Background(), 99, 7, true)
+	require.ErrorIs(t, err, ErrAccountOwnerRequired)
+	require.Equal(t, 403, infraerrors.Code(err))
+}
+
+func TestAccountServiceUpdateUserAccountLimits(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+		Extra: map[string]any{
+			"quota_weekly_used":  70.0,
+			"quota_weekly_start": time.Now().Add(-time.Hour).Format(time.RFC3339),
+		},
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.UpdateUserAccountLimits(context.Background(), ownerID, 7, UpdateUserAccountLimitsRequest{
+		WindowCostLimit:         floatPtr(50),
+		QuotaWeeklyLimit:        floatPtr(100),
+		QuotaWeeklyMinRemaining: floatPtr(20),
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 50.0, repo.extraUpdates["window_cost_limit"])
+	require.Equal(t, 20.0, repo.extraUpdates["quota_weekly_min_remaining"])
+	require.Equal(t, 30.0, item.QuotaWeeklyRemaining)
+	require.False(t, item.WeeklyRemainingBelowPolicy)
+}
+
+func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
+	ownerID := int64(42)
+	otherID := int64(99)
+	repo := &accountPoolRepoStub{accounts: []Account{
+		{
+			ID:          1,
+			Name:        "mine",
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			OwnerUserID: &ownerID,
+			Credentials: map[string]any{"refresh_token": "secret"},
+			Extra:       map[string]any{"window_cost_limit": 10.0, "private": "hidden"},
+		},
+		{
+			ID:          2,
+			Name:        "other",
+			Platform:    PlatformGemini,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			OwnerUserID: &otherID,
+			Credentials: map[string]any{"refresh_token": "other-secret"},
+		},
+	}}
+	svc := &AccountService{accountRepo: repo}
+
+	items, _, err := svc.ListUserAccountPool(context.Background(), ownerID, pagination.PaginationParams{Page: 1, PageSize: 20}, UserAccountPoolListFilters{})
+
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.True(t, items[0].IsMine)
+	require.False(t, items[1].IsMine)
+	payload, err := json.Marshal(items[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(payload), "refresh_token")
+	require.NotContains(t, string(payload), "secret")
+	require.NotContains(t, string(payload), "private")
+}
+
+func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {
+	now := time.Now()
+	accounts := []Account{
+		{
+			ID:          1,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Extra: map[string]any{
+				"quota_weekly_limit":         100.0,
+				"quota_weekly_used":          90.0,
+				"quota_weekly_min_remaining": 20.0,
+				"quota_weekly_start":         now.Add(-time.Hour).Format(time.RFC3339),
+			},
+		},
+		{
+			ID:          2,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Extra: map[string]any{
+				"quota_weekly_limit":         100.0,
+				"quota_weekly_used":          70.0,
+				"quota_weekly_min_remaining": 20.0,
+				"quota_weekly_start":         now.Add(-time.Hour).Format(time.RFC3339),
+			},
+		},
+		{
+			ID:          3,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+		},
+	}
+
+	filtered := filterSurplusAISchedulableAccounts(accounts)
+
+	require.Len(t, filtered, 1)
+	require.Equal(t, int64(2), filtered[0].ID)
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
+}

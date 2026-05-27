@@ -162,6 +162,7 @@ type Account struct {
 	CredentialsStatus  map[string]bool `json:"credentials_status,omitempty"`
 	Extra              map[string]any  `json:"extra"`
 	ProxyID            *int64          `json:"proxy_id"`
+	OwnerUserID        *int64          `json:"owner_user_id,omitempty"`
 	Concurrency        int             `json:"concurrency"`
 	LoadFactor         *int            `json:"load_factor,omitempty"`
 	Priority           int             `json:"priority"`

@@ -25,6 +25,7 @@ type Account struct {
 	Credentials map[string]any
 	Extra       map[string]any
 	ProxyID     *int64
+	OwnerUserID *int64
 	Concurrency int
 	Priority    int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
@@ -143,6 +144,33 @@ func (a *Account) IsOverloaded() bool {
 
 func (a *Account) IsOAuth() bool {
 	return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken
+}
+
+// IsSurplusAISchedulableType is the SurplusAI upstream account policy.
+// Only full OAuth accounts may enter the shared internal account pool.
+func (a *Account) IsSurplusAISchedulableType() bool {
+	return a != nil && a.Type == AccountTypeOAuth
+}
+
+func (a *Account) IsUserContributed() bool {
+	return a != nil && a.OwnerUserID != nil && *a.OwnerUserID > 0
+}
+
+func isSurplusAIUpstreamAccountTypeAllowed(accountType string) bool {
+	return strings.TrimSpace(accountType) == AccountTypeOAuth
+}
+
+func filterSurplusAISchedulableAccounts(accounts []Account) []Account {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.IsSurplusAISchedulableType() && account.IsSchedulable() && account.IsSurplusAIContributionQuotaSchedulable() {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered
 }
 
 // IsPrivacySet 检查账号的 privacy 是否已成功设置。
@@ -1550,6 +1578,60 @@ func (a *Account) GetQuotaWeeklyLimit() float64 {
 // GetQuotaWeeklyUsed 获取本周已用额度（美元）
 func (a *Account) GetQuotaWeeklyUsed() float64 {
 	return a.getExtraFloat64("quota_weekly_used")
+}
+
+func (a *Account) GetQuotaWeeklyMinRemaining() float64 {
+	if a == nil {
+		return 0
+	}
+	if v := a.getExtraFloat64("quota_weekly_min_remaining"); v > 0 {
+		return v
+	}
+	return a.getExtraFloat64("weekly_remaining_threshold")
+}
+
+func (a *Account) GetEffectiveQuotaWeeklyUsed() float64 {
+	if a == nil || a.IsWeeklyQuotaPeriodExpired() {
+		return 0
+	}
+	return a.GetQuotaWeeklyUsed()
+}
+
+func (a *Account) GetQuotaWeeklyRemaining() float64 {
+	if a == nil {
+		return 0
+	}
+	limit := a.GetQuotaWeeklyLimit()
+	if limit <= 0 {
+		return 0
+	}
+	remaining := limit - a.GetEffectiveQuotaWeeklyUsed()
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func (a *Account) IsWeeklyRemainingBelowThreshold() bool {
+	if a == nil {
+		return true
+	}
+	threshold := a.GetQuotaWeeklyMinRemaining()
+	if threshold <= 0 {
+		return false
+	}
+	limit := a.GetQuotaWeeklyLimit()
+	if limit <= 0 {
+		return false
+	}
+	return a.GetQuotaWeeklyRemaining() < threshold
+}
+
+func (a *Account) IsSurplusAIContributionQuotaSchedulable() bool {
+	if a == nil {
+		return false
+	}
+	return !a.IsWeeklyRemainingBelowThreshold()
 }
 
 // getExtraFloat64 从 Extra 中读取指定 key 的 float64 值

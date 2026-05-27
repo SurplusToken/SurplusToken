@@ -23,7 +23,7 @@ type mockAccountRepoForGemini struct {
 
 func (m *mockAccountRepoForGemini) GetByID(ctx context.Context, id int64) (*Account, error) {
 	if acc, ok := m.accountsByID[id]; ok {
-		return acc, nil
+		return surplusAITestDefaultOAuthAccountPtr(acc), nil
 	}
 	return nil, errors.New("account not found")
 }
@@ -32,7 +32,7 @@ func (m *mockAccountRepoForGemini) GetByIDs(ctx context.Context, ids []int64) ([
 	var result []*Account
 	for _, id := range ids {
 		if acc, ok := m.accountsByID[id]; ok {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccountPtr(acc))
 		}
 	}
 	return result, nil
@@ -50,7 +50,7 @@ func (m *mockAccountRepoForGemini) ListSchedulableByPlatform(ctx context.Context
 	var result []Account
 	for _, acc := range m.accounts {
 		if acc.Platform == platform && acc.IsSchedulable() {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -118,7 +118,8 @@ func (m *mockAccountRepoForGemini) ListSchedulableByGroupID(ctx context.Context,
 }
 func (m *mockAccountRepoForGemini) ListSchedulableByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
 	if m.listByPlatformFunc != nil {
-		return m.listByPlatformFunc(ctx, platforms)
+		accounts, err := m.listByPlatformFunc(ctx, platforms)
+		return surplusAITestDefaultOAuthAccounts(accounts), err
 	}
 	var result []Account
 	platformSet := make(map[string]bool)
@@ -127,14 +128,15 @@ func (m *mockAccountRepoForGemini) ListSchedulableByPlatforms(ctx context.Contex
 	}
 	for _, acc := range m.accounts {
 		if platformSet[acc.Platform] && acc.IsSchedulable() {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
 }
 func (m *mockAccountRepoForGemini) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error) {
 	if m.listByGroupFunc != nil {
-		return m.listByGroupFunc(ctx, groupID, platforms)
+		accounts, err := m.listByGroupFunc(ctx, groupID, platforms)
+		return surplusAITestDefaultOAuthAccounts(accounts), err
 	}
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }

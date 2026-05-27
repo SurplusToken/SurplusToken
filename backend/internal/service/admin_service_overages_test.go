@@ -128,7 +128,7 @@ func TestUpdateAccount_EmptyExtraPayloadCanClearQuotaLimits(t *testing.T) {
 		account: &Account{
 			ID:       accountID,
 			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
+			Type:     AccountTypeOAuth,
 			Status:   StatusActive,
 			Extra: map[string]any{
 				"quota_limit":        100.0,

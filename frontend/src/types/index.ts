@@ -808,6 +808,7 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
   } & Record<string, unknown>)
   proxy_id: number | null
+  owner_user_id?: number | null
   concurrency: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
@@ -889,6 +890,28 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+}
+
+export interface UserAccountPoolItem {
+  id: number
+  name: string
+  platform: AccountPlatform
+  type: 'oauth'
+  status: 'active' | 'inactive' | 'error'
+  is_mine: boolean
+  is_user_contributed: boolean
+  schedulable: boolean
+  effective_schedulable: boolean
+  window_cost_limit: number
+  window_cost_sticky_reserve: number
+  current_window_cost?: number | null
+  quota_weekly_limit: number
+  quota_weekly_used: number
+  quota_weekly_remaining: number
+  quota_weekly_min_remaining: number
+  weekly_remaining_below_policy: boolean
+  created_at: string
+  updated_at: string
 }
 
 // Account Usage types

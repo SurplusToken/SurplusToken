@@ -1157,17 +1157,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		ID:          9901,
 		Name:        "openai-ws-passthrough-usage-e2e",
 		Platform:    service.PlatformOpenAI,
-		Type:        service.AccountTypeAPIKey,
+		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": upstreamServer.URL,
+			"access_token": "access-token-test",
+			"base_url":     upstreamServer.URL,
 		},
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
-			"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
+			"openai_oauth_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
 		},
 	}
 
@@ -1177,7 +1177,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	cfg.Security.URLAllowlist.Enabled = false
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	cfg.Gateway.OpenAIWS.Enabled = true
-	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
 	cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3

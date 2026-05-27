@@ -30,7 +30,7 @@ type mockAccountRepoForPlatform struct {
 func (m *mockAccountRepoForPlatform) GetByID(ctx context.Context, id int64) (*Account, error) {
 	m.getByIDCalls++
 	if acc, ok := m.accountsByID[id]; ok {
-		return acc, nil
+		return surplusAITestDefaultOAuthAccountPtr(acc), nil
 	}
 	return nil, errors.New("account not found")
 }
@@ -39,7 +39,7 @@ func (m *mockAccountRepoForPlatform) GetByIDs(ctx context.Context, ids []int64) 
 	var result []*Account
 	for _, id := range ids {
 		if acc, ok := m.accountsByID[id]; ok {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccountPtr(acc))
 		}
 	}
 	return result, nil
@@ -55,12 +55,13 @@ func (m *mockAccountRepoForPlatform) ExistsByID(ctx context.Context, id int64) (
 
 func (m *mockAccountRepoForPlatform) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {
 	if m.listPlatformFunc != nil {
-		return m.listPlatformFunc(ctx, platform)
+		accounts, err := m.listPlatformFunc(ctx, platform)
+		return surplusAITestDefaultOAuthAccounts(accounts), err
 	}
 	var result []Account
 	for _, acc := range m.accounts {
 		if acc.Platform == platform && acc.IsSchedulable() {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -139,7 +140,7 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByPlatforms(ctx context.Cont
 	}
 	for _, acc := range m.accounts {
 		if platformSet[acc.Platform] && acc.IsSchedulable() {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -917,7 +918,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_GeminiAPIKeyModelMappi
 			{
 				ID:          1,
 				Platform:    PlatformGemini,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Priority:    1,
 				Status:      StatusActive,
 				Schedulable: true,
@@ -926,7 +927,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_GeminiAPIKeyModelMappi
 			{
 				ID:          2,
 				Platform:    PlatformGemini,
-				Type:        AccountTypeAPIKey,
+				Type:        AccountTypeOAuth,
 				Priority:    2,
 				Status:      StatusActive,
 				Schedulable: true,

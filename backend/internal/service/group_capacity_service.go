@@ -70,6 +70,10 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 	if len(accounts) == 0 {
 		return GroupCapacitySummary{}, nil
 	}
+	accounts = filterSurplusAISchedulableAccounts(accounts)
+	if len(accounts) == 0 {
+		return GroupCapacitySummary{}, nil
+	}
 
 	// Collect account IDs and config values
 	accountIDs := make([]int64, 0, len(accounts))

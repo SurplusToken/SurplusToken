@@ -108,7 +108,13 @@ func (s *accountRepoStubForBulkUpdate) ListWithFilters(_ context.Context, params
 
 // TestAdminService_BulkUpdateAccounts_AllSuccessIDs 验证批量更新成功时返回 success_ids/failed_ids。
 func TestAdminService_BulkUpdateAccounts_AllSuccessIDs(t *testing.T) {
-	repo := &accountRepoStubForBulkUpdate{}
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Type: AccountTypeOAuth},
+			{ID: 2, Type: AccountTypeOAuth},
+			{ID: 3, Type: AccountTypeOAuth},
+		},
+	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
 	schedulable := true
@@ -211,6 +217,10 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 			{ID: 11},
 		},
 		listResult: &pagination.PaginationResult{Total: 2},
+		getByIDsAccounts: []*Account{
+			{ID: 7, Type: AccountTypeOAuth},
+			{ID: 11, Type: AccountTypeOAuth},
+		},
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 

@@ -20,7 +20,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactPrefersSupported
 		{
 			ID:          71001,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -30,7 +30,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactPrefersSupported
 		{
 			ID:          71002,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -74,7 +74,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactRejectsExplicitl
 		{
 			ID:          71010,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -84,7 +84,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactRejectsExplicitl
 		{
 			ID:          71011,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -127,7 +127,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactFallsBackToUnkno
 		{
 			ID:          71020,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
@@ -137,7 +137,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactFallsBackToUnkno
 		{
 			ID:          71021,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,

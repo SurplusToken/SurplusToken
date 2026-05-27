@@ -92,6 +92,11 @@ func (Account) Fields() []ent.Field {
 			Optional().
 			Nillable(),
 
+		field.Int64("owner_user_id").
+			Optional().
+			Nillable().
+			Comment("User who contributed this upstream OAuth account. NULL means admin/system owned."),
+
 		// concurrency: 账户最大并发请求数
 		// 用于限制同一时间对该账户发起的请求数量
 		field.Int("concurrency").
@@ -222,6 +227,7 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("type"),                // 按认证类型筛选
 		index.Fields("status"),              // 按状态筛选
 		index.Fields("proxy_id"),            // 按代理筛选
+		index.Fields("owner_user_id"),       // 用户贡献账号归属查询
 		index.Fields("priority"),            // 按优先级排序
 		index.Fields("last_used_at"),        // 按最后使用时间排序
 		index.Fields("schedulable"),         // 筛选可调度账户

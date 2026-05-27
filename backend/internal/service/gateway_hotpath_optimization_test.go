@@ -154,7 +154,9 @@ func (s *modelsListAccountRepoStub) ListSchedulableByGroupID(ctx context.Context
 		return nil, nil
 	}
 	out := make([]Account, len(accounts))
-	copy(out, accounts)
+	for i := range accounts {
+		out[i] = surplusAITestDefaultOAuthAccount(accounts[i])
+	}
 	return out, nil
 }
 
@@ -164,7 +166,9 @@ func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Acco
 		return nil, s.err
 	}
 	out := make([]Account, len(s.all))
-	copy(out, s.all)
+	for i := range s.all {
+		out[i] = surplusAITestDefaultOAuthAccount(s.all[i])
+	}
 	return out, nil
 }
 
@@ -471,8 +475,11 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 		byGroup: map[int64][]Account{
 			groupID: {
 				{
-					ID:       1,
-					Platform: PlatformAnthropic,
+					ID:          1,
+					Platform:    PlatformAnthropic,
+					Type:        AccountTypeOAuth,
+					Status:      StatusActive,
+					Schedulable: true,
 					Credentials: map[string]any{
 						"model_mapping": map[string]any{
 							"claude-3-5-sonnet": "claude-3-5-sonnet",
@@ -481,8 +488,11 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 					},
 				},
 				{
-					ID:       2,
-					Platform: PlatformGemini,
+					ID:          2,
+					Platform:    PlatformGemini,
+					Type:        AccountTypeOAuth,
+					Status:      StatusActive,
+					Schedulable: true,
 					Credentials: map[string]any{
 						"model_mapping": map[string]any{
 							"gemini-2.5-pro": "gemini-2.5-pro",
@@ -511,8 +521,11 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 	// 更新仓储数据，但缓存未失效前应继续返回旧值。
 	repo.byGroup[groupID] = []Account{
 		{
-			ID:       3,
-			Platform: PlatformAnthropic,
+			ID:          3,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
 			Credentials: map[string]any{
 				"model_mapping": map[string]any{
 					"claude-3-7-sonnet": "claude-3-7-sonnet",
@@ -551,8 +564,11 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	okRepo := &modelsListAccountRepoStub{
 		all: []Account{
 			{
-				ID:       1,
-				Platform: PlatformAnthropic,
+				ID:          1,
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
 				Credentials: map[string]any{
 					"model_mapping": map[string]any{
 						"claude-3-5-sonnet": "claude-3-5-sonnet",
@@ -560,8 +576,11 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 				},
 			},
 			{
-				ID:       2,
-				Platform: PlatformGemini,
+				ID:          2,
+				Platform:    PlatformGemini,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
 				Credentials: map[string]any{
 					"model_mapping": map[string]any{
 						"gemini-2.5-pro": "gemini-2.5-pro",
@@ -694,7 +713,7 @@ func TestSelectAccountWithLoadAwareness_StickyReadReuse(t *testing.T) {
 	account := Account{
 		ID:          88,
 		Platform:    PlatformAnthropic,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 4,

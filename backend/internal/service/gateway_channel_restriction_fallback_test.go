@@ -29,7 +29,7 @@ func TestSelectAccountForModelWithExclusions_UsesFallbackGroupForChannelRestrict
 	}))
 	accountRepo := &mockAccountRepoForPlatform{
 		accounts: []Account{
-			{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
+			{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true},
 		},
 		accountsByID: map[int64]*Account{},
 	}
@@ -88,7 +88,7 @@ func TestSelectAccountWithLoadAwareness_UsesFallbackGroupForChannelRestriction(t
 	}))
 	accountRepo := &mockAccountRepoForPlatform{
 		accounts: []Account{
-			{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
+			{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true},
 		},
 		accountsByID: map[int64]*Account{},
 	}

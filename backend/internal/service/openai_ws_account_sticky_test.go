@@ -15,12 +15,12 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T
 	account := Account{
 		ID:          2,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 2,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	cache := &stubGatewayCache{}
@@ -55,13 +55,13 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 	account := Account{
 		ID:               12,
 		Platform:         PlatformOpenAI,
-		Type:             AccountTypeAPIKey,
+		Type:             AccountTypeOAuth,
 		Status:           StatusActive,
 		Schedulable:      true,
 		Concurrency:      1,
 		RateLimitResetAt: &rateLimitedUntil,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	cache := &stubGatewayCache{}
@@ -79,7 +79,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 
 	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_rl", "gpt-5.1", nil, false)
 	require.NoError(t, err)
-	require.Nil(t, selection, "限额中的账号不应继续命中 previous_response_id 粘连")
+	require.Nil(t, selection, "闄愰涓殑璐﹀彿涓嶅簲缁х画鍛戒腑 previous_response_id 绮樿繛")
 	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_rl")
 	require.NoError(t, getErr)
 	require.Zero(t, boundAccountID)
@@ -92,24 +92,24 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 	staleAccount := &Account{
 		ID:          13,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	dbAccount := Account{
 		ID:               13,
 		Platform:         PlatformOpenAI,
-		Type:             AccountTypeAPIKey,
+		Type:             AccountTypeOAuth,
 		Status:           StatusActive,
 		Schedulable:      true,
 		Concurrency:      1,
 		RateLimitResetAt: &rateLimitedUntil,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	cache := &stubGatewayCache{}
@@ -131,7 +131,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 
 	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_db_rl", "gpt-5.1", nil, false)
 	require.NoError(t, err)
-	require.Nil(t, selection, "DB 中已限流的账号不应继续命中 previous_response_id 粘连")
+	require.Nil(t, selection, "rate-limited DB account should not keep previous_response_id sticky routing")
 	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_db_rl")
 	require.NoError(t, getErr)
 	require.Zero(t, boundAccountID)
@@ -143,12 +143,12 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Excluded(t *test
 	account := Account{
 		ID:          8,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
 		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
 	cache := &stubGatewayCache{}
@@ -175,7 +175,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_ForceHTTPIgnored
 	account := Account{
 		ID:          11,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
@@ -199,7 +199,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_ForceHTTPIgnored
 
 	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_force_http", "gpt-5.1", nil, false)
 	require.NoError(t, err)
-	require.Nil(t, selection, "force_http 场景应忽略 previous_response_id 粘连")
+	require.Nil(t, selection, "force_http should ignore previous_response_id sticky routing")
 }
 
 func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(t *testing.T) {
@@ -209,25 +209,25 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 		{
 			ID:          21,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    0,
 			Extra: map[string]any{
-				"openai_apikey_responses_websockets_v2_enabled": true,
+				"openai_oauth_responses_websockets_v2_enabled": true,
 			},
 		},
 		{
 			ID:          22,
 			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
+			Type:        AccountTypeOAuth,
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    9,
 			Extra: map[string]any{
-				"openai_apikey_responses_websockets_v2_enabled": true,
+				"openai_oauth_responses_websockets_v2_enabled": true,
 			},
 		},
 	}
@@ -240,8 +240,8 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 
 	concurrencyCache := stubConcurrencyCache{
 		acquireResults: map[int64]bool{
-			21: false, // previous_response 命中的账号繁忙
-			22: true,  // 次优账号可用（若回退会命中）
+			21: false, // previous_response account is busy
+			22: true,  // fallback account would be available
 		},
 		waitCounts: map[int64]int{
 			21: 999,

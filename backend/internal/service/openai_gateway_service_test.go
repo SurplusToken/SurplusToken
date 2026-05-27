@@ -49,7 +49,7 @@ func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, u
 func (r stubOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
 	for i := range r.accounts {
 		if r.accounts[i].ID == id {
-			return &r.accounts[i], nil
+			return surplusAITestDefaultOAuthAccountPtr(&r.accounts[i]), nil
 		}
 	}
 	return nil, errors.New("account not found")
@@ -59,7 +59,7 @@ func (r stubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.C
 	var result []Account
 	for _, acc := range r.accounts {
 		if acc.Platform == platform {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -69,7 +69,7 @@ func (r stubOpenAIAccountRepo) ListSchedulableByPlatform(ctx context.Context, pl
 	var result []Account
 	for _, acc := range r.accounts {
 		if acc.Platform == platform {
-			result = append(result, acc)
+			result = append(result, surplusAITestDefaultOAuthAccount(acc))
 		}
 	}
 	return result, nil
@@ -387,7 +387,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 	rateLimited := Account{
 		ID:               1,
 		Platform:         PlatformOpenAI,
-		Type:             AccountTypeAPIKey,
+		Type:             AccountTypeOAuth,
 		Status:           StatusActive,
 		Schedulable:      true,
 		Concurrency:      1,
@@ -397,7 +397,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 	available := Account{
 		ID:          2,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
@@ -432,7 +432,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 	rateLimited := Account{
 		ID:               1,
 		Platform:         PlatformOpenAI,
-		Type:             AccountTypeAPIKey,
+		Type:             AccountTypeOAuth,
 		Status:           StatusActive,
 		Schedulable:      true,
 		Concurrency:      1,
@@ -442,7 +442,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 	available := Account{
 		ID:          2,
 		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
+		Type:        AccountTypeOAuth,
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
@@ -1906,6 +1906,55 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
 	require.NoError(t, err)
 	require.Equal(t, "https://example.com/v1/responses/compact", req.URL.String())
+}
+
+func TestOpenAIBuildResponsesWebSocketURLUsesChatGPTForOAuthByDefault(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		Type:     AccountTypeOAuth,
+		Platform: PlatformOpenAI,
+	}
+
+	got, err := svc.buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", got)
+}
+
+func TestOpenAIBuildResponsesWebSocketURLUsesOAuthBaseURLWhenConfigured(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{
+				Enabled:           false,
+				AllowInsecureHTTP: true,
+			},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeOAuth,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"base_url": "http://127.0.0.1:8080/openai"},
+	}
+
+	got, err := svc.buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "ws://127.0.0.1:8080/openai/v1/responses", got)
+}
+
+func TestOpenAIBuildResponsesWebSocketURLKeepsAPIKeyBaseURLBehavior(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"base_url": "https://example.com/v1"},
+	}
+
+	got, err := svc.buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "wss://example.com/v1/responses", got)
 }
 
 func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t *testing.T) {

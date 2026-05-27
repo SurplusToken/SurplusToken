@@ -2355,7 +2355,21 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
+func validateSurplusAIUpstreamAccountType(accountType string) error {
+	if !isSurplusAIUpstreamAccountTypeAllowed(accountType) {
+		return infraerrors.BadRequest("SURPLUSAI_OAUTH_ONLY", "SurplusAI only allows OAuth upstream accounts")
+	}
+	return nil
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, infraerrors.BadRequest("INVALID_INPUT", "account input is required")
+	}
+	if err := validateSurplusAIUpstreamAccountType(input.Type); err != nil {
+		return nil, err
+	}
+
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -2460,9 +2474,20 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, infraerrors.BadRequest("INVALID_INPUT", "account input is required")
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if err := validateSurplusAIUpstreamAccountType(account.Type); err != nil {
+		return nil, err
+	}
+	if input.Type != "" {
+		if err := validateSurplusAIUpstreamAccountType(input.Type); err != nil {
+			return nil, err
+		}
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
 
@@ -2681,6 +2706,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		repoUpdates.Status = &input.Status
 	}
 	if input.Schedulable != nil {
+		if *input.Schedulable {
+			accounts, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
+			if err != nil {
+				return nil, err
+			}
+			for _, account := range accounts {
+				if account != nil && !account.IsSurplusAISchedulableType() {
+					return nil, infraerrors.BadRequest("SURPLUSAI_OAUTH_ONLY", "only OAuth upstream accounts can be made schedulable")
+				}
+			}
+		}
 		repoUpdates.Schedulable = input.Schedulable
 	}
 
@@ -2805,6 +2841,15 @@ func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
+	if schedulable {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !account.IsSurplusAISchedulableType() {
+			return nil, infraerrors.BadRequest("SURPLUSAI_OAUTH_ONLY", "only OAuth upstream accounts can be made schedulable")
+		}
+	}
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
 	}
