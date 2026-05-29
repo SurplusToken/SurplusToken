@@ -922,6 +922,12 @@ export interface UserAccountPoolItem {
   is_user_contributed: boolean
   schedulable: boolean
   effective_schedulable: boolean
+  group_ids?: number[]
+  groups?: Array<Pick<Group, 'id' | 'name' | 'platform'>>
+  expires_at?: string | null
+  auto_pause_on_expired: boolean
+  model_mapping?: Record<string, string> | null
+  codex_cli_only: boolean
   contribution_5h_reserve_percent: number
   contribution_weekly_reserve_percent: number
   contribution_probe_failure_policy: 'continue' | 'pause' | 'local'

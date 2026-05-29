@@ -83,6 +83,27 @@
                   <div class="min-w-56">
                     <div class="font-medium text-gray-900 dark:text-white">{{ account.name }}</div>
                     <div class="text-xs text-gray-500 dark:text-dark-400">#{{ account.id }}</div>
+                    <div v-if="account.is_mine" class="mt-1 flex flex-wrap gap-1">
+                      <span
+                        v-for="group in account.groups || []"
+                        :key="group.id"
+                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
+                      >
+                        {{ group.name }}
+                      </span>
+                      <span
+                        v-if="account.model_mapping && Object.keys(account.model_mapping).length > 0"
+                        class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                      >
+                        {{ t('accountPool.settings.modelLimited') }}
+                      </span>
+                      <span
+                        v-if="account.codex_cli_only"
+                        class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
+                      >
+                        Codex
+                      </span>
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -300,6 +321,104 @@
         <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
           <div class="mb-3 flex items-start gap-3">
             <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
+              <Icon name="grid" size="sm" />
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ t('accountPool.settings.title') }}
+              </h3>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+                {{ t('accountPool.settings.description') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+              <div class="mb-3 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+                <button
+                  type="button"
+                  @click="modelRestrictionEnabled = false"
+                  :class="restrictionModeClass(!modelRestrictionEnabled)"
+                >
+                  {{ t('accountPool.settings.allowAllModels') }}
+                </button>
+                <button
+                  type="button"
+                  @click="enableModelRestriction"
+                  :class="restrictionModeClass(modelRestrictionEnabled)"
+                >
+                  {{ t('accountPool.settings.limitModels') }}
+                </button>
+              </div>
+              <ModelWhitelistSelector
+                v-if="modelRestrictionEnabled"
+                v-model="allowedModels"
+                :platform="createForm.platform"
+              />
+              <p class="input-hint">
+                <template v-if="modelRestrictionEnabled">
+                  {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
+                  <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
+                </template>
+                <template v-else>
+                  {{ t('accountPool.settings.allowAllModelsHint') }}
+                </template>
+              </p>
+            </div>
+
+            <div v-if="createForm.platform === 'openai'" class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-dark-600">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnly') }}</label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.openai.codexCLIOnlyDesc') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="createForm.codexCLIOnly = !createForm.codexCLIOnly"
+                :class="toggleClass(createForm.codexCLIOnly)"
+              >
+                <span :class="toggleKnobClass(createForm.codexCLIOnly)" />
+              </button>
+            </div>
+
+            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[1fr_auto] lg:items-start">
+              <label class="block">
+                <span class="input-label">{{ t('admin.accounts.expiresAt') }}</span>
+                <input v-model="expiresAtInput" type="datetime-local" class="input" />
+                <span class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</span>
+              </label>
+              <div class="flex min-w-64 items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-dark-600 dark:bg-dark-800">
+                <div>
+                  <label class="input-label mb-0">{{ t('admin.accounts.autoPauseOnExpired') }}</label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  @click="createForm.autoPauseOnExpired = !createForm.autoPauseOnExpired"
+                  :class="toggleClass(createForm.autoPauseOnExpired)"
+                >
+                  <span :class="toggleKnobClass(createForm.autoPauseOnExpired)" />
+                </button>
+              </div>
+            </div>
+
+            <GroupSelector
+              v-model="createForm.groupIds"
+              :groups="availableGroups"
+              :platform="createForm.platform"
+              searchable="auto"
+            />
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <div class="mb-3 flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
               <Icon name="shield" size="sm" />
             </div>
             <div>
@@ -422,7 +541,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -430,10 +549,15 @@ import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
+import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import GroupSelector from '@/components/common/GroupSelector.vue'
 import accountsAPI, { type UserOAuthAuthUrlRequest, type UserOAuthTokenInfo } from '@/api/accounts'
-import type { AccountPlatform, UserAccountPoolItem } from '@/types'
+import { userGroupsAPI } from '@/api/groups'
+import type { AccountPlatform, AdminGroup, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { buildModelMappingObject, getModelsByPlatform } from '@/composables/useModelWhitelist'
+import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 
 interface OAuthFlowExposed {
   authCode: string
@@ -453,6 +577,7 @@ const appStore = useAppStore()
 
 const platforms: AccountPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
 const accounts = ref<UserAccountPoolItem[]>([])
+const availableGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const oauthLoading = ref(false)
@@ -483,10 +608,28 @@ const createForm = reactive({
   projectId: '',
   tierId: '',
   schedulable: true,
+  groupIds: [] as number[],
+  expiresAt: null as number | null,
+  autoPauseOnExpired: true,
+  codexCLIOnly: false,
   fiveHourReservePercent: 20,
   weeklyReservePercent: 20,
   probeFailurePolicy: 'continue' as 'continue' | 'pause' | 'local',
 })
+
+const modelRestrictionEnabled = ref(false)
+const allowedModels = ref<string[]>([])
+
+const expiresAtInput = computed({
+  get: () => formatDateTimeLocalInput(createForm.expiresAt),
+  set: (value: string) => {
+    createForm.expiresAt = parseDateTimeLocalInput(value)
+  },
+})
+
+const availableGroupsForPlatform = computed(() =>
+  availableGroups.value.filter((group) => group.platform === createForm.platform)
+)
 
 const geminiOAuthOptions = [
   { value: 'code_assist' as const, label: 'Code Assist' },
@@ -550,6 +693,15 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
   )
 }
 
+function withModelMapping(credentials: Record<string, unknown>): Record<string, unknown> {
+  if (!modelRestrictionEnabled.value) return credentials
+  const modelMapping = buildModelMappingObject('whitelist', allowedModels.value, [])
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
+  }
+  return credentials
+}
+
 function buildOpenAICredentials(tokenInfo: UserOAuthTokenInfo): Record<string, unknown> {
   return compactRecord({
     access_token: tokenInfo.access_token,
@@ -590,9 +742,9 @@ function buildAntigravityCredentials(tokenInfo: UserOAuthTokenInfo): Record<stri
 }
 
 function buildCredentials(tokenInfo: UserOAuthTokenInfo): Record<string, unknown> {
-  if (createForm.platform === 'openai') return buildOpenAICredentials(tokenInfo)
-  if (createForm.platform === 'gemini') return buildGeminiCredentials(tokenInfo)
-  if (createForm.platform === 'antigravity') return buildAntigravityCredentials(tokenInfo)
+  if (createForm.platform === 'openai') return withModelMapping(buildOpenAICredentials(tokenInfo))
+  if (createForm.platform === 'gemini') return withModelMapping(buildGeminiCredentials(tokenInfo))
+  if (createForm.platform === 'antigravity') return withModelMapping(buildAntigravityCredentials(tokenInfo))
   return {}
 }
 
@@ -605,6 +757,9 @@ function buildExtra(tokenInfo: UserOAuthTokenInfo): Record<string, unknown> | un
           name: tokenInfo.name,
           privacy_mode: tokenInfo.privacy_mode,
         })
+  if (createForm.platform === 'openai' && createForm.codexCLIOnly) {
+    extra.codex_cli_only = true
+  }
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -621,6 +776,9 @@ function handleCreateClose() {
 }
 
 function goToOAuthStep() {
+  createForm.groupIds = createForm.groupIds.filter((groupID) =>
+    availableGroupsForPlatform.value.some((group) => group.id === groupID)
+  )
   createStep.value = 2
   resetOAuthSession()
   oauthFlowRef.value?.reset()
@@ -634,6 +792,13 @@ function goBackToBasicInfo() {
 
 function selectCreatePlatform(platform: 'openai' | 'gemini' | 'antigravity') {
   createForm.platform = platform
+  createForm.groupIds = []
+  if (platform !== 'openai') {
+    createForm.codexCLIOnly = false
+  }
+  if (modelRestrictionEnabled.value) {
+    allowedModels.value = [...getModelsByPlatform(platform)]
+  }
   resetOAuthSession()
   oauthFlowRef.value?.reset()
 }
@@ -655,6 +820,48 @@ function platformButtonClass(platform: 'openai' | 'gemini' | 'antigravity', colo
     'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
     active ? activeClass : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
   ]
+}
+
+function restrictionModeClass(active: boolean) {
+  return [
+    'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all',
+    active
+      ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+  ]
+}
+
+function toggleClass(active: boolean) {
+  return [
+    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+    active ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600',
+  ]
+}
+
+function toggleKnobClass(active: boolean) {
+  return [
+    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+    active ? 'translate-x-5' : 'translate-x-0',
+  ]
+}
+
+function enableModelRestriction() {
+  modelRestrictionEnabled.value = true
+  if (allowedModels.value.length === 0) {
+    allowedModels.value = [...getModelsByPlatform(createForm.platform)]
+  }
+}
+
+async function loadAvailableGroups() {
+  try {
+    const groups = await userGroupsAPI.getAvailable()
+    availableGroups.value = groups as AdminGroup[]
+    createForm.groupIds = createForm.groupIds.filter((groupID) =>
+      groups.some((group) => group.id === groupID)
+    )
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.users.failedToLoadGroups')))
+  }
 }
 
 async function handleGenerateUrl() {
@@ -773,12 +980,15 @@ async function handleExchangeCode() {
       credentials,
       extra: buildExtra(tokenInfo),
       schedulable: createForm.schedulable,
+      group_ids: createForm.groupIds,
+      expires_at: createForm.expiresAt,
+      auto_pause_on_expired: createForm.autoPauseOnExpired,
       contribution_5h_reserve_percent: toPercent(createForm.fiveHourReservePercent),
       contribution_weekly_reserve_percent: toPercent(createForm.weeklyReservePercent),
       contribution_probe_failure_policy: createForm.probeFailurePolicy,
     })
     appStore.showSuccess(t('accountPool.createSuccess'))
-    createForm.name = ''
+    resetCreateForm()
     handleCreateClose()
     reloadFirstPage()
   } catch (err: unknown) {
@@ -787,6 +997,23 @@ async function handleExchangeCode() {
   } finally {
     creating.value = false
   }
+}
+
+function resetCreateForm() {
+  createForm.name = ''
+  createForm.oauthType = 'code_assist'
+  createForm.projectId = ''
+  createForm.tierId = ''
+  createForm.schedulable = true
+  createForm.groupIds = []
+  createForm.expiresAt = null
+  createForm.autoPauseOnExpired = true
+  createForm.codexCLIOnly = false
+  createForm.fiveHourReservePercent = 20
+  createForm.weeklyReservePercent = 20
+  createForm.probeFailurePolicy = 'continue'
+  modelRestrictionEnabled.value = false
+  allowedModels.value = []
 }
 
 async function toggleSchedulable(account: UserAccountPoolItem, schedulable: boolean) {
@@ -831,5 +1058,17 @@ function handlePageSizeChange(pageSize: number) {
   loadAccounts()
 }
 
-onMounted(loadAccounts)
+watch(
+  () => createForm.platform,
+  () => {
+    createForm.groupIds = createForm.groupIds.filter((groupID) =>
+      availableGroupsForPlatform.value.some((group) => group.id === groupID)
+    )
+  }
+)
+
+onMounted(() => {
+  loadAccounts()
+  loadAvailableGroups()
+})
 </script>

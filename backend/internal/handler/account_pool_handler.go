@@ -16,6 +16,7 @@ import (
 
 type AccountPoolHandler struct {
 	accountService          *service.AccountService
+	apiKeyService           *service.APIKeyService
 	accountUsageService     *service.AccountUsageService
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
@@ -24,6 +25,7 @@ type AccountPoolHandler struct {
 
 func NewAccountPoolHandler(
 	accountService *service.AccountService,
+	apiKeyService *service.APIKeyService,
 	accountUsageService *service.AccountUsageService,
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
@@ -31,6 +33,7 @@ func NewAccountPoolHandler(
 ) *AccountPoolHandler {
 	return &AccountPoolHandler{
 		accountService:          accountService,
+		apiKeyService:           apiKeyService,
 		accountUsageService:     accountUsageService,
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
@@ -45,6 +48,9 @@ type createUserOAuthAccountPayload struct {
 	Credentials                        map[string]any `json:"credentials"`
 	Extra                              map[string]any `json:"extra"`
 	Schedulable                        *bool          `json:"schedulable"`
+	GroupIDs                           []int64        `json:"group_ids"`
+	ExpiresAt                          *int64         `json:"expires_at"`
+	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
 	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
 	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
@@ -127,6 +133,11 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 		return
 	}
 
+	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, payload.Platform, payload.GroupIDs)
+	if !ok {
+		return
+	}
+
 	req := service.CreateUserOAuthAccountRequest{
 		Name:                               payload.Name,
 		Platform:                           payload.Platform,
@@ -134,6 +145,9 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 		Credentials:                        payload.Credentials,
 		Extra:                              payload.Extra,
 		Schedulable:                        payload.Schedulable,
+		GroupIDs:                           groupIDs,
+		ExpiresAt:                          payload.ExpiresAt,
+		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
 		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
 		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
 		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
@@ -151,6 +165,60 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 	items := []service.UserAccountPoolItem{*item}
 	h.hydrateCurrentWindowCost(c.Request.Context(), items)
 	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) validateUserAccountGroupIDs(c *gin.Context, userID int64, platform string, rawGroupIDs []int64) ([]int64, bool) {
+	groupIDs := normalizeInt64IDs(rawGroupIDs)
+	if len(groupIDs) == 0 {
+		return nil, true
+	}
+	if h.apiKeyService == nil {
+		response.InternalError(c, "group service is not configured")
+		return nil, false
+	}
+
+	availableGroups, err := h.apiKeyService.GetAvailableGroups(c.Request.Context(), userID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return nil, false
+	}
+	allowedByID := make(map[int64]service.Group, len(availableGroups))
+	for _, group := range availableGroups {
+		allowedByID[group.ID] = group
+	}
+
+	normalizedPlatform := strings.TrimSpace(platform)
+	for _, groupID := range groupIDs {
+		group, ok := allowedByID[groupID]
+		if !ok {
+			response.ErrorFrom(c, service.ErrGroupNotAllowed)
+			return nil, false
+		}
+		if group.Platform != normalizedPlatform {
+			response.BadRequest(c, "group platform does not match account platform")
+			return nil, false
+		}
+	}
+	return groupIDs, true
+}
+
+func normalizeInt64IDs(ids []int64) []int64 {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (h *AccountPoolHandler) GenerateOAuthAuthURL(c *gin.Context) {

@@ -8,6 +8,9 @@ export interface CreateUserOAuthAccountRequest {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   schedulable?: boolean
+  group_ids?: number[]
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
   contribution_5h_reserve_percent?: number
   contribution_weekly_reserve_percent?: number
   contribution_probe_failure_policy?: 'continue' | 'pause' | 'local'

@@ -1076,6 +1076,14 @@ export default {
     saveSuccess: '账号限额已更新',
     schedulableSaved: '调度设置已更新',
     loadFailed: '账号池加载失败',
+    settings: {
+      title: '账号可用范围',
+      description: '设置这个账号允许被调度到哪些模型和分组；代理、优先级和账号计费倍率由管理员调整。',
+      allowAllModels: '允许全部模型',
+      limitModels: '限制模型',
+      allowAllModelsHint: '不写入模型限制，账号可支持平台默认模型。',
+      modelLimited: '模型受限',
+    },
     oauth: {
       start: '开始授权',
       regenerate: '重新生成链接',

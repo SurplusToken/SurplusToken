@@ -35,6 +35,12 @@ type UserAccountPoolItem struct {
 	IsUserContributed                  bool       `json:"is_user_contributed"`
 	Schedulable                        bool       `json:"schedulable"`
 	EffectiveSchedulable               bool       `json:"effective_schedulable"`
+	GroupIDs                           []int64    `json:"group_ids,omitempty"`
+	Groups                             []UserAccountPoolGroup `json:"groups,omitempty"`
+	ExpiresAt                          *time.Time `json:"expires_at,omitempty"`
+	AutoPauseOnExpired                 bool       `json:"auto_pause_on_expired"`
+	ModelMapping                       map[string]string `json:"model_mapping,omitempty"`
+	CodexCLIOnly                       bool       `json:"codex_cli_only"`
 	ContributionFiveHourReservePercent float64    `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   float64    `json:"contribution_weekly_reserve_percent"`
 	ContributionProbeFailurePolicy     string     `json:"contribution_probe_failure_policy"`
@@ -55,6 +61,12 @@ type UserAccountPoolItem struct {
 	WindowCostStart                    *time.Time `json:"-"`
 }
 
+type UserAccountPoolGroup struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+}
+
 type CreateUserOAuthAccountRequest struct {
 	Name                               string         `json:"name"`
 	Platform                           string         `json:"platform"`
@@ -62,6 +74,9 @@ type CreateUserOAuthAccountRequest struct {
 	Credentials                        map[string]any `json:"credentials"`
 	Extra                              map[string]any `json:"extra"`
 	Schedulable                        *bool          `json:"schedulable"`
+	GroupIDs                           []int64        `json:"group_ids"`
+	ExpiresAt                          *int64         `json:"expires_at"`
+	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
 	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
 	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
@@ -154,10 +169,21 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if err != nil {
 		return nil, err
 	}
+	extra := buildUserOAuthAccountExtra(platform, req.Extra, limitUpdates)
 
 	schedulable := true
 	if req.Schedulable != nil {
 		schedulable = *req.Schedulable
+	}
+
+	autoPauseOnExpired := true
+	if req.AutoPauseOnExpired != nil {
+		autoPauseOnExpired = *req.AutoPauseOnExpired
+	}
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil && *req.ExpiresAt > 0 {
+		t := time.Unix(*req.ExpiresAt, 0)
+		expiresAt = &t
 	}
 
 	ownerUserID := userID
@@ -166,20 +192,60 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		Platform:           platform,
 		Type:               AccountTypeOAuth,
 		Credentials:        req.Credentials,
-		Extra:              limitUpdates,
+		Extra:              extra,
 		OwnerUserID:        &ownerUserID,
 		Concurrency:        1,
 		Priority:           100,
 		Status:             StatusActive,
 		Schedulable:        schedulable,
-		AutoPauseOnExpired: true,
+		ExpiresAt:          expiresAt,
+		AutoPauseOnExpired: autoPauseOnExpired,
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("create user OAuth account: %w", err)
 	}
+	if len(req.GroupIDs) > 0 {
+		if err := s.accountRepo.BindGroups(ctx, account.ID, req.GroupIDs); err != nil {
+			return nil, fmt.Errorf("bind user account groups: %w", err)
+		}
+		account.GroupIDs = append([]int64(nil), req.GroupIDs...)
+	}
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
+}
+
+func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any, limitUpdates map[string]any) map[string]any {
+	extra := make(map[string]any, len(limitUpdates)+4)
+	for key, value := range limitUpdates {
+		extra[key] = value
+	}
+	if rawExtra == nil {
+		return extra
+	}
+	for _, key := range []string{"email", "name", "privacy_mode"} {
+		if value, ok := safeUserOAuthExtraString(rawExtra[key]); ok {
+			extra[key] = value
+		}
+	}
+	if platform == PlatformOpenAI {
+		if value, ok := rawExtra["codex_cli_only"].(bool); ok && value {
+			extra["codex_cli_only"] = true
+		}
+	}
+	return extra
+}
+
+func safeUserOAuthExtraString(raw any) (string, bool) {
+	value, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, accountID int64, schedulable bool) (*UserAccountPoolItem, error) {
@@ -264,6 +330,10 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		IsUserContributed:                  account.IsUserContributed(),
 		Schedulable:                        account.Schedulable,
 		EffectiveSchedulable:               account.IsSchedulable() && !protection.Blocked && !account.IsWeeklyRemainingBelowThreshold(),
+		ExpiresAt:                          account.ExpiresAt,
+		AutoPauseOnExpired:                 account.AutoPauseOnExpired,
+		ModelMapping:                       userVisibleModelMapping(account, isMine),
+		CodexCLIOnly:                       isMine && account.IsCodexCLIOnlyEnabled(),
 		ContributionFiveHourReservePercent: account.GetContributionFiveHourReservePercent(),
 		ContributionWeeklyReservePercent:   account.GetContributionWeeklyReservePercent(),
 		ContributionProbeFailurePolicy:     account.GetContributionProbeFailurePolicy(),
@@ -281,11 +351,64 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		CreatedAt:                          account.CreatedAt,
 		UpdatedAt:                          account.UpdatedAt,
 	}
+	if isMine {
+		item.GroupIDs = append([]int64(nil), account.GroupIDs...)
+	}
+	if isMine && len(account.Groups) > 0 {
+		item.Groups = make([]UserAccountPoolGroup, 0, len(account.Groups))
+		for _, group := range account.Groups {
+			if group == nil {
+				continue
+			}
+			item.Groups = append(item.Groups, UserAccountPoolGroup{
+				ID:       group.ID,
+				Name:     group.Name,
+				Platform: group.Platform,
+			})
+		}
+	}
 	if windowCostLimit > 0 {
 		start := account.GetCurrentWindowStartTime()
 		item.WindowCostStart = &start
 	}
 	return item
+}
+
+func userVisibleModelMapping(account *Account, isMine bool) map[string]string {
+	if !isMine || account == nil || account.Credentials == nil {
+		return nil
+	}
+	raw, ok := account.Credentials["model_mapping"]
+	if !ok || raw == nil {
+		return nil
+	}
+	out := map[string]string{}
+	switch v := raw.(type) {
+	case map[string]string:
+		for from, to := range v {
+			from = strings.TrimSpace(from)
+			to = strings.TrimSpace(to)
+			if from != "" && to != "" {
+				out[from] = to
+			}
+		}
+	case map[string]any:
+		for from, rawTo := range v {
+			to, ok := rawTo.(string)
+			if !ok {
+				continue
+			}
+			from = strings.TrimSpace(from)
+			to = strings.TrimSpace(to)
+			if from != "" && to != "" {
+				out[from] = to
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func isUserOAuthPlatformAllowed(platform string) bool {
