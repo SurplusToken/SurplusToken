@@ -8,6 +8,9 @@ export interface CreateUserOAuthAccountRequest {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   schedulable?: boolean
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: 'continue' | 'pause' | 'local'
   window_cost_limit?: number
   window_cost_sticky_reserve?: number
   quota_weekly_limit?: number
@@ -15,6 +18,9 @@ export interface CreateUserOAuthAccountRequest {
 }
 
 export interface UpdateUserAccountLimitsRequest {
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: 'continue' | 'pause' | 'local'
   window_cost_limit?: number
   window_cost_sticky_reserve?: number
   quota_weekly_limit?: number

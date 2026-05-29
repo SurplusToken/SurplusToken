@@ -39,16 +39,19 @@ func NewAccountPoolHandler(
 }
 
 type createUserOAuthAccountPayload struct {
-	Name                    string         `json:"name"`
-	Platform                string         `json:"platform"`
-	Type                    string         `json:"type"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
-	Schedulable             *bool          `json:"schedulable"`
-	WindowCostLimit         *float64       `json:"window_cost_limit"`
-	WindowCostStickyReserve *float64       `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit        *float64       `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining *float64       `json:"quota_weekly_min_remaining"`
+	Name                               string         `json:"name"`
+	Platform                           string         `json:"platform"`
+	Type                               string         `json:"type"`
+	Credentials                        map[string]any `json:"credentials"`
+	Extra                              map[string]any `json:"extra"`
+	Schedulable                        *bool          `json:"schedulable"`
+	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
+	WindowCostLimit                    *float64       `json:"window_cost_limit"`
+	WindowCostStickyReserve            *float64       `json:"window_cost_sticky_reserve"`
+	QuotaWeeklyLimit                   *float64       `json:"quota_weekly_limit"`
+	QuotaWeeklyMinRemaining            *float64       `json:"quota_weekly_min_remaining"`
 }
 
 type setUserAccountSchedulablePayload struct {
@@ -56,10 +59,13 @@ type setUserAccountSchedulablePayload struct {
 }
 
 type updateUserAccountLimitsPayload struct {
-	WindowCostLimit         *float64 `json:"window_cost_limit"`
-	WindowCostStickyReserve *float64 `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit        *float64 `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining *float64 `json:"quota_weekly_min_remaining"`
+	ContributionFiveHourReservePercent *float64 `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64 `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string  `json:"contribution_probe_failure_policy"`
+	WindowCostLimit                    *float64 `json:"window_cost_limit"`
+	WindowCostStickyReserve            *float64 `json:"window_cost_sticky_reserve"`
+	QuotaWeeklyLimit                   *float64 `json:"quota_weekly_limit"`
+	QuotaWeeklyMinRemaining            *float64 `json:"quota_weekly_min_remaining"`
 }
 
 type userOAuthAuthURLPayload struct {
@@ -122,16 +128,19 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 	}
 
 	req := service.CreateUserOAuthAccountRequest{
-		Name:                    payload.Name,
-		Platform:                payload.Platform,
-		Type:                    payload.Type,
-		Credentials:             payload.Credentials,
-		Extra:                   payload.Extra,
-		Schedulable:             payload.Schedulable,
-		WindowCostLimit:         payload.WindowCostLimit,
-		WindowCostStickyReserve: payload.WindowCostStickyReserve,
-		QuotaWeeklyLimit:        payload.QuotaWeeklyLimit,
-		QuotaWeeklyMinRemaining: payload.QuotaWeeklyMinRemaining,
+		Name:                               payload.Name,
+		Platform:                           payload.Platform,
+		Type:                               payload.Type,
+		Credentials:                        payload.Credentials,
+		Extra:                              payload.Extra,
+		Schedulable:                        payload.Schedulable,
+		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+		WindowCostLimit:                    payload.WindowCostLimit,
+		WindowCostStickyReserve:            payload.WindowCostStickyReserve,
+		QuotaWeeklyLimit:                   payload.QuotaWeeklyLimit,
+		QuotaWeeklyMinRemaining:            payload.QuotaWeeklyMinRemaining,
 	}
 
 	item, err := h.accountService.CreateUserOAuthAccount(c.Request.Context(), subject.UserID, req)
@@ -309,10 +318,13 @@ func (h *AccountPoolHandler) UpdateLimits(c *gin.Context) {
 	}
 
 	item, err := h.accountService.UpdateUserAccountLimits(c.Request.Context(), subject.UserID, accountID, service.UpdateUserAccountLimitsRequest{
-		WindowCostLimit:         payload.WindowCostLimit,
-		WindowCostStickyReserve: payload.WindowCostStickyReserve,
-		QuotaWeeklyLimit:        payload.QuotaWeeklyLimit,
-		QuotaWeeklyMinRemaining: payload.QuotaWeeklyMinRemaining,
+		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+		WindowCostLimit:                    payload.WindowCostLimit,
+		WindowCostStickyReserve:            payload.WindowCostStickyReserve,
+		QuotaWeeklyLimit:                   payload.QuotaWeeklyLimit,
+		QuotaWeeklyMinRemaining:            payload.QuotaWeeklyMinRemaining,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

@@ -922,6 +922,13 @@ export interface UserAccountPoolItem {
   is_user_contributed: boolean
   schedulable: boolean
   effective_schedulable: boolean
+  contribution_5h_reserve_percent: number
+  contribution_weekly_reserve_percent: number
+  contribution_probe_failure_policy: 'continue' | 'pause' | 'local'
+  contribution_5h_usage_percent?: number | null
+  contribution_weekly_usage_percent?: number | null
+  contribution_protection_blocked: boolean
+  contribution_protection_reason?: string | null
   window_cost_limit: number
   window_cost_sticky_reserve: number
   current_window_cost?: number | null

@@ -26,46 +26,59 @@ type UserAccountPoolListFilters struct {
 }
 
 type UserAccountPoolItem struct {
-	ID                         int64      `json:"id"`
-	Name                       string     `json:"name"`
-	Platform                   string     `json:"platform"`
-	Type                       string     `json:"type"`
-	Status                     string     `json:"status"`
-	IsMine                     bool       `json:"is_mine"`
-	IsUserContributed          bool       `json:"is_user_contributed"`
-	Schedulable                bool       `json:"schedulable"`
-	EffectiveSchedulable       bool       `json:"effective_schedulable"`
-	WindowCostLimit            float64    `json:"window_cost_limit"`
-	WindowCostStickyReserve    float64    `json:"window_cost_sticky_reserve"`
-	CurrentWindowCost          *float64   `json:"current_window_cost,omitempty"`
-	QuotaWeeklyLimit           float64    `json:"quota_weekly_limit"`
-	QuotaWeeklyUsed            float64    `json:"quota_weekly_used"`
-	QuotaWeeklyRemaining       float64    `json:"quota_weekly_remaining"`
-	QuotaWeeklyMinRemaining    float64    `json:"quota_weekly_min_remaining"`
-	WeeklyRemainingBelowPolicy bool       `json:"weekly_remaining_below_policy"`
-	CreatedAt                  time.Time  `json:"created_at"`
-	UpdatedAt                  time.Time  `json:"updated_at"`
-	WindowCostStart            *time.Time `json:"-"`
+	ID                                 int64      `json:"id"`
+	Name                               string     `json:"name"`
+	Platform                           string     `json:"platform"`
+	Type                               string     `json:"type"`
+	Status                             string     `json:"status"`
+	IsMine                             bool       `json:"is_mine"`
+	IsUserContributed                  bool       `json:"is_user_contributed"`
+	Schedulable                        bool       `json:"schedulable"`
+	EffectiveSchedulable               bool       `json:"effective_schedulable"`
+	ContributionFiveHourReservePercent float64    `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   float64    `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     string     `json:"contribution_probe_failure_policy"`
+	ContributionFiveHourUsagePercent   *float64   `json:"contribution_5h_usage_percent,omitempty"`
+	ContributionWeeklyUsagePercent     *float64   `json:"contribution_weekly_usage_percent,omitempty"`
+	ContributionProtectionBlocked      bool       `json:"contribution_protection_blocked"`
+	ContributionProtectionReason       string     `json:"contribution_protection_reason,omitempty"`
+	WindowCostLimit                    float64    `json:"window_cost_limit"`
+	WindowCostStickyReserve            float64    `json:"window_cost_sticky_reserve"`
+	CurrentWindowCost                  *float64   `json:"current_window_cost,omitempty"`
+	QuotaWeeklyLimit                   float64    `json:"quota_weekly_limit"`
+	QuotaWeeklyUsed                    float64    `json:"quota_weekly_used"`
+	QuotaWeeklyRemaining               float64    `json:"quota_weekly_remaining"`
+	QuotaWeeklyMinRemaining            float64    `json:"quota_weekly_min_remaining"`
+	WeeklyRemainingBelowPolicy         bool       `json:"weekly_remaining_below_policy"`
+	CreatedAt                          time.Time  `json:"created_at"`
+	UpdatedAt                          time.Time  `json:"updated_at"`
+	WindowCostStart                    *time.Time `json:"-"`
 }
 
 type CreateUserOAuthAccountRequest struct {
-	Name                    string         `json:"name"`
-	Platform                string         `json:"platform"`
-	Type                    string         `json:"type"`
-	Credentials             map[string]any `json:"credentials"`
-	Extra                   map[string]any `json:"extra"`
-	Schedulable             *bool          `json:"schedulable"`
-	WindowCostLimit         *float64       `json:"window_cost_limit"`
-	WindowCostStickyReserve *float64       `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit        *float64       `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining *float64       `json:"quota_weekly_min_remaining"`
+	Name                               string         `json:"name"`
+	Platform                           string         `json:"platform"`
+	Type                               string         `json:"type"`
+	Credentials                        map[string]any `json:"credentials"`
+	Extra                              map[string]any `json:"extra"`
+	Schedulable                        *bool          `json:"schedulable"`
+	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
+	WindowCostLimit                    *float64       `json:"window_cost_limit"`
+	WindowCostStickyReserve            *float64       `json:"window_cost_sticky_reserve"`
+	QuotaWeeklyLimit                   *float64       `json:"quota_weekly_limit"`
+	QuotaWeeklyMinRemaining            *float64       `json:"quota_weekly_min_remaining"`
 }
 
 type UpdateUserAccountLimitsRequest struct {
-	WindowCostLimit         *float64 `json:"window_cost_limit"`
-	WindowCostStickyReserve *float64 `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit        *float64 `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining *float64 `json:"quota_weekly_min_remaining"`
+	ContributionFiveHourReservePercent *float64 `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64 `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string  `json:"contribution_probe_failure_policy"`
+	WindowCostLimit                    *float64 `json:"window_cost_limit"`
+	WindowCostStickyReserve            *float64 `json:"window_cost_sticky_reserve"`
+	QuotaWeeklyLimit                   *float64 `json:"quota_weekly_limit"`
+	QuotaWeeklyMinRemaining            *float64 `json:"quota_weekly_min_remaining"`
 }
 
 func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, params pagination.PaginationParams, filters UserAccountPoolListFilters) ([]UserAccountPoolItem, *pagination.PaginationResult, error) {
@@ -130,10 +143,13 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	}
 
 	limitUpdates, err := buildUserAccountLimitUpdates(req.Extra, UpdateUserAccountLimitsRequest{
-		WindowCostLimit:         req.WindowCostLimit,
-		WindowCostStickyReserve: req.WindowCostStickyReserve,
-		QuotaWeeklyLimit:        req.QuotaWeeklyLimit,
-		QuotaWeeklyMinRemaining: req.QuotaWeeklyMinRemaining,
+		ContributionFiveHourReservePercent: req.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   req.ContributionWeeklyReservePercent,
+		ContributionProbeFailurePolicy:     req.ContributionProbeFailurePolicy,
+		WindowCostLimit:                    req.WindowCostLimit,
+		WindowCostStickyReserve:            req.WindowCostStickyReserve,
+		QuotaWeeklyLimit:                   req.QuotaWeeklyLimit,
+		QuotaWeeklyMinRemaining:            req.QuotaWeeklyMinRemaining,
 	})
 	if err != nil {
 		return nil, err
@@ -237,25 +253,33 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 	if windowCostLimit > 0 {
 		windowCostStickyReserve = account.GetWindowCostStickyReserve()
 	}
+	protection := account.EvaluateContributionProtection()
 	item := UserAccountPoolItem{
-		ID:                         account.ID,
-		Name:                       account.Name,
-		Platform:                   account.Platform,
-		Type:                       account.Type,
-		Status:                     account.Status,
-		IsMine:                     isMine,
-		IsUserContributed:          account.IsUserContributed(),
-		Schedulable:                account.Schedulable,
-		EffectiveSchedulable:       account.IsSchedulable() && account.IsSurplusAIContributionQuotaSchedulable(),
-		WindowCostLimit:            windowCostLimit,
-		WindowCostStickyReserve:    windowCostStickyReserve,
-		QuotaWeeklyLimit:           account.GetQuotaWeeklyLimit(),
-		QuotaWeeklyUsed:            account.GetEffectiveQuotaWeeklyUsed(),
-		QuotaWeeklyRemaining:       account.GetQuotaWeeklyRemaining(),
-		QuotaWeeklyMinRemaining:    account.GetQuotaWeeklyMinRemaining(),
-		WeeklyRemainingBelowPolicy: account.IsWeeklyRemainingBelowThreshold(),
-		CreatedAt:                  account.CreatedAt,
-		UpdatedAt:                  account.UpdatedAt,
+		ID:                                 account.ID,
+		Name:                               account.Name,
+		Platform:                           account.Platform,
+		Type:                               account.Type,
+		Status:                             account.Status,
+		IsMine:                             isMine,
+		IsUserContributed:                  account.IsUserContributed(),
+		Schedulable:                        account.Schedulable,
+		EffectiveSchedulable:               account.IsSchedulable() && !protection.Blocked && !account.IsWeeklyRemainingBelowThreshold(),
+		ContributionFiveHourReservePercent: account.GetContributionFiveHourReservePercent(),
+		ContributionWeeklyReservePercent:   account.GetContributionWeeklyReservePercent(),
+		ContributionProbeFailurePolicy:     account.GetContributionProbeFailurePolicy(),
+		ContributionFiveHourUsagePercent:   protection.FiveHourUsagePercent,
+		ContributionWeeklyUsagePercent:     protection.WeeklyUsagePercent,
+		ContributionProtectionBlocked:      protection.Blocked,
+		ContributionProtectionReason:       protection.Reason,
+		WindowCostLimit:                    windowCostLimit,
+		WindowCostStickyReserve:            windowCostStickyReserve,
+		QuotaWeeklyLimit:                   account.GetQuotaWeeklyLimit(),
+		QuotaWeeklyUsed:                    account.GetEffectiveQuotaWeeklyUsed(),
+		QuotaWeeklyRemaining:               account.GetQuotaWeeklyRemaining(),
+		QuotaWeeklyMinRemaining:            account.GetQuotaWeeklyMinRemaining(),
+		WeeklyRemainingBelowPolicy:         account.IsWeeklyRemainingBelowThreshold(),
+		CreatedAt:                          account.CreatedAt,
+		UpdatedAt:                          account.UpdatedAt,
 	}
 	if windowCostLimit > 0 {
 		start := account.GetCurrentWindowStartTime()
@@ -277,12 +301,27 @@ func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLim
 	updates := make(map[string]any, 4)
 	if extra != nil {
 		for _, key := range []string{
+			"contribution_5h_reserve_percent",
+			"contribution_weekly_reserve_percent",
+			"contribution_probe_failure_policy",
 			"window_cost_limit",
 			"window_cost_sticky_reserve",
 			"quota_weekly_limit",
 			"quota_weekly_min_remaining",
 			"weekly_remaining_threshold",
 		} {
+			if key == "contribution_probe_failure_policy" {
+				raw, ok := extra[key]
+				if !ok {
+					continue
+				}
+				value, err := parseContributionProbeFailurePolicy(raw)
+				if err != nil {
+					return nil, err
+				}
+				updates[key] = value
+				continue
+			}
 			value, ok, err := parseUserLimitFromMap(extra, key)
 			if err != nil {
 				return nil, err
@@ -298,6 +337,19 @@ func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLim
 		}
 	}
 
+	if err := setUserLimitUpdate(updates, "contribution_5h_reserve_percent", req.ContributionFiveHourReservePercent); err != nil {
+		return nil, err
+	}
+	if err := setUserLimitUpdate(updates, "contribution_weekly_reserve_percent", req.ContributionWeeklyReservePercent); err != nil {
+		return nil, err
+	}
+	if req.ContributionProbeFailurePolicy != nil {
+		policy, err := normalizeContributionProbeFailurePolicy(*req.ContributionProbeFailurePolicy)
+		if err != nil {
+			return nil, err
+		}
+		updates["contribution_probe_failure_policy"] = policy
+	}
 	if err := setUserLimitUpdate(updates, "window_cost_limit", req.WindowCostLimit); err != nil {
 		return nil, err
 	}
@@ -373,8 +425,39 @@ func strconvParseUserLimit(value string) (float64, error) {
 }
 
 func validateUserAccountLimit(name string, value float64) error {
+	if name == "contribution_5h_reserve_percent" || name == "contribution_weekly_reserve_percent" {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
+			return infraerrors.BadRequest("ACCOUNT_LIMIT_OUT_OF_RANGE", fmt.Sprintf("%s must be between 0 and 100", name))
+		}
+		return nil
+	}
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > maxUserAccountLimitUSD {
 		return infraerrors.BadRequest("ACCOUNT_LIMIT_OUT_OF_RANGE", fmt.Sprintf("%s must be between 0 and %.0f", name, float64(maxUserAccountLimitUSD)))
 	}
 	return nil
+}
+
+func parseContributionProbeFailurePolicy(raw any) (string, error) {
+	if raw == nil {
+		return ContributionProbeFailurePolicyContinue, nil
+	}
+	switch v := raw.(type) {
+	case string:
+		return normalizeContributionProbeFailurePolicy(v)
+	default:
+		return "", infraerrors.BadRequest("ACCOUNT_LIMIT_INVALID", "contribution_probe_failure_policy must be a string")
+	}
+}
+
+func normalizeContributionProbeFailurePolicy(value string) (string, error) {
+	policy := strings.TrimSpace(value)
+	if policy == "" {
+		return ContributionProbeFailurePolicyContinue, nil
+	}
+	switch policy {
+	case ContributionProbeFailurePolicyContinue, ContributionProbeFailurePolicyPause, ContributionProbeFailurePolicyLocal:
+		return policy, nil
+	default:
+		return "", infraerrors.BadRequest("ACCOUNT_LIMIT_INVALID", "contribution_probe_failure_policy must be continue, pause, or local")
+	}
 }

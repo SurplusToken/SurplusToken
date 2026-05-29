@@ -63,7 +63,7 @@
                 <th>{{ t('accountPool.columns.scheduling') }}</th>
                 <th>{{ t('accountPool.columns.fiveHour') }}</th>
                 <th>{{ t('accountPool.columns.weekly') }}</th>
-                <th>{{ t('accountPool.columns.limits') }}</th>
+                <th>{{ t('accountPool.columns.protection') }}</th>
                 <th>{{ t('accountPool.columns.updated') }}</th>
               </tr>
             </thead>
@@ -118,27 +118,30 @@
                 </td>
                 <td>
                   <div class="min-w-32 text-sm">
-                    <div>{{ formatMoney(account.current_window_cost ?? 0) }} / {{ formatMoney(account.window_cost_limit) }}</div>
+                    <div>{{ formatPercent(account.contribution_5h_usage_percent) }}</div>
                     <div class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.fields.windowCostReserve') }} {{ formatMoney(account.window_cost_sticky_reserve) }}
+                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_5h_reserve_percent) }}
                     </div>
                   </div>
                 </td>
                 <td>
                   <div class="min-w-36 text-sm">
-                    <div>{{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}</div>
-                    <div :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
-                      {{ formatMoney(account.quota_weekly_remaining) }} / {{ formatMoney(account.quota_weekly_min_remaining) }}
+                    <div>{{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
+                    <div :class="account.contribution_protection_blocked ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
+                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
                     </div>
                   </div>
                 </td>
                 <td>
-                  <div v-if="account.is_mine" class="grid min-w-[430px] grid-cols-4 gap-2">
-                    <input v-model.number="draftFor(account).windowCostLimit" type="number" min="0" step="0.01" class="input h-9 text-sm" :placeholder="t('accountPool.fields.windowCostLimit')" />
-                    <input v-model.number="draftFor(account).windowCostReserve" type="number" min="0" step="0.01" class="input h-9 text-sm" :placeholder="t('accountPool.fields.windowCostReserve')" />
-                    <input v-model.number="draftFor(account).quotaWeeklyLimit" type="number" min="0" step="0.01" class="input h-9 text-sm" :placeholder="t('accountPool.fields.quotaWeeklyLimit')" />
+                  <div v-if="account.is_mine" class="grid min-w-[430px] grid-cols-[1fr_1fr_1.2fr_auto] gap-2">
+                    <input v-model.number="draftFor(account).fiveHourReservePercent" type="number" min="0" max="100" step="1" class="input h-9 text-sm" :placeholder="t('accountPool.fields.fiveHourReservePercent')" />
+                    <input v-model.number="draftFor(account).weeklyReservePercent" type="number" min="0" max="100" step="1" class="input h-9 text-sm" :placeholder="t('accountPool.fields.weeklyReservePercent')" />
+                    <select v-model="draftFor(account).probeFailurePolicy" class="input h-9 text-sm">
+                      <option value="continue">{{ t('accountPool.policy.probeFailureContinue') }}</option>
+                      <option value="pause">{{ t('accountPool.policy.probeFailurePause') }}</option>
+                      <option value="local">{{ t('accountPool.policy.probeFailureLocal') }}</option>
+                    </select>
                     <div class="flex gap-2">
-                      <input v-model.number="draftFor(account).quotaWeeklyMinRemaining" type="number" min="0" step="0.01" class="input h-9 text-sm" :placeholder="t('accountPool.fields.quotaWeeklyMinRemaining')" />
                       <button type="button" class="btn btn-primary btn-sm h-9" :disabled="savingIDs.has(account.id)" @click="saveLimits(account)">
                         {{ savingIDs.has(account.id) ? t('accountPool.saving') : t('accountPool.save') }}
                       </button>
@@ -311,45 +314,44 @@
 
           <div class="grid gap-4 lg:grid-cols-3">
             <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.windowLimitLabel') }}</span>
+              <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
               <input
-                v-model.number="createForm.windowCostLimit"
+                v-model.number="createForm.fiveHourReservePercent"
                 type="number"
                 min="0"
-                step="0.01"
-                class="input"
-                :placeholder="t('accountPool.policy.noLimitPlaceholder')"
-              />
-              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.windowLimitHint') }}
-              </span>
-            </label>
-            <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.weeklyLimitLabel') }}</span>
-              <input
-                v-model.number="createForm.quotaWeeklyLimit"
-                type="number"
-                min="0"
-                step="0.01"
-                class="input"
-                :placeholder="t('accountPool.policy.noLimitPlaceholder')"
-              />
-              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.weeklyLimitHint') }}
-              </span>
-            </label>
-            <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.weeklyReserveLabel') }}</span>
-              <input
-                v-model.number="createForm.quotaWeeklyMinRemaining"
-                type="number"
-                min="0"
-                step="0.01"
+                max="100"
+                step="1"
                 class="input"
                 :placeholder="t('accountPool.policy.noReservePlaceholder')"
               />
               <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.weeklyReserveHint') }}
+                {{ t('accountPool.policy.fiveHourReserveHint') }}
+              </span>
+            </label>
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.weeklyReservePercentLabel') }}</span>
+              <input
+                v-model.number="createForm.weeklyReservePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="input"
+                :placeholder="t('accountPool.policy.noReservePlaceholder')"
+              />
+              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
+                {{ t('accountPool.policy.weeklyReservePercentHint') }}
+              </span>
+            </label>
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</span>
+              <select v-model="createForm.probeFailurePolicy" class="input">
+                <option value="continue">{{ t('accountPool.policy.probeFailureContinue') }}</option>
+                <option value="pause">{{ t('accountPool.policy.probeFailurePause') }}</option>
+                <option value="local">{{ t('accountPool.policy.probeFailureLocal') }}</option>
+              </select>
+              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
+                {{ t('accountPool.policy.probeFailureHint') }}
               </span>
             </label>
           </div>
@@ -441,10 +443,9 @@ interface OAuthFlowExposed {
 }
 
 type LimitDraft = {
-  windowCostLimit: number
-  windowCostReserve: number
-  quotaWeeklyLimit: number
-  quotaWeeklyMinRemaining: number
+  fiveHourReservePercent: number
+  weeklyReservePercent: number
+  probeFailurePolicy: 'continue' | 'pause' | 'local'
 }
 
 const { t } = useI18n()
@@ -482,10 +483,9 @@ const createForm = reactive({
   projectId: '',
   tierId: '',
   schedulable: true,
-  windowCostLimit: 0,
-  windowCostReserve: 10,
-  quotaWeeklyLimit: 0,
-  quotaWeeklyMinRemaining: 0,
+  fiveHourReservePercent: 20,
+  weeklyReservePercent: 20,
+  probeFailurePolicy: 'continue' as 'continue' | 'pause' | 'local',
 })
 
 const geminiOAuthOptions = [
@@ -518,10 +518,10 @@ function ownerLabel(account: UserAccountPoolItem): string {
   return account.is_user_contributed ? t('accountPool.shared') : t('accountPool.system')
 }
 
-function formatMoney(value: number | null | undefined): string {
-  const n = Number(value ?? 0)
-  if (!Number.isFinite(n) || n <= 0) return '$0.00'
-  return `$${n.toFixed(n >= 100 ? 0 : 2)}`
+function formatPercent(value: number | null | undefined): string {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '-'
+  return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
 }
 
 function formatDate(value: string): string {
@@ -531,9 +531,10 @@ function formatDate(value: string): string {
   return d.toLocaleString()
 }
 
-function toLimit(value: unknown): number {
+function toPercent(value: unknown): number {
   const n = Number(value)
-  return Number.isFinite(n) && n > 0 ? n : 0
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(100, n)
 }
 
 function resetOAuthSession() {
@@ -682,10 +683,9 @@ async function handleGenerateUrl() {
 function draftFor(account: UserAccountPoolItem): LimitDraft {
   if (!drafts[account.id]) {
     drafts[account.id] = {
-      windowCostLimit: account.window_cost_limit ?? 0,
-      windowCostReserve: account.window_cost_sticky_reserve || 10,
-      quotaWeeklyLimit: account.quota_weekly_limit ?? 0,
-      quotaWeeklyMinRemaining: account.quota_weekly_min_remaining ?? 0,
+      fiveHourReservePercent: account.contribution_5h_reserve_percent ?? 0,
+      weeklyReservePercent: account.contribution_weekly_reserve_percent ?? 0,
+      probeFailurePolicy: account.contribution_probe_failure_policy ?? 'continue',
     }
   }
   return drafts[account.id]
@@ -697,10 +697,9 @@ function replaceAccount(updated: UserAccountPoolItem) {
     accounts.value[index] = updated
   }
   drafts[updated.id] = {
-    windowCostLimit: updated.window_cost_limit ?? 0,
-    windowCostReserve: updated.window_cost_sticky_reserve || 10,
-    quotaWeeklyLimit: updated.quota_weekly_limit ?? 0,
-    quotaWeeklyMinRemaining: updated.quota_weekly_min_remaining ?? 0,
+    fiveHourReservePercent: updated.contribution_5h_reserve_percent ?? 0,
+    weeklyReservePercent: updated.contribution_weekly_reserve_percent ?? 0,
+    probeFailurePolicy: updated.contribution_probe_failure_policy ?? 'continue',
   }
 }
 
@@ -770,10 +769,9 @@ async function handleExchangeCode() {
       credentials,
       extra: buildExtra(tokenInfo),
       schedulable: createForm.schedulable,
-      window_cost_limit: toLimit(createForm.windowCostLimit),
-      window_cost_sticky_reserve: toLimit(createForm.windowCostReserve),
-      quota_weekly_limit: toLimit(createForm.quotaWeeklyLimit),
-      quota_weekly_min_remaining: toLimit(createForm.quotaWeeklyMinRemaining),
+      contribution_5h_reserve_percent: toPercent(createForm.fiveHourReservePercent),
+      contribution_weekly_reserve_percent: toPercent(createForm.weeklyReservePercent),
+      contribution_probe_failure_policy: createForm.probeFailurePolicy,
     })
     appStore.showSuccess(t('accountPool.createSuccess'))
     createForm.name = ''
@@ -805,10 +803,9 @@ async function saveLimits(account: UserAccountPoolItem) {
   savingIDs.value.add(account.id)
   try {
     const updated = await accountsAPI.updateLimits(account.id, {
-      window_cost_limit: toLimit(draft.windowCostLimit),
-      window_cost_sticky_reserve: toLimit(draft.windowCostReserve),
-      quota_weekly_limit: toLimit(draft.quotaWeeklyLimit),
-      quota_weekly_min_remaining: toLimit(draft.quotaWeeklyMinRemaining),
+      contribution_5h_reserve_percent: toPercent(draft.fiveHourReservePercent),
+      contribution_weekly_reserve_percent: toPercent(draft.weeklyReservePercent),
+      contribution_probe_failure_policy: draft.probeFailurePolicy,
     })
     replaceAccount(updated)
     appStore.showSuccess(t('accountPool.saveSuccess'))

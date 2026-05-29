@@ -535,6 +535,18 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 	}
 	keys := []string{
 		"mixed_scheduling",
+		"contribution_5h_reserve_percent",
+		"contribution_weekly_reserve_percent",
+		"contribution_probe_failure_policy",
+		"codex_usage_updated_at",
+		"codex_5h_used_percent",
+		"codex_5h_reset_at",
+		"codex_7d_used_percent",
+		"codex_7d_reset_at",
+		"session_window_utilization",
+		"passive_usage_7d_utilization",
+		"passive_usage_7d_reset",
+		"passive_usage_sampled_at",
 		"window_cost_limit",
 		"window_cost_sticky_reserve",
 		"max_sessions",

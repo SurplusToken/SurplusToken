@@ -166,7 +166,7 @@ func filterSurplusAISchedulableAccounts(accounts []Account) []Account {
 	}
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
-		if account.IsSurplusAISchedulableType() && account.IsSchedulable() && account.IsSurplusAIContributionQuotaSchedulable() {
+		if account.IsSurplusAISchedulableType() && account.IsSchedulable() && account.IsSurplusAIContributionProtectionSchedulable() {
 			filtered = append(filtered, account)
 		}
 	}
@@ -1703,11 +1703,206 @@ func (a *Account) IsWeeklyRemainingBelowThreshold() bool {
 	return a.GetQuotaWeeklyRemaining() < threshold
 }
 
-func (a *Account) IsSurplusAIContributionQuotaSchedulable() bool {
+const (
+	ContributionProbeFailurePolicyContinue = "continue"
+	ContributionProbeFailurePolicyPause    = "pause"
+	ContributionProbeFailurePolicyLocal    = "local"
+)
+
+type ContributionProtectionEvaluation struct {
+	FiveHourUsagePercent *float64
+	WeeklyUsagePercent   *float64
+	Blocked              bool
+	Reason               string
+}
+
+func (a *Account) GetContributionFiveHourReservePercent() float64 {
+	return clampContributionReservePercent(a.getExtraFloat64("contribution_5h_reserve_percent"))
+}
+
+func (a *Account) GetContributionWeeklyReservePercent() float64 {
+	return clampContributionReservePercent(a.getExtraFloat64("contribution_weekly_reserve_percent"))
+}
+
+func clampContributionReservePercent(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func (a *Account) GetContributionProbeFailurePolicy() string {
+	if a == nil {
+		return ContributionProbeFailurePolicyContinue
+	}
+	policy := strings.TrimSpace(a.getExtraString("contribution_probe_failure_policy"))
+	switch policy {
+	case ContributionProbeFailurePolicyPause, ContributionProbeFailurePolicyLocal:
+		return policy
+	default:
+		return ContributionProbeFailurePolicyContinue
+	}
+}
+
+func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluation {
+	var out ContributionProtectionEvaluation
+	if a == nil {
+		out.Blocked = true
+		out.Reason = "missing_account"
+		return out
+	}
+
+	if percent, ok := a.contributionUsagePercent("5h", time.Now()); ok {
+		out.FiveHourUsagePercent = &percent
+	}
+	if percent, ok := a.contributionUsagePercent("weekly", time.Now()); ok {
+		out.WeeklyUsagePercent = &percent
+	}
+
+	if blocked, reason := a.contributionReserveExceeded("5h", a.GetContributionFiveHourReservePercent(), out.FiveHourUsagePercent); blocked {
+		out.Blocked = true
+		out.Reason = reason
+		return out
+	}
+	if blocked, reason := a.contributionReserveExceeded("weekly", a.GetContributionWeeklyReservePercent(), out.WeeklyUsagePercent); blocked {
+		out.Blocked = true
+		out.Reason = reason
+		return out
+	}
+	return out
+}
+
+func (a *Account) contributionReserveExceeded(window string, reservePercent float64, usagePercent *float64) (bool, string) {
+	if reservePercent <= 0 {
+		return false, ""
+	}
+	if usagePercent == nil {
+		switch a.GetContributionProbeFailurePolicy() {
+		case ContributionProbeFailurePolicyPause:
+			return true, window + "_probe_missing"
+		case ContributionProbeFailurePolicyLocal:
+			if a.IsWeeklyRemainingBelowThreshold() {
+				return true, "local_weekly_remaining_below_policy"
+			}
+		}
+		return false, ""
+	}
+
+	allowedUsedPercent := 100 - reservePercent
+	if *usagePercent >= allowedUsedPercent {
+		return true, window + "_reserve_exceeded"
+	}
+	return false, ""
+}
+
+func (a *Account) IsSurplusAIContributionProtectionSchedulable() bool {
 	if a == nil {
 		return false
 	}
-	return !a.IsWeeklyRemainingBelowThreshold()
+	return !a.EvaluateContributionProtection().Blocked
+}
+
+// IsSurplusAIContributionQuotaSchedulable keeps the older method name as a
+// compatibility wrapper for call sites that still use "quota" terminology.
+func (a *Account) IsSurplusAIContributionQuotaSchedulable() bool {
+	return a.IsSurplusAIContributionProtectionSchedulable()
+}
+
+func (a *Account) contributionUsagePercent(window string, now time.Time) (float64, bool) {
+	if a == nil || a.Extra == nil {
+		return 0, false
+	}
+	switch window {
+	case "5h":
+		if percent, ok := a.codexUsagePercent("codex_5h_used_percent", "codex_5h_reset_at", 5*time.Hour, now); ok {
+			return percent, true
+		}
+		if raw, ok := a.Extra["session_window_utilization"]; ok {
+			if a.SessionWindowEnd != nil && now.After(*a.SessionWindowEnd) {
+				return 0, true
+			}
+			return normalizeContributionUtilization(parseExtraFloat64(raw)), true
+		}
+	case "weekly":
+		if percent, ok := a.codexUsagePercent("codex_7d_used_percent", "codex_7d_reset_at", 7*24*time.Hour, now); ok {
+			return percent, true
+		}
+		if raw, ok := a.Extra["passive_usage_7d_utilization"]; ok {
+			if resetRaw := parseExtraFloat64(a.Extra["passive_usage_7d_reset"]); resetRaw > 0 {
+				resetAt := time.Unix(int64(resetRaw), 0)
+				if now.After(resetAt) {
+					return 0, true
+				}
+			}
+			return normalizeContributionUtilization(parseExtraFloat64(raw)), true
+		}
+	}
+	return 0, false
+}
+
+func (a *Account) codexUsagePercent(percentKey, resetAtKey string, maxAge time.Duration, now time.Time) (float64, bool) {
+	raw, ok := a.Extra[percentKey]
+	if !ok {
+		return 0, false
+	}
+	if resetAt, ok := parseExtraRFC3339Time(a.Extra[resetAtKey]); ok {
+		if now.After(resetAt) {
+			return 0, true
+		}
+		return clampUsagePercent(parseExtraFloat64(raw)), true
+	}
+	if updatedAt, ok := parseExtraRFC3339Time(a.Extra["codex_usage_updated_at"]); ok && maxAge > 0 && now.Sub(updatedAt) > maxAge {
+		return 0, false
+	}
+	return clampUsagePercent(parseExtraFloat64(raw)), true
+}
+
+func normalizeContributionUtilization(value float64) float64 {
+	if value <= 1 {
+		return clampUsagePercent(value * 100)
+	}
+	return clampUsagePercent(value)
+}
+
+func clampUsagePercent(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func parseExtraRFC3339Time(raw any) (time.Time, bool) {
+	if raw == nil {
+		return time.Time{}, false
+	}
+	value := strings.TrimSpace(strings.Trim(fmtAny(raw), `"`))
+	if value == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+func fmtAny(raw any) string {
+	switch v := raw.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	default:
+		return strconv.FormatFloat(parseExtraFloat64(raw), 'f', -1, 64)
+	}
 }
 
 // getExtraFloat64 从 Extra 中读取指定 key 的 float64 值
