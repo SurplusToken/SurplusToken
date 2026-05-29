@@ -430,7 +430,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
-import accountsAPI, { type UserOAuthTokenInfo } from '@/api/accounts'
+import accountsAPI, { type UserOAuthAuthUrlRequest, type UserOAuthTokenInfo } from '@/api/accounts'
 import type { AccountPlatform, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -662,13 +662,17 @@ async function handleGenerateUrl() {
   oauthError.value = ''
   try {
     const projectId = oauthFlowRef.value?.projectId || createForm.projectId
-    const result = await accountsAPI.generateOAuthAuthUrl({
+    const payload: UserOAuthAuthUrlRequest = {
       platform: createForm.platform,
-      redirect_uri: `${window.location.origin}/auth/callback`,
-      project_id: projectId || undefined,
-      oauth_type: createForm.platform === 'gemini' ? createForm.oauthType : undefined,
-      tier_id: createForm.tierId || undefined,
-    })
+    }
+    if (createForm.platform === 'gemini') {
+      payload.redirect_uri = `${window.location.origin}/auth/callback`
+      payload.project_id = projectId || undefined
+      payload.oauth_type = createForm.oauthType
+      payload.tier_id = createForm.tierId || undefined
+    }
+
+    const result = await accountsAPI.generateOAuthAuthUrl(payload)
     oauthSession.authUrl = result.auth_url
     oauthSession.sessionId = result.session_id
     oauthSession.state = result.state || ''
