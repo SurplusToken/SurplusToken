@@ -1079,7 +1079,7 @@ export default {
     loadFailed: '账号池加载失败',
     settings: {
       title: '账号可用范围',
-      description: '设置这个账号允许被调度到哪些模型和分组；代理、优先级和账号计费倍率由管理员调整。',
+      description: '设置这个账号允许被调度到哪些模型和分组，以及到期后的共享行为。',
       allowAllModels: '允许全部模型',
       limitModels: '限制模型',
       allowAllModelsHint: '不写入模型限制，账号可支持平台默认模型。',

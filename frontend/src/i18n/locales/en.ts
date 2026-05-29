@@ -1075,7 +1075,7 @@ export default {
     loadFailed: 'Failed to load account pool',
     settings: {
       title: 'Account Availability',
-      description: 'Set which models and groups this account can be scheduled for. Proxy, priority, and account billing multiplier are adjusted by admins.',
+      description: 'Set which models and groups this account can be scheduled for, and how sharing behaves after expiry.',
       allowAllModels: 'Allow all models',
       limitModels: 'Limit models',
       allowAllModelsHint: 'No model restriction will be written; the account can use platform default models.',
