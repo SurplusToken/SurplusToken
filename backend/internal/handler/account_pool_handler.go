@@ -42,22 +42,15 @@ func NewAccountPoolHandler(
 }
 
 type createUserOAuthAccountPayload struct {
-	Name                               string         `json:"name"`
-	Platform                           string         `json:"platform"`
-	Type                               string         `json:"type"`
-	Credentials                        map[string]any `json:"credentials"`
-	Extra                              map[string]any `json:"extra"`
-	Schedulable                        *bool          `json:"schedulable"`
-	GroupIDs                           []int64        `json:"group_ids"`
-	ExpiresAt                          *int64         `json:"expires_at"`
-	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
-	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
-	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
-	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
-	WindowCostLimit                    *float64       `json:"window_cost_limit"`
-	WindowCostStickyReserve            *float64       `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit                   *float64       `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining            *float64       `json:"quota_weekly_min_remaining"`
+	Name               string         `json:"name"`
+	Platform           string         `json:"platform"`
+	Type               string         `json:"type"`
+	Credentials        map[string]any `json:"credentials"`
+	Extra              map[string]any `json:"extra"`
+	Schedulable        *bool          `json:"schedulable"`
+	GroupIDs           []int64        `json:"group_ids"`
+	ExpiresAt          *int64         `json:"expires_at"`
+	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
 }
 
 type setUserAccountSchedulablePayload struct {
@@ -72,6 +65,14 @@ type updateUserAccountLimitsPayload struct {
 	WindowCostStickyReserve            *float64 `json:"window_cost_sticky_reserve"`
 	QuotaWeeklyLimit                   *float64 `json:"quota_weekly_limit"`
 	QuotaWeeklyMinRemaining            *float64 `json:"quota_weekly_min_remaining"`
+}
+
+type updateUserAccountScopePayload struct {
+	GroupIDs           *[]int64           `json:"group_ids"`
+	ExpiresAt          *int64             `json:"expires_at"`
+	AutoPauseOnExpired *bool              `json:"auto_pause_on_expired"`
+	ModelMapping       *map[string]string `json:"model_mapping"`
+	CodexCLIOnly       *bool              `json:"codex_cli_only"`
 }
 
 type userOAuthAuthURLPayload struct {
@@ -139,22 +140,15 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 	}
 
 	req := service.CreateUserOAuthAccountRequest{
-		Name:                               payload.Name,
-		Platform:                           payload.Platform,
-		Type:                               payload.Type,
-		Credentials:                        payload.Credentials,
-		Extra:                              payload.Extra,
-		Schedulable:                        payload.Schedulable,
-		GroupIDs:                           groupIDs,
-		ExpiresAt:                          payload.ExpiresAt,
-		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
-		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
-		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
-		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
-		WindowCostLimit:                    payload.WindowCostLimit,
-		WindowCostStickyReserve:            payload.WindowCostStickyReserve,
-		QuotaWeeklyLimit:                   payload.QuotaWeeklyLimit,
-		QuotaWeeklyMinRemaining:            payload.QuotaWeeklyMinRemaining,
+		Name:               payload.Name,
+		Platform:           payload.Platform,
+		Type:               payload.Type,
+		Credentials:        payload.Credentials,
+		Extra:              payload.Extra,
+		Schedulable:        payload.Schedulable,
+		GroupIDs:           groupIDs,
+		ExpiresAt:          payload.ExpiresAt,
+		AutoPauseOnExpired: payload.AutoPauseOnExpired,
 	}
 
 	item, err := h.accountService.CreateUserOAuthAccount(c.Request.Context(), subject.UserID, req)
@@ -358,6 +352,59 @@ func (h *AccountPoolHandler) SetSchedulable(c *gin.Context) {
 	}
 
 	item, err := h.accountService.SetUserAccountSchedulable(c.Request.Context(), subject.UserID, accountID, *payload.Schedulable)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	items := []service.UserAccountPoolItem{*item}
+	h.hydrateCurrentWindowCost(c.Request.Context(), items)
+	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+
+	var payload updateUserAccountScopePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	account, err := h.accountService.GetByID(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if account.OwnerUserID == nil || *account.OwnerUserID != subject.UserID {
+		response.ErrorFrom(c, service.ErrAccountOwnerRequired)
+		return
+	}
+
+	var groupIDs *[]int64
+	if payload.GroupIDs != nil {
+		normalized, ok := h.validateUserAccountGroupIDs(c, subject.UserID, account.Platform, *payload.GroupIDs)
+		if !ok {
+			return
+		}
+		groupIDs = &normalized
+	}
+
+	item, err := h.accountService.UpdateUserAccountScope(c.Request.Context(), subject.UserID, accountID, service.UpdateUserAccountScopeRequest{
+		GroupIDs:           groupIDs,
+		ExpiresAt:          payload.ExpiresAt,
+		AutoPauseOnExpired: payload.AutoPauseOnExpired,
+		ModelMapping:       payload.ModelMapping,
+		CodexCLIOnly:       payload.CodexCLIOnly,
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

@@ -68,22 +68,23 @@ type UserAccountPoolGroup struct {
 }
 
 type CreateUserOAuthAccountRequest struct {
-	Name                               string         `json:"name"`
-	Platform                           string         `json:"platform"`
-	Type                               string         `json:"type"`
-	Credentials                        map[string]any `json:"credentials"`
-	Extra                              map[string]any `json:"extra"`
-	Schedulable                        *bool          `json:"schedulable"`
-	GroupIDs                           []int64        `json:"group_ids"`
-	ExpiresAt                          *int64         `json:"expires_at"`
-	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
-	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
-	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
-	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
-	WindowCostLimit                    *float64       `json:"window_cost_limit"`
-	WindowCostStickyReserve            *float64       `json:"window_cost_sticky_reserve"`
-	QuotaWeeklyLimit                   *float64       `json:"quota_weekly_limit"`
-	QuotaWeeklyMinRemaining            *float64       `json:"quota_weekly_min_remaining"`
+	Name               string         `json:"name"`
+	Platform           string         `json:"platform"`
+	Type               string         `json:"type"`
+	Credentials        map[string]any `json:"credentials"`
+	Extra              map[string]any `json:"extra"`
+	Schedulable        *bool          `json:"schedulable"`
+	GroupIDs           []int64        `json:"group_ids"`
+	ExpiresAt          *int64         `json:"expires_at"`
+	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
+}
+
+type UpdateUserAccountScopeRequest struct {
+	GroupIDs           *[]int64           `json:"group_ids"`
+	ExpiresAt          *int64             `json:"expires_at"`
+	AutoPauseOnExpired *bool              `json:"auto_pause_on_expired"`
+	ModelMapping       *map[string]string `json:"model_mapping"`
+	CodexCLIOnly       *bool              `json:"codex_cli_only"`
 }
 
 type UpdateUserAccountLimitsRequest struct {
@@ -157,19 +158,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
 
-	limitUpdates, err := buildUserAccountLimitUpdates(req.Extra, UpdateUserAccountLimitsRequest{
-		ContributionFiveHourReservePercent: req.ContributionFiveHourReservePercent,
-		ContributionWeeklyReservePercent:   req.ContributionWeeklyReservePercent,
-		ContributionProbeFailurePolicy:     req.ContributionProbeFailurePolicy,
-		WindowCostLimit:                    req.WindowCostLimit,
-		WindowCostStickyReserve:            req.WindowCostStickyReserve,
-		QuotaWeeklyLimit:                   req.QuotaWeeklyLimit,
-		QuotaWeeklyMinRemaining:            req.QuotaWeeklyMinRemaining,
-	})
-	if err != nil {
-		return nil, err
-	}
-	extra := buildUserOAuthAccountExtra(platform, req.Extra, limitUpdates)
+	extra := buildUserOAuthAccountExtra(platform, req.Extra)
 
 	schedulable := true
 	if req.Schedulable != nil {
@@ -215,11 +204,8 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	return &item, nil
 }
 
-func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any, limitUpdates map[string]any) map[string]any {
-	extra := make(map[string]any, len(limitUpdates)+4)
-	for key, value := range limitUpdates {
-		extra[key] = value
-	}
+func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any) map[string]any {
+	extra := make(map[string]any, 4)
 	if rawExtra == nil {
 		return extra
 	}
@@ -284,6 +270,72 @@ func (s *AccountService) UpdateUserAccountLimits(ctx context.Context, userID, ac
 		}
 	}
 
+	item := accountToUserPoolItem(account, userID)
+	return &item, nil
+}
+
+func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, accountID int64, req UpdateUserAccountScopeRequest) (*UserAccountPoolItem, error) {
+	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.ModelMapping != nil {
+		credentials := cloneCredentials(account.Credentials)
+		mapping := normalizeUserModelMapping(*req.ModelMapping)
+		if len(mapping) > 0 {
+			credentials["model_mapping"] = mapping
+		} else {
+			delete(credentials, "model_mapping")
+		}
+		if err := persistAccountCredentials(ctx, s.accountRepo, account, credentials); err != nil {
+			return nil, fmt.Errorf("update user account model scope: %w", err)
+		}
+	}
+
+	extraChanged := false
+	if req.CodexCLIOnly != nil && account.Platform == PlatformOpenAI {
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		if *req.CodexCLIOnly {
+			account.Extra["codex_cli_only"] = true
+		} else {
+			delete(account.Extra, "codex_cli_only")
+		}
+		extraChanged = true
+	}
+
+	if req.ExpiresAt != nil {
+		if *req.ExpiresAt > 0 {
+			t := time.Unix(*req.ExpiresAt, 0)
+			account.ExpiresAt = &t
+		} else {
+			account.ExpiresAt = nil
+		}
+	}
+	if req.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	}
+
+	needsAccountUpdate := extraChanged || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil
+	if needsAccountUpdate {
+		if err := s.accountRepo.Update(ctx, account); err != nil {
+			return nil, fmt.Errorf("update user account scope: %w", err)
+		}
+	}
+
+	if req.GroupIDs != nil {
+		if err := s.accountRepo.BindGroups(ctx, account.ID, *req.GroupIDs); err != nil {
+			return nil, fmt.Errorf("bind user account groups: %w", err)
+		}
+		account.GroupIDs = append([]int64(nil), (*req.GroupIDs)...)
+	}
+
+	refreshed, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err == nil && refreshed != nil {
+		account = refreshed
+	}
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -404,6 +456,22 @@ func userVisibleModelMapping(account *Account, isMine bool) map[string]string {
 				out[from] = to
 			}
 		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeUserModelMapping(input map[string]string) map[string]any {
+	out := make(map[string]any, len(input))
+	for from, to := range input {
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if from == "" || to == "" {
+			continue
+		}
+		out[from] = to
 	}
 	if len(out) == 0 {
 		return nil

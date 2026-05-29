@@ -22,6 +22,7 @@ type accountPoolRepoStub struct {
 	accountsByID map[int64]*Account
 	updated      *Account
 	extraUpdates map[string]any
+	boundGroups  []int64
 }
 
 func (s *accountPoolRepoStub) Create(ctx context.Context, account *Account) error {
@@ -71,6 +72,10 @@ func (s *accountPoolRepoStub) GetByID(ctx context.Context, id int64) (*Account, 
 func (s *accountPoolRepoStub) Update(ctx context.Context, account *Account) error {
 	copied := *account
 	s.updated = &copied
+	if s.accountsByID != nil {
+		accountCopy := copied
+		s.accountsByID[account.ID] = &accountCopy
+	}
 	return nil
 }
 
@@ -82,18 +87,25 @@ func (s *accountPoolRepoStub) UpdateExtra(ctx context.Context, id int64, updates
 	return nil
 }
 
+func (s *accountPoolRepoStub) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	s.boundGroups = append([]int64(nil), groupIDs...)
+	if s.accountsByID != nil {
+		if account := s.accountsByID[accountID]; account != nil {
+			account.GroupIDs = append([]int64(nil), groupIDs...)
+		}
+	}
+	return nil
+}
+
 func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 	repo := &accountPoolRepoStub{}
 	svc := &AccountService{accountRepo: repo}
 
 	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
-		Name:                    "  Team OpenAI  ",
-		Platform:                PlatformOpenAI,
-		Type:                    AccountTypeOAuth,
-		Credentials:             map[string]any{"refresh_token": "secret"},
-		WindowCostLimit:         floatPtr(25),
-		QuotaWeeklyLimit:        floatPtr(100),
-		QuotaWeeklyMinRemaining: floatPtr(15),
+		Name:        "  Team OpenAI  ",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "secret"},
 	})
 
 	require.NoError(t, err)
@@ -102,8 +114,8 @@ func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 	require.Equal(t, AccountTypeOAuth, repo.created.Type)
 	require.Equal(t, "Team OpenAI", repo.created.Name)
 	require.True(t, repo.created.Schedulable)
-	require.Equal(t, 25.0, repo.created.Extra["window_cost_limit"])
-	require.Equal(t, 15.0, repo.created.Extra["quota_weekly_min_remaining"])
+	require.NotContains(t, repo.created.Extra, "window_cost_limit")
+	require.NotContains(t, repo.created.Extra, "quota_weekly_min_remaining")
 	require.True(t, item.IsMine)
 }
 
@@ -175,6 +187,46 @@ func TestAccountServiceUpdateUserAccountLimits(t *testing.T) {
 	require.Equal(t, 20.0, repo.extraUpdates["quota_weekly_min_remaining"])
 	require.Equal(t, 30.0, item.QuotaWeeklyRemaining)
 	require.False(t, item.WeeklyRemainingBelowPolicy)
+}
+
+func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+		Credentials: map[string]any{"refresh_token": "secret", "model_mapping": map[string]any{"old": "old"}},
+		Extra:       map[string]any{"codex_cli_only": true, "window_cost_limit": 50.0},
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}}
+	svc := &AccountService{accountRepo: repo}
+	expiresAt := time.Now().Add(time.Hour).Unix()
+	codexOnly := false
+	modelMapping := map[string]string{"gpt-5.2": "gpt-5.2", " ": "ignored"}
+	groupIDs := []int64{11, 12}
+
+	item, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
+		GroupIDs:           &groupIDs,
+		ExpiresAt:          &expiresAt,
+		AutoPauseOnExpired: boolPtr(true),
+		ModelMapping:       &modelMapping,
+		CodexCLIOnly:       &codexOnly,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	require.Equal(t, []int64{11, 12}, repo.boundGroups)
+	require.Equal(t, map[string]any{"gpt-5.2": "gpt-5.2"}, repo.updated.Credentials["model_mapping"])
+	require.NotContains(t, repo.updated.Extra, "codex_cli_only")
+	require.Equal(t, 50.0, repo.updated.Extra["window_cost_limit"])
+	require.NotNil(t, repo.updated.ExpiresAt)
+	require.Equal(t, expiresAt, repo.updated.ExpiresAt.Unix())
+	require.Equal(t, []int64{11, 12}, item.GroupIDs)
+	require.False(t, item.CodexCLIOnly)
 }
 
 func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
@@ -263,5 +315,9 @@ func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {
 }
 
 func floatPtr(v float64) *float64 {
+	return &v
+}
+
+func boolPtr(v bool) *bool {
 	return &v
 }

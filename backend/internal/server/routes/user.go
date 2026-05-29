@@ -86,7 +86,7 @@ func RegisterUserRoutes(
 			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
 			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
-			accounts.PATCH("/:id/limits", h.AccountPool.UpdateLimits)
+			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
 		}
 
 		// 使用记录

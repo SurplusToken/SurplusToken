@@ -61,9 +61,9 @@
                 <th>{{ t('accountPool.columns.owner') }}</th>
                 <th>{{ t('accountPool.columns.status') }}</th>
                 <th>{{ t('accountPool.columns.scheduling') }}</th>
-                <th>{{ t('accountPool.columns.fiveHour') }}</th>
-                <th>{{ t('accountPool.columns.weekly') }}</th>
-                <th>{{ t('accountPool.columns.protection') }}</th>
+                <th>{{ t('accountPool.columns.availability') }}</th>
+                <th>{{ t('accountPool.columns.expiresAt') }}</th>
+                <th>{{ t('accountPool.columns.actions') }}</th>
                 <th>{{ t('accountPool.columns.updated') }}</th>
               </tr>
             </thead>
@@ -138,36 +138,67 @@
                   </span>
                 </td>
                 <td>
-                  <div class="min-w-32 text-sm">
-                    <div>{{ formatPercent(account.contribution_5h_usage_percent) }}</div>
-                    <div class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_5h_reserve_percent) }}
+                  <div v-if="account.is_mine" class="min-w-64 space-y-1.5 text-sm">
+                    <div class="flex flex-wrap gap-1">
+                      <span
+                        v-if="isModelLimited(account)"
+                        class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                      >
+                        {{ t('accountPool.settings.modelCount', { count: modelLimitCount(account) }) }}
+                      </span>
+                      <span
+                        v-else
+                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
+                      >
+                        {{ t('accountPool.settings.allModels') }}
+                      </span>
+                      <span
+                        v-if="account.codex_cli_only"
+                        class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
+                      >
+                        {{ t('accountPool.settings.codexOnly') }}
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <span
+                        v-for="group in account.groups || []"
+                        :key="group.id"
+                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
+                      >
+                        {{ group.name }}
+                      </span>
+                      <span
+                        v-if="!account.groups || account.groups.length === 0"
+                        class="text-xs text-gray-500 dark:text-dark-400"
+                      >
+                        {{ t('accountPool.settings.noGroups') }}
+                      </span>
+                    </div>
+                  </div>
+                  <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
+                </td>
+                <td>
+                  <div class="min-w-40 text-sm">
+                    <div>{{ formatOptionalUnixDate(account.expires_at) }}</div>
+                    <div v-if="account.auto_pause_on_expired && account.expires_at" class="text-xs text-green-600 dark:text-green-400">
+                      {{ t('accountPool.settings.autoPauseEnabled') }}
+                    </div>
+                    <div v-else class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ t('accountPool.settings.noExpiry') }}
                     </div>
                   </div>
                 </td>
                 <td>
-                  <div class="min-w-36 text-sm">
-                    <div>{{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
-                    <div :class="account.contribution_protection_blocked ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
-                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <div v-if="account.is_mine" class="grid min-w-[430px] grid-cols-[1fr_1fr_1.2fr_auto] gap-2">
-                    <input v-model.number="draftFor(account).fiveHourReservePercent" type="number" min="0" max="100" step="1" class="input h-9 text-sm" :placeholder="t('accountPool.fields.fiveHourReservePercent')" />
-                    <input v-model.number="draftFor(account).weeklyReservePercent" type="number" min="0" max="100" step="1" class="input h-9 text-sm" :placeholder="t('accountPool.fields.weeklyReservePercent')" />
-                    <select v-model="draftFor(account).probeFailurePolicy" class="input h-9 text-sm">
-                      <option value="continue">{{ t('accountPool.policy.probeFailureContinue') }}</option>
-                      <option value="pause">{{ t('accountPool.policy.probeFailurePause') }}</option>
-                      <option value="local">{{ t('accountPool.policy.probeFailureLocal') }}</option>
-                    </select>
-                    <div class="flex gap-2">
-                      <button type="button" class="btn btn-primary btn-sm h-9" :disabled="savingIDs.has(account.id)" @click="saveLimits(account)">
-                        {{ savingIDs.has(account.id) ? t('accountPool.saving') : t('accountPool.save') }}
-                      </button>
-                    </div>
-                  </div>
+                  <button
+                    v-if="account.is_mine"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="savingIDs.has(account.id)"
+                    @click="openScopeDialog(account)"
+                  >
+                    <Icon name="edit" size="sm" />
+                    <span>{{ t('accountPool.settings.edit') }}</span>
+                  </button>
                   <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
                 </td>
                 <td class="whitespace-nowrap text-sm text-gray-500 dark:text-dark-400">
@@ -416,65 +447,6 @@
           </div>
         </div>
 
-        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
-          <div class="mb-3 flex items-start gap-3">
-            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
-              <Icon name="shield" size="sm" />
-            </div>
-            <div>
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{ t('accountPool.policy.title') }}
-              </h3>
-              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">
-                {{ t('accountPool.policy.description') }}
-              </p>
-            </div>
-          </div>
-
-          <div class="grid gap-4 lg:grid-cols-3">
-            <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
-              <input
-                v-model.number="createForm.fiveHourReservePercent"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                class="input"
-                :placeholder="t('accountPool.policy.noReservePlaceholder')"
-              />
-              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.fiveHourReserveHint') }}
-              </span>
-            </label>
-            <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.weeklyReservePercentLabel') }}</span>
-              <input
-                v-model.number="createForm.weeklyReservePercent"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                class="input"
-                :placeholder="t('accountPool.policy.noReservePlaceholder')"
-              />
-              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.weeklyReservePercentHint') }}
-              </span>
-            </label>
-            <label class="block">
-              <span class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</span>
-              <select v-model="createForm.probeFailurePolicy" class="input">
-                <option value="continue">{{ t('accountPool.policy.probeFailureContinue') }}</option>
-                <option value="pause">{{ t('accountPool.policy.probeFailurePause') }}</option>
-                <option value="local">{{ t('accountPool.policy.probeFailureLocal') }}</option>
-              </select>
-              <span class="mt-1 block text-xs text-gray-500 dark:text-dark-400">
-                {{ t('accountPool.policy.probeFailureHint') }}
-              </span>
-            </label>
-          </div>
-        </div>
       </form>
 
       <div v-else class="space-y-5">
@@ -537,6 +509,134 @@
         </div>
       </template>
     </BaseDialog>
+
+    <BaseDialog
+      :show="showScopeForm"
+      :title="t('accountPool.settings.editTitle')"
+      width="wide"
+      @close="handleScopeClose"
+    >
+      <form
+        id="user-account-pool-scope-form"
+        class="space-y-5"
+        @submit.prevent="saveScope"
+      >
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
+              <Icon name="grid" size="sm" />
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ scopeAccount?.name || t('accountPool.settings.title') }}
+              </h3>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+                {{ t('accountPool.settings.description') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+              <div class="mb-3 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+                <button
+                  type="button"
+                  @click="scopeModelRestrictionEnabled = false"
+                  :class="restrictionModeClass(!scopeModelRestrictionEnabled)"
+                >
+                  {{ t('accountPool.settings.allowAllModels') }}
+                </button>
+                <button
+                  type="button"
+                  @click="enableScopeModelRestriction"
+                  :class="restrictionModeClass(scopeModelRestrictionEnabled)"
+                >
+                  {{ t('accountPool.settings.limitModels') }}
+                </button>
+              </div>
+              <ModelWhitelistSelector
+                v-if="scopeModelRestrictionEnabled && scopeAccount"
+                v-model="scopeAllowedModels"
+                :platform="scopeAccount.platform"
+              />
+              <p class="input-hint">
+                <template v-if="scopeModelRestrictionEnabled">
+                  {{ t('admin.accounts.selectedModels', { count: scopeAllowedModels.length }) }}
+                  <span v-if="scopeAllowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
+                </template>
+                <template v-else>
+                  {{ t('accountPool.settings.allowAllModelsHint') }}
+                </template>
+              </p>
+            </div>
+
+            <div v-if="scopeAccount?.platform === 'openai'" class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-dark-600">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnly') }}</label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.openai.codexCLIOnlyDesc') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="scopeForm.codexCLIOnly = !scopeForm.codexCLIOnly"
+                :class="toggleClass(scopeForm.codexCLIOnly)"
+              >
+                <span :class="toggleKnobClass(scopeForm.codexCLIOnly)" />
+              </button>
+            </div>
+
+            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[1fr_auto] lg:items-start">
+              <label class="block">
+                <span class="input-label">{{ t('admin.accounts.expiresAt') }}</span>
+                <input v-model="scopeExpiresAtInput" type="datetime-local" class="input" />
+                <span class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</span>
+              </label>
+              <div class="flex min-w-64 items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-dark-600 dark:bg-dark-800">
+                <div>
+                  <label class="input-label mb-0">{{ t('admin.accounts.autoPauseOnExpired') }}</label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  @click="scopeForm.autoPauseOnExpired = !scopeForm.autoPauseOnExpired"
+                  :class="toggleClass(scopeForm.autoPauseOnExpired)"
+                >
+                  <span :class="toggleKnobClass(scopeForm.autoPauseOnExpired)" />
+                </button>
+              </div>
+            </div>
+
+            <GroupSelector
+              v-if="scopeAccount"
+              v-model="scopeForm.groupIds"
+              :groups="availableGroups"
+              :platform="scopeAccount.platform"
+              searchable="auto"
+            />
+          </div>
+        </div>
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="handleScopeClose">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="submit"
+            form="user-account-pool-scope-form"
+            class="btn btn-primary"
+            :disabled="!scopeAccount || savingIDs.has(scopeAccount.id)"
+          >
+            {{ scopeAccount && savingIDs.has(scopeAccount.id) ? t('accountPool.saving') : t('accountPool.save') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
   </AppLayout>
 </template>
 
@@ -553,7 +653,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import accountsAPI, { type UserOAuthAuthUrlRequest, type UserOAuthTokenInfo } from '@/api/accounts'
 import { userGroupsAPI } from '@/api/groups'
-import type { AccountPlatform, AdminGroup, UserAccountPoolItem } from '@/types'
+import type { AccountPlatform, Group, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { buildModelMappingObject, getModelsByPlatform } from '@/composables/useModelWhitelist'
@@ -566,18 +666,12 @@ interface OAuthFlowExposed {
   reset: () => void
 }
 
-type LimitDraft = {
-  fiveHourReservePercent: number
-  weeklyReservePercent: number
-  probeFailurePolicy: 'continue' | 'pause' | 'local'
-}
-
 const { t } = useI18n()
 const appStore = useAppStore()
 
 const platforms: AccountPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
 const accounts = ref<UserAccountPoolItem[]>([])
-const availableGroups = ref<AdminGroup[]>([])
+const availableGroups = ref<Group[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const oauthLoading = ref(false)
@@ -587,7 +681,6 @@ const createStep = ref(1)
 const searchQuery = ref('')
 const platformFilter = ref<AccountPlatform | ''>('')
 const savingIDs = ref(new Set<number>())
-const drafts = reactive<Record<number, LimitDraft>>({})
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 const oauthSession = reactive({
   authUrl: '',
@@ -612,13 +705,20 @@ const createForm = reactive({
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
   codexCLIOnly: false,
-  fiveHourReservePercent: 20,
-  weeklyReservePercent: 20,
-  probeFailurePolicy: 'continue' as 'continue' | 'pause' | 'local',
 })
 
 const modelRestrictionEnabled = ref(false)
 const allowedModels = ref<string[]>([])
+const showScopeForm = ref(false)
+const scopeAccount = ref<UserAccountPoolItem | null>(null)
+const scopeModelRestrictionEnabled = ref(false)
+const scopeAllowedModels = ref<string[]>([])
+const scopeForm = reactive({
+  groupIds: [] as number[],
+  expiresAt: null as number | null,
+  autoPauseOnExpired: true,
+  codexCLIOnly: false,
+})
 
 const expiresAtInput = computed({
   get: () => formatDateTimeLocalInput(createForm.expiresAt),
@@ -630,6 +730,13 @@ const expiresAtInput = computed({
 const availableGroupsForPlatform = computed(() =>
   availableGroups.value.filter((group) => group.platform === createForm.platform)
 )
+
+const scopeExpiresAtInput = computed({
+  get: () => formatDateTimeLocalInput(scopeForm.expiresAt),
+  set: (value: string) => {
+    scopeForm.expiresAt = parseDateTimeLocalInput(value)
+  },
+})
 
 const geminiOAuthOptions = [
   { value: 'code_assist' as const, label: 'Code Assist' },
@@ -661,12 +768,6 @@ function ownerLabel(account: UserAccountPoolItem): string {
   return account.is_user_contributed ? t('accountPool.shared') : t('accountPool.system')
 }
 
-function formatPercent(value: number | null | undefined): string {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return '-'
-  return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
-}
-
 function formatDate(value: string): string {
   if (!value) return '-'
   const d = new Date(value)
@@ -674,10 +775,28 @@ function formatDate(value: string): string {
   return d.toLocaleString()
 }
 
-function toPercent(value: unknown): number {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) return 0
-  return Math.min(100, n)
+function formatOptionalUnixDate(value: string | null | undefined): string {
+  if (!value) return t('accountPool.settings.noExpiry')
+  return formatDate(value)
+}
+
+function isModelLimited(account: UserAccountPoolItem): boolean {
+  return modelLimitCount(account) > 0
+}
+
+function modelLimitCount(account: UserAccountPoolItem): number {
+  return Object.keys(account.model_mapping || {}).length
+}
+
+function modelMappingToAllowedModels(mapping: Record<string, string> | null | undefined): string[] {
+  return Object.entries(mapping || {})
+    .filter(([from, to]) => from.trim() && from.trim() === String(to).trim())
+    .map(([from]) => from.trim())
+}
+
+function buildWhitelistModelMapping(models: string[]): Record<string, string> {
+  const mapping = buildModelMappingObject('whitelist', models, [])
+  return mapping || {}
 }
 
 function resetOAuthSession() {
@@ -852,10 +971,17 @@ function enableModelRestriction() {
   }
 }
 
+function enableScopeModelRestriction() {
+  scopeModelRestrictionEnabled.value = true
+  if (scopeAllowedModels.value.length === 0 && scopeAccount.value) {
+    scopeAllowedModels.value = [...getModelsByPlatform(scopeAccount.value.platform)]
+  }
+}
+
 async function loadAvailableGroups() {
   try {
     const groups = await userGroupsAPI.getAvailable()
-    availableGroups.value = groups as AdminGroup[]
+    availableGroups.value = groups
     createForm.groupIds = createForm.groupIds.filter((groupID) =>
       groups.some((group) => group.id === groupID)
     )
@@ -891,26 +1017,10 @@ async function handleGenerateUrl() {
   }
 }
 
-function draftFor(account: UserAccountPoolItem): LimitDraft {
-  if (!drafts[account.id]) {
-    drafts[account.id] = {
-      fiveHourReservePercent: account.contribution_5h_reserve_percent ?? 0,
-      weeklyReservePercent: account.contribution_weekly_reserve_percent ?? 0,
-      probeFailurePolicy: account.contribution_probe_failure_policy ?? 'continue',
-    }
-  }
-  return drafts[account.id]
-}
-
 function replaceAccount(updated: UserAccountPoolItem) {
   const index = accounts.value.findIndex((item) => item.id === updated.id)
   if (index >= 0) {
     accounts.value[index] = updated
-  }
-  drafts[updated.id] = {
-    fiveHourReservePercent: updated.contribution_5h_reserve_percent ?? 0,
-    weeklyReservePercent: updated.contribution_weekly_reserve_percent ?? 0,
-    probeFailurePolicy: updated.contribution_probe_failure_policy ?? 'continue',
   }
 }
 
@@ -927,9 +1037,6 @@ async function loadAccounts() {
     pagination.total = result.total
     pagination.page = result.page
     pagination.page_size = result.page_size
-    for (const account of result.items) {
-      draftFor(account)
-    }
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.loadFailed')))
   } finally {
@@ -983,9 +1090,6 @@ async function handleExchangeCode() {
       group_ids: createForm.groupIds,
       expires_at: createForm.expiresAt,
       auto_pause_on_expired: createForm.autoPauseOnExpired,
-      contribution_5h_reserve_percent: toPercent(createForm.fiveHourReservePercent),
-      contribution_weekly_reserve_percent: toPercent(createForm.weeklyReservePercent),
-      contribution_probe_failure_policy: createForm.probeFailurePolicy,
     })
     appStore.showSuccess(t('accountPool.createSuccess'))
     resetCreateForm()
@@ -1009,9 +1113,6 @@ function resetCreateForm() {
   createForm.expiresAt = null
   createForm.autoPauseOnExpired = true
   createForm.codexCLIOnly = false
-  createForm.fiveHourReservePercent = 20
-  createForm.weeklyReservePercent = 20
-  createForm.probeFailurePolicy = 'continue'
   modelRestrictionEnabled.value = false
   allowedModels.value = []
 }
@@ -1029,17 +1130,43 @@ async function toggleSchedulable(account: UserAccountPoolItem, schedulable: bool
   }
 }
 
-async function saveLimits(account: UserAccountPoolItem) {
-  const draft = draftFor(account)
+function openScopeDialog(account: UserAccountPoolItem) {
+  scopeAccount.value = account
+  scopeForm.groupIds = [...(account.group_ids || [])]
+  scopeForm.expiresAt = account.expires_at ? Math.floor(new Date(account.expires_at).getTime() / 1000) : null
+  scopeForm.autoPauseOnExpired = account.auto_pause_on_expired
+  scopeForm.codexCLIOnly = account.codex_cli_only
+  scopeAllowedModels.value = modelMappingToAllowedModels(account.model_mapping)
+  scopeModelRestrictionEnabled.value = scopeAllowedModels.value.length > 0
+  showScopeForm.value = true
+}
+
+function handleScopeClose() {
+  showScopeForm.value = false
+  scopeAccount.value = null
+  scopeModelRestrictionEnabled.value = false
+  scopeAllowedModels.value = []
+  scopeForm.groupIds = []
+  scopeForm.expiresAt = null
+  scopeForm.autoPauseOnExpired = true
+  scopeForm.codexCLIOnly = false
+}
+
+async function saveScope() {
+  const account = scopeAccount.value
+  if (!account) return
   savingIDs.value.add(account.id)
   try {
-    const updated = await accountsAPI.updateLimits(account.id, {
-      contribution_5h_reserve_percent: toPercent(draft.fiveHourReservePercent),
-      contribution_weekly_reserve_percent: toPercent(draft.weeklyReservePercent),
-      contribution_probe_failure_policy: draft.probeFailurePolicy,
+    const updated = await accountsAPI.updateScope(account.id, {
+      group_ids: scopeForm.groupIds,
+      expires_at: scopeForm.expiresAt ?? 0,
+      auto_pause_on_expired: scopeForm.autoPauseOnExpired,
+      model_mapping: scopeModelRestrictionEnabled.value ? buildWhitelistModelMapping(scopeAllowedModels.value) : {},
+      codex_cli_only: account.platform === 'openai' ? scopeForm.codexCLIOnly : false,
     })
     replaceAccount(updated)
-    appStore.showSuccess(t('accountPool.saveSuccess'))
+    appStore.showSuccess(t('accountPool.scopeSaveSuccess'))
+    handleScopeClose()
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('common.error')))
   } finally {

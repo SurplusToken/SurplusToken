@@ -11,23 +11,14 @@ export interface CreateUserOAuthAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
-  contribution_5h_reserve_percent?: number
-  contribution_weekly_reserve_percent?: number
-  contribution_probe_failure_policy?: 'continue' | 'pause' | 'local'
-  window_cost_limit?: number
-  window_cost_sticky_reserve?: number
-  quota_weekly_limit?: number
-  quota_weekly_min_remaining?: number
 }
 
-export interface UpdateUserAccountLimitsRequest {
-  contribution_5h_reserve_percent?: number
-  contribution_weekly_reserve_percent?: number
-  contribution_probe_failure_policy?: 'continue' | 'pause' | 'local'
-  window_cost_limit?: number
-  window_cost_sticky_reserve?: number
-  quota_weekly_limit?: number
-  quota_weekly_min_remaining?: number
+export interface UpdateUserAccountScopeRequest {
+  group_ids?: number[]
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  model_mapping?: Record<string, string>
+  codex_cli_only?: boolean
 }
 
 export interface UserOAuthAuthUrlRequest {
@@ -102,11 +93,11 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
   return data
 }
 
-export async function updateLimits(
+export async function updateScope(
   id: number,
-  payload: UpdateUserAccountLimitsRequest,
+  payload: UpdateUserAccountScopeRequest,
 ): Promise<UserAccountPoolItem> {
-  const { data } = await apiClient.patch<UserAccountPoolItem>(`/accounts/${id}/limits`, payload)
+  const { data } = await apiClient.patch<UserAccountPoolItem>(`/accounts/${id}/scope`, payload)
   return data
 }
 
@@ -116,7 +107,7 @@ export const accountsAPI = {
   generateOAuthAuthUrl,
   exchangeOAuthCode,
   setSchedulable,
-  updateLimits,
+  updateScope,
 }
 
 export default accountsAPI
