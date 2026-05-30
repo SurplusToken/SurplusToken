@@ -132,7 +132,7 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 
 	platform := strings.TrimSpace(filters.Platform)
 	if platform != "" && !isUserAccountPoolPlatformVisible(platform) {
-		return []UserAccountPoolItem{}, paginationResultFromTotal(0, params), nil
+		return []UserAccountPoolItem{}, emptyUserAccountPoolPagination(params), nil
 	}
 	planType := strings.TrimSpace(filters.PlanType)
 	search := strings.TrimSpace(filters.Search)
@@ -539,6 +539,15 @@ func paginationResultFromFilteredAccounts(base *pagination.PaginationResult, tot
 		copied.Pages = int(math.Ceil(float64(total) / float64(copied.PageSize)))
 	}
 	return &copied
+}
+
+func emptyUserAccountPoolPagination(params pagination.PaginationParams) *pagination.PaginationResult {
+	return &pagination.PaginationResult{
+		Total:    0,
+		Page:     params.Page,
+		PageSize: params.Limit(),
+		Pages:    0,
+	}
 }
 
 func userVisibleModelMapping(account *Account, isMine bool) map[string]string {
