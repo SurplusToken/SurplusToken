@@ -622,7 +622,7 @@ export default {
     totalTokens: '累计消费 Token',
     todayContributionTokens: '今日贡献 Token',
     totalContributionTokens: '累计贡献 Token',
-    todayContributionEarned: '今日收货余额',
+    todayContributionEarned: '今日收获余额',
     currentContributionBalance: '当前贡献余额',
     cacheToday: '今日缓存',
     performance: '性能指标',
