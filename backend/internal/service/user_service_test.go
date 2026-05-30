@@ -214,6 +214,15 @@ func (m *mockUserRepo) GetLatestUsedAtByUserIDs(context.Context, []int64) (map[i
 func (m *mockUserRepo) GetLatestUsedAtByUserID(context.Context, int64) (*time.Time, error) {
 	return nil, nil
 }
+func (m *mockUserRepo) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	return nil, nil
+}
+func (m *mockUserRepo) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+func (m *mockUserRepo) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	return nil
+}
 func (m *mockUserRepo) UpdateTotpSecret(context.Context, int64, *string) error { return nil }
 func (m *mockUserRepo) EnableTotp(context.Context, int64) error                { return nil }
 func (m *mockUserRepo) DisableTotp(context.Context, int64) error               { return nil }

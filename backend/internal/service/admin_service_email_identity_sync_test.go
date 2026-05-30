@@ -101,6 +101,18 @@ func (s *emailSyncRepoStub) UpdateUserLastActiveAt(context.Context, int64, time.
 	return nil
 }
 
+func (s *emailSyncRepoStub) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	return nil, nil
+}
+
+func (s *emailSyncRepoStub) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (s *emailSyncRepoStub) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	return nil
+}
+
 func (s *emailSyncRepoStub) UpdateBalance(context.Context, int64, float64) error { return nil }
 
 func (s *emailSyncRepoStub) DeductBalance(context.Context, int64, float64) error { return nil }

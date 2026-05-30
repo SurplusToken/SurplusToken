@@ -49,6 +49,22 @@
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.users.form.contributionRewardRate') }}</label>
+        <div class="relative">
+          <input
+            v-model="form.contribution_reward_rate"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            class="input pr-10"
+            :placeholder="t('admin.users.form.contributionRewardRatePlaceholder')"
+          />
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+        </div>
+        <p class="input-hint">{{ t('admin.users.form.contributionRewardRateHint') }}</p>
+      </div>
       <UserAttributeForm v-model="form.customAttributes" :user-id="user?.id" />
     </form>
     <template #footer>
@@ -78,11 +94,29 @@ const emit = defineEmits(['close', 'success'])
 const { t } = useI18n(); const appStore = useAppStore(); const { copyToClipboard } = useClipboard()
 
 const submitting = ref(false); const passwordCopied = ref(false)
-const form = reactive({ email: '', password: '', username: '', notes: '', concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
+const form = reactive({
+  email: '',
+  password: '',
+  username: '',
+  notes: '',
+  concurrency: 1,
+  rpm_limit: 0,
+  contribution_reward_rate: '',
+  customAttributes: {} as UserAttributeValuesMap
+})
 
 watch(() => props.user, (u) => {
   if (u) {
-    Object.assign(form, { email: u.email, password: '', username: u.username || '', notes: u.notes || '', concurrency: u.concurrency, rpm_limit: u.rpm_limit ?? 0, customAttributes: {} })
+    Object.assign(form, {
+      email: u.email,
+      password: '',
+      username: u.username || '',
+      notes: u.notes || '',
+      concurrency: u.concurrency,
+      rpm_limit: u.rpm_limit ?? 0,
+      contribution_reward_rate: u.contribution_reward_rate == null ? '' : String(u.contribution_reward_rate),
+      customAttributes: {}
+    })
     passwordCopied.value = false
   }
 }, { immediate: true })
@@ -107,9 +141,26 @@ const handleUpdateUser = async () => {
     appStore.showError(t('admin.users.concurrencyMin'))
     return
   }
+  const rewardRateRaw = String(form.contribution_reward_rate ?? '').trim()
+  let contributionRewardRate: number | null = null
+  if (rewardRateRaw !== '') {
+    const parsed = Number(rewardRateRaw)
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      appStore.showError(t('admin.users.form.contributionRewardRateInvalid'))
+      return
+    }
+    contributionRewardRate = parsed
+  }
   submitting.value = true
   try {
-    const data: any = { email: form.email, username: form.username, notes: form.notes, concurrency: form.concurrency, rpm_limit: form.rpm_limit }
+    const data: any = {
+      email: form.email,
+      username: form.username,
+      notes: form.notes,
+      concurrency: form.concurrency,
+      rpm_limit: form.rpm_limit,
+      contribution_reward_rate: contributionRewardRate
+    }
     if (form.password.trim()) data.password = form.password.trim()
     await adminAPI.users.update(props.user.id, data)
     if (Object.keys(form.customAttributes).length > 0) await adminAPI.userAttributes.updateUserAttributeValues(props.user.id, form.customAttributes)

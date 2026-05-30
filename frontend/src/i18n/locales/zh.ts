@@ -2036,7 +2036,11 @@ export default {
         selectStatus: '选择状态',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
-        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
+        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效',
+        contributionRewardRate: '贡献收益比例覆盖',
+        contributionRewardRatePlaceholder: '留空跟随系统默认',
+        contributionRewardRateHint: '仅影响该用户贡献账号产生的收益结算，范围 0-100%。留空则使用系统默认值',
+        contributionRewardRateInvalid: '贡献收益比例必须在 0 到 100 之间'
       },
       adjustBalance: '调整余额',
       adjustConcurrency: '调整并发数',
@@ -5820,6 +5824,8 @@ export default {
         defaultConcurrencyHint: '新用户的最大并发请求数',
         defaultUserRpmLimit: '默认用户 RPM 限制',
         defaultUserRpmLimitHint: '新用户默认每分钟最大请求数，0 = 不限制；仅作用于新用户创建时初始化',
+        contributionRewardRate: '默认贡献收益比例',
+        contributionRewardRateHint: '贡献账号产生消费时，默认按账号成本的这个比例结算给贡献者；可在用户编辑里单独覆盖',
         defaultSubscriptions: '默认订阅列表',
         defaultSubscriptionsHint: '新用户创建或注册时自动分配这些订阅',
         addDefaultSubscription: '添加默认订阅',

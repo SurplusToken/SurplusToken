@@ -5645,6 +5645,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		return nil
 	}
 
+	contributorUserID := usageBillingContributorUserID(account, user)
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 			Cost:                          cost,
@@ -5657,7 +5658,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			AccountRateMultiplier:         accountRateMultiplier,
 			APIKeyService:                 input.APIKeyService,
 			Platform:                      PlatformFromAPIKey(apiKey),
-			ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx),
+			ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx, contributorUserID),
 			ContributionRewardFreezeHours: s.contributionRewardFreezeHours(ctx),
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err

@@ -70,6 +70,8 @@ type UpdateUserRequest struct {
 	RPMLimit      *int     `json:"rpm_limit"`
 	Status        string   `json:"status" binding:"omitempty,oneof=active disabled"`
 	AllowedGroups *[]int64 `json:"allowed_groups"`
+	// ContributionRewardRate 用户贡献账号收益比例覆盖；未传不改，null 清除覆盖。
+	ContributionRewardRate dto.NullableFloat64Field `json:"contribution_reward_rate"`
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64 `json:"group_rates"`
@@ -284,6 +286,13 @@ func (h *UserHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if req.ContributionRewardRate.Set && req.ContributionRewardRate.Value != nil {
+		v := *req.ContributionRewardRate.Value
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < service.ContributionRewardRateMin || v > service.ContributionRewardRateMax {
+			response.BadRequest(c, "contribution_reward_rate must be between 0 and 100")
+			return
+		}
+	}
 
 	// 使用指针类型直接传递，nil 表示未提供该字段
 	user, err := h.adminService.UpdateUser(c.Request.Context(), userID, &service.UpdateUserInput{
@@ -296,7 +305,11 @@ func (h *UserHandler) Update(c *gin.Context) {
 		RPMLimit:      req.RPMLimit,
 		Status:        req.Status,
 		AllowedGroups: req.AllowedGroups,
-		GroupRates:    req.GroupRates,
+		ContributionRewardRate: service.NullableFloat64Update{
+			Set:   req.ContributionRewardRate.Set,
+			Value: req.ContributionRewardRate.Value,
+		},
+		GroupRates: req.GroupRates,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

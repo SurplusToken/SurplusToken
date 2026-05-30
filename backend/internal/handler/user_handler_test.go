@@ -112,6 +112,15 @@ func (s *userHandlerRepoStub) UpdateUserLastActiveAt(_ context.Context, _ int64,
 	}
 	return nil
 }
+func (s *userHandlerRepoStub) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	return nil, nil
+}
+func (s *userHandlerRepoStub) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+func (s *userHandlerRepoStub) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	return nil
+}
 func (s *userHandlerRepoStub) RemoveGroupFromUserAllowedGroups(context.Context, int64, int64) error {
 	return nil
 }

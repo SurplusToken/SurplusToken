@@ -2841,6 +2841,18 @@ func (r *oauthPendingFlowUserRepo) GetLatestUsedAtByUserID(context.Context, int6
 	return nil, nil
 }
 
+func (r *oauthPendingFlowUserRepo) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	return nil, nil
+}
+
+func (r *oauthPendingFlowUserRepo) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (r *oauthPendingFlowUserRepo) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	return nil
+}
+
 func (r *oauthPendingFlowUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {
 	count, err := r.client.User.Query().Where(dbuser.EmailEQ(email)).Count(ctx)
 	return count > 0, err

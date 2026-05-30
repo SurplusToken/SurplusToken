@@ -44,6 +44,11 @@ var (
 	)
 )
 
+type NullableFloat64Update struct {
+	Set   bool
+	Value *float64
+}
+
 const (
 	maxNotifyEmails      = 3 // Maximum number of notification emails per user
 	maxInlineAvatarBytes = 100 * 1024
@@ -92,6 +97,9 @@ type UserRepository interface {
 	GetLatestUsedAtByUserIDs(ctx context.Context, userIDs []int64) (map[int64]*time.Time, error)
 	GetLatestUsedAtByUserID(ctx context.Context, userID int64) (*time.Time, error)
 	UpdateUserLastActiveAt(ctx context.Context, userID int64, activeAt time.Time) error
+	GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error)
+	BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error)
+	SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error
 
 	UpdateBalance(ctx context.Context, id int64, amount float64) error
 	DeductBalance(ctx context.Context, id int64, amount float64) error

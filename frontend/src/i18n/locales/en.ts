@@ -1930,7 +1930,11 @@ export default {
       form: {
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
-        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.'
+        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.',
+        contributionRewardRate: 'Contribution Reward Override',
+        contributionRewardRatePlaceholder: 'Blank = system default',
+        contributionRewardRateHint: 'Only affects rewards from this user’s contributed accounts. Range: 0-100%. Blank follows the system default.',
+        contributionRewardRateInvalid: 'Contribution reward rate must be between 0 and 100'
       },
       columns: {
         user: 'User',
@@ -5661,6 +5665,8 @@ export default {
         defaultConcurrencyHint: 'Maximum concurrent requests for new users',
         defaultUserRpmLimit: 'Default User RPM Limit',
         defaultUserRpmLimitHint: 'Default max requests per minute for new users; 0 = unlimited. Only applied at new user creation.',
+        contributionRewardRate: 'Default Contribution Reward Rate',
+        contributionRewardRateHint: 'Default percentage of account cost credited to contributors when shared accounts are consumed; individual users can override it.',
         defaultSubscriptions: 'Default Subscriptions',
         defaultSubscriptionsHint: 'Auto-assign these subscriptions when a new user is created or registered',
         addDefaultSubscription: 'Add Default Subscription',

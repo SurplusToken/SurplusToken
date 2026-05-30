@@ -3123,6 +3123,28 @@
                     {{ t("admin.settings.defaults.defaultUserRpmLimitHint") }}
                   </p>
                 </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.contributionRewardRate") }}
+                  </label>
+                  <div class="relative">
+                    <input
+                      v-model.number="form.contribution_reward_rate"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      class="input pr-10"
+                      placeholder="80"
+                    />
+                    <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                  </div>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.contributionRewardRateHint") }}
+                  </p>
+                </div>
               </div>
 
               <div class="border-t border-gray-100 pt-4 dark:border-dark-700">

@@ -119,6 +119,21 @@ func (s *userRepoStub) UpdateUserLastActiveAt(ctx context.Context, userID int64,
 	panic("unexpected UpdateUserLastActiveAt call")
 }
 
+func (s *userRepoStub) GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error) {
+	return nil, nil
+}
+
+func (s *userRepoStub) BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (s *userRepoStub) SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error {
+	if s.user != nil && s.user.ID == userID {
+		s.user.ContributionRewardRate = ratePercent
+	}
+	return nil
+}
+
 func (s *userRepoStub) UpdateBalance(ctx context.Context, id int64, amount float64) error {
 	panic("unexpected UpdateBalance call")
 }

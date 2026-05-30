@@ -144,6 +144,8 @@ type UpdateUserInput struct {
 	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
 	Status        string
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	// ContributionRewardRate 用户贡献账号收益比例覆盖；Set=false 表示不改，Value=nil 表示清除覆盖。
+	ContributionRewardRate NullableFloat64Update
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64
@@ -612,6 +614,15 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 			}
 		}
 	}
+	if len(users) > 0 {
+		if ratesByUser, err := s.userRepo.BatchGetContributionRewardRateOverrides(ctx, userIDsFromUsers(users)); err != nil {
+			logger.LegacyPrintf("service.admin", "failed to load contribution reward rates in batch: err=%v", err)
+		} else {
+			for i := range users {
+				users[i].ContributionRewardRate = ratesByUser[users[i].ID]
+			}
+		}
+	}
 	// 批量加载用户专属分组倍率
 	if s.userGroupRateRepo != nil && len(users) > 0 {
 		if batchRepo, ok := s.userGroupRateRepo.(userGroupRateBatchReader); ok {
@@ -635,6 +646,16 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 		}
 	}
 	return users, result.Total, nil
+}
+
+func userIDsFromUsers(users []User) []int64 {
+	out := make([]int64, 0, len(users))
+	for i := range users {
+		if users[i].ID > 0 {
+			out = append(out, users[i].ID)
+		}
+	}
+	return out
 }
 
 func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users []User) {
@@ -670,6 +691,11 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 		} else {
 			user.GroupRates = rates
 		}
+	}
+	if rate, err := s.userRepo.GetContributionRewardRateOverride(ctx, id); err != nil {
+		logger.LegacyPrintf("service.admin", "failed to load user contribution reward rate: user_id=%d err=%v", id, err)
+	} else {
+		user.ContributionRewardRate = rate
 	}
 	return user, nil
 }
@@ -722,6 +748,12 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			}
 		}
 	}
+	if input.ContributionRewardRate.Set && input.ContributionRewardRate.Value != nil {
+		v := *input.ContributionRewardRate.Value
+		if v < ContributionRewardRateMin || v > ContributionRewardRateMax {
+			return nil, fmt.Errorf("contribution_reward_rate must be between %.0f and %.0f", ContributionRewardRateMin, ContributionRewardRateMax)
+		}
+	}
 
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
@@ -772,6 +804,13 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, err
+	}
+
+	if input.ContributionRewardRate.Set {
+		if err := s.userRepo.SetContributionRewardRateOverride(ctx, user.ID, input.ContributionRewardRate.Value); err != nil {
+			return nil, err
+		}
+		user.ContributionRewardRate = input.ContributionRewardRate.Value
 	}
 
 	// 同步用户专属分组倍率

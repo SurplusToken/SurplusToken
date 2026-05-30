@@ -42,9 +42,30 @@ type AdminUser struct {
 
 	Notes      string     `json:"notes"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+	// ContributionRewardRate 用户贡献账号收益比例覆盖；nil 表示跟随系统默认。
+	ContributionRewardRate *float64 `json:"contribution_reward_rate"`
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]rateMultiplier
 	GroupRates map[int64]float64 `json:"group_rates,omitempty"`
+}
+
+type NullableFloat64Field struct {
+	Set   bool
+	Value *float64
+}
+
+func (f *NullableFloat64Field) UnmarshalJSON(data []byte) error {
+	f.Set = true
+	if bytes.Equal(data, []byte("null")) {
+		f.Value = nil
+		return nil
+	}
+	var value float64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	f.Value = &value
+	return nil
 }
 
 type APIKey struct {

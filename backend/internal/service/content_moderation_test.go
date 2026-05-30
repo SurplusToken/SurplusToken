@@ -175,6 +175,18 @@ func (r *contentModerationTestUserRepo) UpdateUserLastActiveAt(ctx context.Conte
 	panic("unexpected UpdateUserLastActiveAt call")
 }
 
+func (r *contentModerationTestUserRepo) GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error) {
+	panic("unexpected GetContributionRewardRateOverride call")
+}
+
+func (r *contentModerationTestUserRepo) BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error) {
+	panic("unexpected BatchGetContributionRewardRateOverrides call")
+}
+
+func (r *contentModerationTestUserRepo) SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error {
+	panic("unexpected SetContributionRewardRateOverride call")
+}
+
 func (r *contentModerationTestUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
 	panic("unexpected UpdateBalance call")
 }

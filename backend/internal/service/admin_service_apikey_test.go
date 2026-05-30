@@ -103,6 +103,15 @@ func (s *userRepoStubForGroupUpdate) GetLatestUsedAtByUserID(context.Context, in
 func (s *userRepoStubForGroupUpdate) UpdateUserLastActiveAt(context.Context, int64, time.Time) error {
 	panic("unexpected")
 }
+func (s *userRepoStubForGroupUpdate) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	panic("unexpected")
+}
+func (s *userRepoStubForGroupUpdate) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	panic("unexpected")
+}
+func (s *userRepoStubForGroupUpdate) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	panic("unexpected")
+}
 func (s *userRepoStubForGroupUpdate) RemoveGroupFromUserAllowedGroups(context.Context, int64, int64) error {
 	panic("unexpected")
 }

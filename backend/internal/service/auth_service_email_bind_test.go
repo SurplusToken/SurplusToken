@@ -809,6 +809,18 @@ func (s *emailBindUserRepoStub) UpdateUserLastActiveAt(context.Context, int64, t
 	return nil
 }
 
+func (s *emailBindUserRepoStub) GetContributionRewardRateOverride(context.Context, int64) (*float64, error) {
+	return nil, nil
+}
+
+func (s *emailBindUserRepoStub) BatchGetContributionRewardRateOverrides(context.Context, []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (s *emailBindUserRepoStub) SetContributionRewardRateOverride(context.Context, int64, *float64) error {
+	return nil
+}
+
 func (s *emailBindUserRepoStub) UpdateBalance(context.Context, int64, float64) error { return nil }
 func (s *emailBindUserRepoStub) DeductBalance(context.Context, int64, float64) error { return nil }
 func (s *emailBindUserRepoStub) UpdateConcurrency(context.Context, int64, int) error { return nil }

@@ -8041,11 +8041,23 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 	return apiKey.Group.Platform
 }
 
-func (s *GatewayService) contributionRewardRatePercent(ctx context.Context) float64 {
-	if s == nil || s.settingService == nil {
-		return ContributionRewardRateDefault
+func (s *GatewayService) contributionRewardRatePercent(ctx context.Context, contributorUserID int64) float64 {
+	defaultRate := ContributionRewardRateDefault
+	if s != nil && s.settingService != nil {
+		defaultRate = s.settingService.GetContributionRewardRatePercent(ctx)
 	}
-	return s.settingService.GetContributionRewardRatePercent(ctx)
+	if s == nil || s.userRepo == nil || contributorUserID <= 0 {
+		return defaultRate
+	}
+	rate, err := s.userRepo.GetContributionRewardRateOverride(ctx, contributorUserID)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "failed to load contribution reward rate override: user_id=%d err=%v", contributorUserID, err)
+		return defaultRate
+	}
+	if rate == nil {
+		return defaultRate
+	}
+	return clampContributionRewardRate(*rate)
 }
 
 func (s *GatewayService) contributionRewardFreezeHours(ctx context.Context) int {
@@ -8055,11 +8067,23 @@ func (s *GatewayService) contributionRewardFreezeHours(ctx context.Context) int 
 	return s.settingService.GetContributionRewardFreezeHours(ctx)
 }
 
-func (s *OpenAIGatewayService) contributionRewardRatePercent(ctx context.Context) float64 {
-	if s == nil || s.settingService == nil {
-		return ContributionRewardRateDefault
+func (s *OpenAIGatewayService) contributionRewardRatePercent(ctx context.Context, contributorUserID int64) float64 {
+	defaultRate := ContributionRewardRateDefault
+	if s != nil && s.settingService != nil {
+		defaultRate = s.settingService.GetContributionRewardRatePercent(ctx)
 	}
-	return s.settingService.GetContributionRewardRatePercent(ctx)
+	if s == nil || s.userRepo == nil || contributorUserID <= 0 {
+		return defaultRate
+	}
+	rate, err := s.userRepo.GetContributionRewardRateOverride(ctx, contributorUserID)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_gateway", "failed to load contribution reward rate override: user_id=%d err=%v", contributorUserID, err)
+		return defaultRate
+	}
+	if rate == nil {
+		return defaultRate
+	}
+	return clampContributionRewardRate(*rate)
 }
 
 func (s *OpenAIGatewayService) contributionRewardFreezeHours(ctx context.Context) int {
@@ -8093,6 +8117,16 @@ func (p *postUsageBillingParams) shouldUpdateRateLimits() bool {
 
 func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
 	return p.Cost.TotalCost > 0 && p.Account.IsAPIKeyOrBedrock() && p.Account.HasAnyQuotaLimit()
+}
+
+func usageBillingContributorUserID(account *Account, consumer *User) int64 {
+	if account == nil || account.OwnerUserID == nil || *account.OwnerUserID <= 0 {
+		return 0
+	}
+	if consumer != nil && *account.OwnerUserID == consumer.ID {
+		return 0
+	}
+	return *account.OwnerUserID
 }
 
 // postUsageBilling is the legacy fallback billing path used when the unified
@@ -8695,6 +8729,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 	requestID := usageLog.RequestID
+	contributorUserID := usageBillingContributorUserID(account, user)
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                          cost,
 		User:                          user,
@@ -8706,7 +8741,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		AccountRateMultiplier:         accountRateMultiplier,
 		APIKeyService:                 input.APIKeyService,
 		Platform:                      quotaPlatform,
-		ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx),
+		ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx, contributorUserID),
 		ContributionRewardFreezeHours: s.contributionRewardFreezeHours(ctx),
 	}, s.billingDeps(), s.usageBillingRepo)
 

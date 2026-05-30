@@ -622,6 +622,84 @@ func (r *userRepository) GetLatestUsedAtByUserID(ctx context.Context, userID int
 	return latestByUserID[userID], nil
 }
 
+func (r *userRepository) GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error) {
+	if userID <= 0 {
+		return nil, service.ErrUserNotFound
+	}
+	rates, err := r.BatchGetContributionRewardRateOverrides(ctx, []int64{userID})
+	if err != nil {
+		return nil, err
+	}
+	return rates[userID], nil
+}
+
+func (r *userRepository) BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error) {
+	result := make(map[int64]*float64, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	if r.sql == nil {
+		return nil, fmt.Errorf("sql executor is not configured")
+	}
+
+	rows, err := r.sql.QueryContext(ctx, `
+SELECT user_id, contribution_reward_rate::double precision
+FROM user_contributions
+WHERE user_id = ANY($1)
+  AND contribution_reward_rate IS NOT NULL`, pq.Array(userIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query contribution reward rate overrides: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			userID int64
+			rate   float64
+		)
+		if scanErr := rows.Scan(&userID, &rate); scanErr != nil {
+			return nil, scanErr
+		}
+		v := rate
+		result[userID] = &v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *userRepository) SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error {
+	if userID <= 0 {
+		return service.ErrUserNotFound
+	}
+	if r.sql == nil {
+		return fmt.Errorf("sql executor is not configured")
+	}
+	if ratePercent != nil {
+		v := *ratePercent
+		if v < service.ContributionRewardRateMin || v > service.ContributionRewardRateMax {
+			return fmt.Errorf("contribution_reward_rate must be between %.0f and %.0f", service.ContributionRewardRateMin, service.ContributionRewardRateMax)
+		}
+	}
+
+	executor := txAwareSQLExecutor(ctx, r.sql, r.client)
+	if _, err := executor.ExecContext(ctx, `
+INSERT INTO user_contributions (user_id, created_at, updated_at)
+VALUES ($1, NOW(), NOW())
+ON CONFLICT (user_id) DO NOTHING`, userID); err != nil {
+		return fmt.Errorf("ensure user contribution summary: %w", err)
+	}
+	if _, err := executor.ExecContext(ctx, `
+UPDATE user_contributions
+SET contribution_reward_rate = $2,
+    updated_at = NOW()
+WHERE user_id = $1`, userID, ratePercent); err != nil {
+		return fmt.Errorf("set contribution reward rate override: %w", err)
+	}
+	return nil
+}
+
 func userLastUsedAtOrder(sortOrder string) []func(*entsql.Selector) {
 	orderExpr := func(direction, nulls string, tieOrder func(string) string) func(*entsql.Selector) {
 		return func(s *entsql.Selector) {

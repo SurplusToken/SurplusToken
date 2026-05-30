@@ -60,6 +60,9 @@ type User struct {
 
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription
+
+	// ContributionRewardRate 用户贡献账号收益比例覆盖。nil 表示跟随系统全局默认。
+	ContributionRewardRate *float64
 }
 
 func (u *User) IsAdmin() bool {
