@@ -619,8 +619,11 @@ export default {
     apiKeys: 'API Keys',
     todayRequests: 'Today Requests',
     todayCost: 'Today Cost',
-    todayTokens: 'Today Tokens',
-    totalTokens: 'Total Tokens',
+    todayTokens: 'Today Consumed Tokens',
+    totalTokens: 'Total Consumed Tokens',
+    todayContributionTokens: 'Today Contribution Tokens',
+    totalContributionTokens: 'Total Contribution Tokens',
+    todayContributionEarned: 'Today Earned Contribution Balance',
     cacheToday: 'Cache (Today)',
     performance: 'Performance',
     avgResponse: 'Avg Response',
@@ -1083,6 +1086,11 @@ export default {
       transferFailed: 'Failed to transfer contribution balance',
       loadFailed: 'Failed to load contribution balance',
     },
+    planTypes: {
+      all: 'All types',
+      plus: 'Plus',
+      pro: 'Pro',
+    },
     settings: {
       title: 'Account Availability',
       description: 'Set which models and groups this account can be scheduled for, and how sharing behaves after expiry.',
@@ -1138,6 +1146,7 @@ export default {
     columns: {
       account: 'Account',
       platform: 'Platform',
+      accountType: 'Account Type',
       owner: 'Owner',
       status: 'Status',
       scheduling: 'Scheduling',

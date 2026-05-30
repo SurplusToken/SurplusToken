@@ -618,8 +618,11 @@ export default {
     apiKeys: 'API 密钥',
     todayRequests: '今日请求',
     todayCost: '今日消费',
-    todayTokens: '今日 Token',
-    totalTokens: '累计 Token',
+    todayTokens: '今日消费 Token',
+    totalTokens: '累计消费 Token',
+    todayContributionTokens: '今日贡献 Token',
+    totalContributionTokens: '累计贡献 Token',
+    todayContributionEarned: '今日收获贡献余额',
     cacheToday: '今日缓存',
     performance: '性能指标',
     avgResponse: '平均响应',
@@ -1087,6 +1090,11 @@ export default {
       transferFailed: '贡献余额转入失败',
       loadFailed: '贡献余额加载失败',
     },
+    planTypes: {
+      all: '全部类型',
+      plus: 'Plus',
+      pro: 'Pro',
+    },
     settings: {
       title: '账号可用范围',
       description: '设置这个账号允许被调度到哪些模型和分组，以及到期后的共享行为。',
@@ -1142,6 +1150,7 @@ export default {
     columns: {
       account: '账号',
       platform: '平台',
+      accountType: '账号类型',
       owner: '归属',
       status: '状态',
       scheduling: '调度',

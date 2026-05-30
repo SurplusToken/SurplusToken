@@ -132,7 +132,55 @@
     </div>
   </div>
 
-  <!-- Row 3: Per-platform breakdown -->
+  <!-- Row 3: Contribution Stats -->
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <!-- Today Contribution Tokens -->
+    <div class="card p-4">
+      <div class="flex items-center gap-3">
+        <div class="rounded-lg bg-sky-100 p-2 dark:bg-sky-900/30">
+          <Icon name="upload" size="md" class="text-sky-600 dark:text-sky-400" :stroke-width="2" />
+        </div>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionTokens') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.today_contribution_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ formatTokens(stats?.total_contribution_tokens || 0) }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Total Contribution Tokens -->
+    <div class="card p-4">
+      <div class="flex items-center gap-3">
+        <div class="rounded-lg bg-teal-100 p-2 dark:bg-teal-900/30">
+          <Icon name="database" size="md" class="text-teal-600 dark:text-teal-400" :stroke-width="2" />
+        </div>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalContributionTokens') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.total_contribution_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionTokens') }}: {{ formatTokens(stats?.today_contribution_tokens || 0) }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Today Contribution Balance -->
+    <div class="card p-4">
+      <div class="flex items-center gap-3">
+        <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
+          <Icon name="gift" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
+        </div>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionEarned') }}</p>
+          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(stats?.today_contribution_earned_quota || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('common.total') }}: {{ formatMoney(stats?.total_contribution_earned_quota || 0) }} ·
+            {{ t('dashboard.todayContributionTokens') }}: {{ formatTokens(stats?.today_contribution_tokens || 0) }}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 4: Per-platform breakdown -->
   <div v-if="!isSimple && platformCards.length > 0" class="card p-4">
     <div class="mb-3 flex items-center justify-between">
       <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('dashboard.platformBreakdown') }}</h3>
@@ -382,6 +430,10 @@ const formatBalance = (b: number) =>
 
 const formatNumber = (n: number) => n.toLocaleString()
 const formatCost = (c: number) => c.toFixed(4)
+const formatMoney = (value: number) => {
+  if (!Number.isFinite(value)) return '$0'
+  return `$${value.toFixed(value >= 10 ? 2 : 4).replace(/\.?0+$/, '')}`
+}
 const formatTokens = (t: number) => {
   if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`
   if (t >= 1000) return `${(t / 1000).toFixed(1)}K`

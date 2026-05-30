@@ -934,6 +934,9 @@ export interface UserAccountPoolItem {
   name: string
   platform: AccountPlatform
   type: 'oauth'
+  plan_type?: string | null
+  privacy_mode?: string | null
+  subscription_expires_at?: string | null
   status: 'active' | 'inactive' | 'error'
   is_mine: boolean
   is_user_contributed: boolean

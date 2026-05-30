@@ -590,6 +590,72 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
+func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, params pagination.PaginationParams, platform, planType, search string) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.client.Account.Query().
+		Where(dbaccount.TypeEQ(service.AccountTypeOAuth))
+
+	if platform != "" {
+		q = q.Where(dbaccount.PlatformEQ(platform))
+	}
+	if search != "" {
+		q = q.Where(dbaccount.NameContainsFold(search))
+	}
+	if normalizedPlan := normalizeUserAccountPoolPlanFilter(planType); normalizedPlan != "" {
+		q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
+			s.Where(entsql.P(func(b *entsql.Builder) {
+				b.WriteString("LOWER(COALESCE(").
+					Ident(s.C(dbaccount.FieldCredentials)).
+					WriteString("->>").
+					Arg("plan_type").
+					WriteString(", ''))")
+				if normalizedPlan == "pro" {
+					b.WriteString(" IN (").
+						Arg("pro").
+						WriteString(",").
+						Arg("chatgptpro").
+						WriteString(")")
+					return
+				}
+				b.WriteString(" = ").Arg(normalizedPlan)
+			}))
+		}))
+	}
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.
+		Offset(params.Offset()).
+		Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+
+	accounts, err := accountsQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outAccounts, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+func normalizeUserAccountPoolPlanFilter(planType string) string {
+	switch strings.ToLower(strings.TrimSpace(planType)) {
+	case "plus":
+		return "plus"
+	case "pro", "chatgptpro":
+		return "pro"
+	default:
+		return ""
+	}
+}
+
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)

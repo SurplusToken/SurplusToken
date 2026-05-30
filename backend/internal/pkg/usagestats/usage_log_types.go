@@ -237,6 +237,12 @@ type UserDashboardStats struct {
 	TodayCost                float64 `json:"today_cost"`        // 今日标准计费
 	TodayActualCost          float64 `json:"today_actual_cost"` // 今日实际扣除
 
+	// 贡献账号收益统计
+	TotalContributionTokens      int64   `json:"total_contribution_tokens"`       // 累计贡献 Token
+	TodayContributionTokens      int64   `json:"today_contribution_tokens"`       // 今日贡献 Token
+	TotalContributionEarnedQuota float64 `json:"total_contribution_earned_quota"` // 累计贡献收益
+	TodayContributionEarnedQuota float64 `json:"today_contribution_earned_quota"` // 今日贡献收益
+
 	// 性能统计
 	AverageDurationMs float64 `json:"average_duration_ms"`
 

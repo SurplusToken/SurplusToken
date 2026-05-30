@@ -67,6 +67,11 @@
                 {{ platformLabel(platform) }}
               </option>
             </select>
+            <select v-model="planTypeFilter" class="input w-full sm:w-40" @change="reloadFirstPage">
+              <option value="">{{ t('accountPool.planTypes.all') }}</option>
+              <option value="plus">{{ t('accountPool.planTypes.plus') }}</option>
+              <option value="pro">{{ t('accountPool.planTypes.pro') }}</option>
+            </select>
           </div>
 
           <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('accountPool.refresh')" @click="loadAccounts">
@@ -81,7 +86,7 @@
             <thead>
               <tr>
                 <th>{{ t('accountPool.columns.account') }}</th>
-                <th>{{ t('accountPool.columns.platform') }}</th>
+                <th>{{ t('accountPool.columns.accountType') }}</th>
                 <th>{{ t('accountPool.columns.owner') }}</th>
                 <th>{{ t('accountPool.columns.status') }}</th>
                 <th>{{ t('accountPool.columns.scheduling') }}</th>
@@ -134,7 +139,13 @@
                   </div>
                 </td>
                 <td>
-                  <span class="badge badge-gray">{{ platformLabel(account.platform) }}</span>
+                  <PlatformTypeBadge
+                    :platform="account.platform"
+                    :type="account.type"
+                    :plan-type="account.plan_type || undefined"
+                    :privacy-mode="account.privacy_mode || undefined"
+                    :subscription-expires-at="account.subscription_expires_at || undefined"
+                  />
                 </td>
                 <td>
                   <span :class="account.is_mine ? 'badge badge-primary' : 'badge badge-gray'">
@@ -820,6 +831,7 @@ import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
   type UserOAuthAuthUrlRequest,
@@ -1009,6 +1021,7 @@ const showCreateForm = ref(false)
 const createStep = ref(1)
 const searchQuery = ref('')
 const platformFilter = ref<AccountPlatform | ''>('')
+const planTypeFilter = ref<'' | 'plus' | 'pro'>('')
 const savingIDs = ref(new Set<number>())
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 const oauthSession = reactive({
@@ -1432,6 +1445,7 @@ async function loadAccounts() {
   try {
     const result = await accountsAPI.listPool(pagination.page, pagination.page_size, {
       platform: platformFilter.value,
+      plan_type: planTypeFilter.value,
       search: searchQuery.value.trim(),
       sort_by: 'name',
       sort_order: 'asc',

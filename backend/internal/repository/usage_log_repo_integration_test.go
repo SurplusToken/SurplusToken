@@ -849,11 +849,35 @@ func (s *UsageLogRepoSuite) TestGetUserDashboardStats() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-userdash"})
 
 	s.createUsageLog(user, apiKey, account, 10, 20, 0.5, time.Now())
+	_, err := s.tx.ExecContext(s.ctx, `
+		INSERT INTO user_contribution_ledger (
+			user_id, action, amount, usage_billing_request_id, api_key_id, account_id,
+			consumer_user_id, model, input_tokens, output_tokens, cache_creation_tokens,
+			cache_read_tokens, total_cost, reward_rate, created_at, updated_at
+		)
+		VALUES
+			($1, 'accrue', 1.25, $2, $3, $4, $1, 'claude-3', 100, 50, 10, 5, 2.5, 50, $5, $5),
+			($1, 'accrue', 0.75, $6, $3, $4, $1, 'claude-3', 20, 10, 0, 0, 1.5, 50, $7, $7),
+			($1, 'transfer', 0.50, NULL, NULL, NULL, NULL, NULL, 999, 999, 0, 0, 0, 0, $5, $5)
+	`,
+		user.ID,
+		uuid.New().String(),
+		apiKey.ID,
+		account.ID,
+		timezone.Today().Add(1*time.Hour),
+		uuid.New().String(),
+		timezone.Today().Add(-24*time.Hour),
+	)
+	s.Require().NoError(err)
 
 	stats, err := s.repo.GetUserDashboardStats(s.ctx, user.ID)
 	s.Require().NoError(err, "GetUserDashboardStats")
 	s.Require().Equal(int64(1), stats.TotalAPIKeys)
 	s.Require().Equal(int64(1), stats.TotalRequests)
+	s.Require().Equal(int64(195), stats.TotalContributionTokens)
+	s.Require().Equal(int64(165), stats.TodayContributionTokens)
+	s.Require().InDelta(2.0, stats.TotalContributionEarnedQuota, 0.000001)
+	s.Require().InDelta(1.25, stats.TodayContributionEarnedQuota, 0.000001)
 }
 
 // --- GetAccountTodayStats ---

@@ -2520,6 +2520,29 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	}
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
+	// 贡献收益统计：只统计贡献账号实际结算产生的 accrue 流水。
+	contributionStatsQuery := `
+		SELECT
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_contribution_tokens,
+			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $2), 0) as today_contribution_tokens,
+			COALESCE(SUM(amount), 0)::double precision as total_contribution_earned_quota,
+			COALESCE(SUM(amount) FILTER (WHERE created_at >= $2), 0)::double precision as today_contribution_earned_quota
+		FROM user_contribution_ledger
+		WHERE user_id = $1 AND action = 'accrue'
+	`
+	if err := scanSingleRow(
+		ctx,
+		r.sql,
+		contributionStatsQuery,
+		[]any{userID, today},
+		&stats.TotalContributionTokens,
+		&stats.TodayContributionTokens,
+		&stats.TotalContributionEarnedQuota,
+		&stats.TodayContributionEarnedQuota,
+	); err != nil {
+		return nil, err
+	}
+
 	// 性能指标：RPM 和 TPM（最近1分钟，仅统计该用户的请求）
 	rpm, tpm, err := r.getPerformanceStats(ctx, userID)
 	if err != nil {

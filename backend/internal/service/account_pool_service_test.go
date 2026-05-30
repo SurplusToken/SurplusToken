@@ -259,8 +259,8 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 			Status:      StatusActive,
 			Schedulable: true,
 			OwnerUserID: &ownerID,
-			Credentials: map[string]any{"refresh_token": "secret"},
-			Extra:       map[string]any{"window_cost_limit": 10.0, "private": "hidden"},
+			Credentials: map[string]any{"refresh_token": "secret", "plan_type": "plus", "subscription_expires_at": "2026-06-01T00:00:00Z"},
+			Extra:       map[string]any{"window_cost_limit": 10.0, "privacy_mode": "training_off", "private": "hidden"},
 		},
 		{
 			ID:          2,
@@ -281,11 +281,30 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 	require.Len(t, items, 2)
 	require.True(t, items[0].IsMine)
 	require.False(t, items[1].IsMine)
+	require.Equal(t, "plus", items[0].PlanType)
+	require.Equal(t, "training_off", items[0].PrivacyMode)
+	require.Equal(t, "2026-06-01T00:00:00Z", items[0].SubscriptionExpiresAt)
 	payload, err := json.Marshal(items[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(payload), "refresh_token")
 	require.NotContains(t, string(payload), "secret")
 	require.NotContains(t, string(payload), "private")
+}
+
+func TestAccountServiceListUserAccountPoolPlanTypeFilterFallback(t *testing.T) {
+	repo := &accountPoolRepoStub{accounts: []Account{
+		{ID: 1, Name: "plus", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "plus"}},
+		{ID: 2, Name: "pro", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "chatgptpro"}},
+		{ID: 3, Name: "free", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "free"}},
+	}}
+	svc := &AccountService{accountRepo: repo}
+
+	items, page, err := svc.ListUserAccountPool(context.Background(), 42, pagination.PaginationParams{Page: 1, PageSize: 20}, UserAccountPoolListFilters{PlanType: "pro"})
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, int64(2), items[0].ID)
+	require.Equal(t, int64(1), page.Total)
 }
 
 func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {

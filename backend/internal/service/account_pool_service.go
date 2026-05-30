@@ -22,6 +22,7 @@ var (
 
 type UserAccountPoolListFilters struct {
 	Platform string
+	PlanType string
 	Search   string
 }
 
@@ -30,6 +31,9 @@ type UserAccountPoolItem struct {
 	Name                               string                 `json:"name"`
 	Platform                           string                 `json:"platform"`
 	Type                               string                 `json:"type"`
+	PlanType                           string                 `json:"plan_type,omitempty"`
+	PrivacyMode                        string                 `json:"privacy_mode,omitempty"`
+	SubscriptionExpiresAt              string                 `json:"subscription_expires_at,omitempty"`
 	Status                             string                 `json:"status"`
 	IsMine                             bool                   `json:"is_mine"`
 	IsUserContributed                  bool                   `json:"is_user_contributed"`
@@ -59,6 +63,10 @@ type UserAccountPoolItem struct {
 	CreatedAt                          time.Time              `json:"created_at"`
 	UpdatedAt                          time.Time              `json:"updated_at"`
 	WindowCostStart                    *time.Time             `json:"-"`
+}
+
+type userAccountPoolLister interface {
+	ListUserAccountPoolWithFilters(ctx context.Context, params pagination.PaginationParams, platform, planType, search string) ([]Account, *pagination.PaginationResult, error)
 }
 
 type UserAccountPoolGroup struct {
@@ -122,16 +130,22 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 		params.SortOrder = pagination.SortOrderAsc
 	}
 
-	accounts, result, err := s.accountRepo.ListWithFilters(
-		ctx,
-		params,
-		strings.TrimSpace(filters.Platform),
-		AccountTypeOAuth,
-		"",
-		strings.TrimSpace(filters.Search),
-		0,
-		"",
-	)
+	platform := strings.TrimSpace(filters.Platform)
+	planType := strings.TrimSpace(filters.PlanType)
+	search := strings.TrimSpace(filters.Search)
+
+	var accounts []Account
+	var result *pagination.PaginationResult
+	var err error
+	if lister, ok := s.accountRepo.(userAccountPoolLister); ok {
+		accounts, result, err = lister.ListUserAccountPoolWithFilters(ctx, params, platform, planType, search)
+	} else {
+		accounts, result, err = s.accountRepo.ListWithFilters(ctx, params, platform, AccountTypeOAuth, "", search, 0, "")
+		if err == nil && planType != "" {
+			accounts = filterUserAccountPoolAccountsByPlanType(accounts, planType)
+			result = paginationResultFromFilteredAccounts(result, int64(len(accounts)))
+		}
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("list account pool: %w", err)
 	}
@@ -422,6 +436,9 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		Name:                               account.Name,
 		Platform:                           account.Platform,
 		Type:                               account.Type,
+		PlanType:                           account.GetCredential("plan_type"),
+		PrivacyMode:                        account.getExtraString("privacy_mode"),
+		SubscriptionExpiresAt:              account.GetCredential("subscription_expires_at"),
 		Status:                             account.Status,
 		IsMine:                             isMine,
 		IsUserContributed:                  account.IsUserContributed(),
@@ -469,6 +486,43 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		item.WindowCostStart = &start
 	}
 	return item
+}
+
+func filterUserAccountPoolAccountsByPlanType(accounts []Account, planType string) []Account {
+	normalized := normalizeUserAccountPoolPlanType(planType)
+	if normalized == "" {
+		return accounts
+	}
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if normalizeUserAccountPoolPlanType(account.GetCredential("plan_type")) == normalized {
+			out = append(out, account)
+		}
+	}
+	return out
+}
+
+func normalizeUserAccountPoolPlanType(planType string) string {
+	switch strings.ToLower(strings.TrimSpace(planType)) {
+	case "plus":
+		return "plus"
+	case "pro", "chatgptpro":
+		return "pro"
+	default:
+		return ""
+	}
+}
+
+func paginationResultFromFilteredAccounts(base *pagination.PaginationResult, total int64) *pagination.PaginationResult {
+	if base == nil {
+		return &pagination.PaginationResult{Total: total}
+	}
+	copied := *base
+	copied.Total = total
+	if copied.PageSize > 0 {
+		copied.Pages = int(math.Ceil(float64(total) / float64(copied.PageSize)))
+	}
+	return &copied
 }
 
 func userVisibleModelMapping(account *Account, isMine bool) map[string]string {

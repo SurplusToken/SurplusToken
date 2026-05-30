@@ -116,6 +116,7 @@ func (h *AccountPoolHandler) ListPool(c *gin.Context) {
 	}
 	filters := service.UserAccountPoolListFilters{
 		Platform: strings.TrimSpace(c.Query("platform")),
+		PlanType: strings.TrimSpace(c.Query("plan_type")),
 		Search:   strings.TrimSpace(c.Query("search")),
 	}
 
