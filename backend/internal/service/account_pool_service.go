@@ -131,6 +131,9 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 	}
 
 	platform := strings.TrimSpace(filters.Platform)
+	if platform != "" && !isUserAccountPoolPlatformVisible(platform) {
+		return []UserAccountPoolItem{}, paginationResultFromTotal(0, params), nil
+	}
 	planType := strings.TrimSpace(filters.PlanType)
 	search := strings.TrimSpace(filters.Search)
 
@@ -141,8 +144,11 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 		accounts, result, err = lister.ListUserAccountPoolWithFilters(ctx, params, platform, planType, search)
 	} else {
 		accounts, result, err = s.accountRepo.ListWithFilters(ctx, params, platform, AccountTypeOAuth, "", search, 0, "")
-		if err == nil && planType != "" {
-			accounts = filterUserAccountPoolAccountsByPlanType(accounts, planType)
+		if err == nil {
+			accounts = filterUserAccountPoolAccountsByAllowedPlatform(accounts)
+			if planType != "" {
+				accounts = filterUserAccountPoolAccountsByPlanType(accounts, planType)
+			}
 			result = paginationResultFromFilteredAccounts(result, int64(len(accounts)))
 		}
 	}
@@ -502,6 +508,16 @@ func filterUserAccountPoolAccountsByPlanType(accounts []Account, planType string
 	return out
 }
 
+func filterUserAccountPoolAccountsByAllowedPlatform(accounts []Account) []Account {
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if isUserAccountPoolPlatformVisible(account.Platform) {
+			out = append(out, account)
+		}
+	}
+	return out
+}
+
 func normalizeUserAccountPoolPlanType(planType string) string {
 	switch strings.ToLower(strings.TrimSpace(planType)) {
 	case "plus":
@@ -581,6 +597,15 @@ func normalizeUserModelMapping(input map[string]string) map[string]any {
 func isUserOAuthPlatformAllowed(platform string) bool {
 	switch platform {
 	case PlatformOpenAI:
+		return true
+	default:
+		return false
+	}
+}
+
+func isUserAccountPoolPlatformVisible(platform string) bool {
+	switch platform {
+	case PlatformAnthropic, PlatformOpenAI:
 		return true
 	default:
 		return false

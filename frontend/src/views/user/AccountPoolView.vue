@@ -993,7 +993,7 @@ const ModelRestrictionEditor = defineComponent({
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const platforms: AccountPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+const platforms: AccountPlatform[] = ['anthropic', 'openai']
 const accounts = ref<UserAccountPoolItem[]>([])
 const availableGroups = ref<Group[]>([])
 const loading = ref(false)

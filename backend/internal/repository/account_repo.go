@@ -592,7 +592,10 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 
 func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, params pagination.PaginationParams, platform, planType, search string) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.client.Account.Query().
-		Where(dbaccount.TypeEQ(service.AccountTypeOAuth))
+		Where(
+			dbaccount.TypeEQ(service.AccountTypeOAuth),
+			dbaccount.PlatformIn(service.PlatformAnthropic, service.PlatformOpenAI),
+		)
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))

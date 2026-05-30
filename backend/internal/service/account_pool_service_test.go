@@ -287,6 +287,26 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 			OwnerUserID: &otherID,
 			Credentials: map[string]any{"refresh_token": "other-secret"},
 		},
+		{
+			ID:          3,
+			Name:        "other-antigravity",
+			Platform:    PlatformAntigravity,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			OwnerUserID: &otherID,
+			Credentials: map[string]any{"refresh_token": "ag-secret"},
+		},
+		{
+			ID:          4,
+			Name:        "other-anthropic",
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			OwnerUserID: &otherID,
+			Credentials: map[string]any{"refresh_token": "anthropic-secret"},
+		},
 	}}
 	svc := &AccountService{accountRepo: repo}
 
@@ -296,6 +316,7 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 	require.Len(t, items, 2)
 	require.True(t, items[0].IsMine)
 	require.False(t, items[1].IsMine)
+	require.Equal(t, PlatformAnthropic, items[1].Platform)
 	require.Equal(t, "plus", items[0].PlanType)
 	require.Equal(t, "training_off", items[0].PrivacyMode)
 	require.Equal(t, "2026-06-01T00:00:00Z", items[0].SubscriptionExpiresAt)
@@ -304,6 +325,19 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 	require.NotContains(t, string(payload), "refresh_token")
 	require.NotContains(t, string(payload), "secret")
 	require.NotContains(t, string(payload), "private")
+}
+
+func TestAccountServiceListUserAccountPoolRejectsHiddenPlatformFilter(t *testing.T) {
+	repo := &accountPoolRepoStub{accounts: []Account{
+		{ID: 1, Name: "openai", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive},
+	}}
+	svc := &AccountService{accountRepo: repo}
+
+	items, page, err := svc.ListUserAccountPool(context.Background(), 42, pagination.PaginationParams{Page: 1, PageSize: 20}, UserAccountPoolListFilters{Platform: PlatformGemini})
+
+	require.NoError(t, err)
+	require.Empty(t, items)
+	require.Equal(t, int64(0), page.Total)
 }
 
 func TestAccountServiceListUserAccountPoolPlanTypeFilterFallback(t *testing.T) {
