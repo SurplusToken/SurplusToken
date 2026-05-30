@@ -61,6 +61,9 @@
                 <th>{{ t('accountPool.columns.owner') }}</th>
                 <th>{{ t('accountPool.columns.status') }}</th>
                 <th>{{ t('accountPool.columns.scheduling') }}</th>
+                <th>{{ t('accountPool.columns.fiveHour') }}</th>
+                <th>{{ t('accountPool.columns.weekly') }}</th>
+                <th>{{ t('accountPool.columns.protection') }}</th>
                 <th>{{ t('accountPool.columns.availability') }}</th>
                 <th>{{ t('accountPool.columns.expiresAt') }}</th>
                 <th>{{ t('accountPool.columns.actions') }}</th>
@@ -69,12 +72,12 @@
             </thead>
             <tbody>
               <tr v-if="loading && accounts.length === 0">
-                <td colspan="9" class="text-center text-gray-500 dark:text-dark-300">
+                <td colspan="12" class="text-center text-gray-500 dark:text-dark-300">
                   {{ t('common.loading') }}
                 </td>
               </tr>
               <tr v-else-if="accounts.length === 0">
-                <td colspan="9" class="text-center text-gray-500 dark:text-dark-300">
+                <td colspan="12" class="text-center text-gray-500 dark:text-dark-300">
                   {{ t('accountPool.empty') }}
                 </td>
               </tr>
@@ -136,6 +139,50 @@
                   <span v-else class="text-sm text-gray-500 dark:text-dark-400">
                     {{ account.schedulable ? t('common.enabled') : t('common.disabled') }}
                   </span>
+                </td>
+                <td>
+                  <div class="min-w-36 space-y-1 text-sm">
+                    <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_5h_usage_percent) }}</div>
+                    <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ formatMoney(account.current_window_cost || 0) }} / {{ formatMoney(account.window_cost_limit) }}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_5h_reserve_percent) }}
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="min-w-44 space-y-1 text-sm">
+                    <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
+                    <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
+                    </div>
+                    <div v-if="account.quota_weekly_limit > 0" :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
+                      {{ t('accountPool.fields.remaining') }} {{ formatMoney(account.quota_weekly_remaining) }}
+                      <span v-if="account.quota_weekly_min_remaining > 0">
+                        · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
+                      </span>
+                    </div>
+                    <div v-else class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="min-w-48 space-y-1 text-sm">
+                    <span :class="account.contribution_protection_blocked || account.weekly_remaining_below_policy ? 'badge badge-warning' : 'badge badge-success'">
+                      {{ account.contribution_protection_blocked || account.weekly_remaining_below_policy ? t('accountPool.policy.blocked') : t('accountPool.policy.sharing') }}
+                    </span>
+                    <div class="text-xs text-gray-500 dark:text-dark-400">
+                      {{ t('accountPool.policy.probeFailureLabel') }}: {{ probeFailurePolicyLabel(account.contribution_probe_failure_policy) }}
+                    </div>
+                    <div v-if="account.weekly_remaining_below_policy" class="text-xs text-amber-600 dark:text-amber-400">
+                      {{ t('accountPool.policy.weeklyRemainingBlocked') }}
+                    </div>
+                    <div v-else-if="account.contribution_protection_blocked" class="text-xs text-amber-600 dark:text-amber-400">
+                      {{ t('accountPool.policy.protectionBlocked') }}
+                    </div>
+                  </div>
                 </td>
                 <td>
                   <div v-if="account.is_mine" class="min-w-64 space-y-1.5 text-sm">
@@ -768,6 +815,18 @@ function ownerLabel(account: UserAccountPoolItem): string {
   return account.is_user_contributed ? t('accountPool.shared') : t('accountPool.system')
 }
 
+function formatPercent(value: number | null | undefined): string {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '-'
+  return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
+}
+
+function formatMoney(value: number | null | undefined): string {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '-'
+  return `$${n.toFixed(n >= 10 ? 2 : 4).replace(/\.?0+$/, '')}`
+}
+
 function formatDate(value: string): string {
   if (!value) return '-'
   const d = new Date(value)
@@ -797,6 +856,10 @@ function modelMappingToAllowedModels(mapping: Record<string, string> | null | un
 function buildWhitelistModelMapping(models: string[]): Record<string, string> {
   const mapping = buildModelMappingObject('whitelist', models, [])
   return mapping || {}
+}
+
+function probeFailurePolicyLabel(policy: UserAccountPoolItem['contribution_probe_failure_policy']): string {
+  return t(`accountPool.policy.probeFailure${policy === 'continue' ? 'Continue' : policy === 'pause' ? 'Pause' : 'Local'}`)
 }
 
 function resetOAuthSession() {
