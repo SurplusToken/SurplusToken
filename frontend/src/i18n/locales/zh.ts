@@ -1091,7 +1091,7 @@ export default {
       autoPauseEnabled: '过期自动暂停',
       codexOnly: '仅 Codex 官方客户端',
       edit: '编辑',
-      editTitle: '编辑账号可用范围',
+      editTitle: '编辑账号共享设置',
     },
     oauth: {
       start: '开始授权',

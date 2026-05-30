@@ -1,6 +1,8 @@
 import { apiClient } from './client'
 import type { AccountPlatform, PaginatedResponse, UserAccountPoolItem } from '@/types'
 
+export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
+
 export interface CreateUserOAuthAccountRequest {
   name: string
   platform: AccountPlatform
@@ -11,6 +13,9 @@ export interface CreateUserOAuthAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: ContributionProbeFailurePolicy
 }
 
 export interface UpdateUserAccountScopeRequest {
@@ -19,6 +24,9 @@ export interface UpdateUserAccountScopeRequest {
   auto_pause_on_expired?: boolean
   model_mapping?: Record<string, string>
   codex_cli_only?: boolean
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: ContributionProbeFailurePolicy
 }
 
 export interface UserOAuthAuthUrlRequest {

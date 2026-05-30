@@ -1087,7 +1087,7 @@ export default {
       autoPauseEnabled: 'Auto-pause on expiry',
       codexOnly: 'Codex official client only',
       edit: 'Edit',
-      editTitle: 'Edit Account Availability',
+      editTitle: 'Edit Account Sharing Settings',
     },
     oauth: {
       start: 'Authorize',

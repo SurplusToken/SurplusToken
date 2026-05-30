@@ -494,6 +494,59 @@
           </div>
         </div>
 
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white">
+              <Icon name="shield" size="sm" />
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ t('accountPool.policy.title') }}
+              </h3>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+                {{ t('accountPool.policy.description') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
+              <input
+                v-model.number="createForm.fiveHourReservePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="input"
+              />
+              <span class="input-hint">{{ t('accountPool.policy.fiveHourReserveHint') }}</span>
+            </label>
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.weeklyReservePercentLabel') }}</span>
+              <input
+                v-model.number="createForm.weeklyReservePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="input"
+              />
+              <span class="input-hint">{{ t('accountPool.policy.weeklyReservePercentHint') }}</span>
+            </label>
+          </div>
+
+          <div class="mt-4">
+            <label class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</label>
+            <select v-model="createForm.probeFailurePolicy" class="input">
+              <option v-for="option in probeFailurePolicyOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <p class="input-hint">{{ t('accountPool.policy.probeFailureHint') }}</p>
+          </div>
+        </div>
+
       </form>
 
       <div v-else class="space-y-5">
@@ -666,6 +719,59 @@
             />
           </div>
         </div>
+
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white">
+              <Icon name="shield" size="sm" />
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ t('accountPool.policy.title') }}
+              </h3>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+                {{ t('accountPool.policy.description') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
+              <input
+                v-model.number="scopeForm.fiveHourReservePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="input"
+              />
+              <span class="input-hint">{{ t('accountPool.policy.fiveHourReserveHint') }}</span>
+            </label>
+            <label class="block">
+              <span class="input-label">{{ t('accountPool.policy.weeklyReservePercentLabel') }}</span>
+              <input
+                v-model.number="scopeForm.weeklyReservePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="input"
+              />
+              <span class="input-hint">{{ t('accountPool.policy.weeklyReservePercentHint') }}</span>
+            </label>
+          </div>
+
+          <div class="mt-4">
+            <label class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</label>
+            <select v-model="scopeForm.probeFailurePolicy" class="input">
+              <option v-for="option in probeFailurePolicyOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <p class="input-hint">{{ t('accountPool.policy.probeFailureHint') }}</p>
+          </div>
+        </div>
       </form>
 
       <template #footer>
@@ -698,7 +804,11 @@ import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
-import accountsAPI, { type UserOAuthAuthUrlRequest, type UserOAuthTokenInfo } from '@/api/accounts'
+import accountsAPI, {
+  type ContributionProbeFailurePolicy,
+  type UserOAuthAuthUrlRequest,
+  type UserOAuthTokenInfo,
+} from '@/api/accounts'
 import { userGroupsAPI } from '@/api/groups'
 import type { AccountPlatform, Group, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
@@ -752,6 +862,9 @@ const createForm = reactive({
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
   codexCLIOnly: false,
+  fiveHourReservePercent: 0,
+  weeklyReservePercent: 0,
+  probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
 })
 
 const modelRestrictionEnabled = ref(false)
@@ -765,6 +878,9 @@ const scopeForm = reactive({
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
   codexCLIOnly: false,
+  fiveHourReservePercent: 0,
+  weeklyReservePercent: 0,
+  probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
 })
 
 const expiresAtInput = computed({
@@ -790,6 +906,12 @@ const geminiOAuthOptions = [
   { value: 'google_one' as const, label: 'Google One' },
   { value: 'ai_studio' as const, label: 'AI Studio' },
 ]
+
+const probeFailurePolicyOptions = computed(() => [
+  { value: 'continue', label: t('accountPool.policy.probeFailureContinue') },
+  { value: 'pause', label: t('accountPool.policy.probeFailurePause') },
+  { value: 'local', label: t('accountPool.policy.probeFailureLocal') },
+])
 
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
@@ -819,6 +941,12 @@ function formatPercent(value: number | null | undefined): string {
   const n = Number(value)
   if (!Number.isFinite(n)) return '-'
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
+}
+
+function normalizeReservePercent(value: number | null | undefined): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(100, n))
 }
 
 function formatMoney(value: number | null | undefined): string {
@@ -1153,6 +1281,9 @@ async function handleExchangeCode() {
       group_ids: createForm.groupIds,
       expires_at: createForm.expiresAt,
       auto_pause_on_expired: createForm.autoPauseOnExpired,
+      contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
+      contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
+      contribution_probe_failure_policy: createForm.probeFailurePolicy,
     })
     appStore.showSuccess(t('accountPool.createSuccess'))
     resetCreateForm()
@@ -1176,6 +1307,9 @@ function resetCreateForm() {
   createForm.expiresAt = null
   createForm.autoPauseOnExpired = true
   createForm.codexCLIOnly = false
+  createForm.fiveHourReservePercent = 0
+  createForm.weeklyReservePercent = 0
+  createForm.probeFailurePolicy = 'continue'
   modelRestrictionEnabled.value = false
   allowedModels.value = []
 }
@@ -1199,6 +1333,9 @@ function openScopeDialog(account: UserAccountPoolItem) {
   scopeForm.expiresAt = account.expires_at ? Math.floor(new Date(account.expires_at).getTime() / 1000) : null
   scopeForm.autoPauseOnExpired = account.auto_pause_on_expired
   scopeForm.codexCLIOnly = account.codex_cli_only
+  scopeForm.fiveHourReservePercent = account.contribution_5h_reserve_percent
+  scopeForm.weeklyReservePercent = account.contribution_weekly_reserve_percent
+  scopeForm.probeFailurePolicy = account.contribution_probe_failure_policy
   scopeAllowedModels.value = modelMappingToAllowedModels(account.model_mapping)
   scopeModelRestrictionEnabled.value = scopeAllowedModels.value.length > 0
   showScopeForm.value = true
@@ -1213,6 +1350,9 @@ function handleScopeClose() {
   scopeForm.expiresAt = null
   scopeForm.autoPauseOnExpired = true
   scopeForm.codexCLIOnly = false
+  scopeForm.fiveHourReservePercent = 0
+  scopeForm.weeklyReservePercent = 0
+  scopeForm.probeFailurePolicy = 'continue'
 }
 
 async function saveScope() {
@@ -1226,6 +1366,9 @@ async function saveScope() {
       auto_pause_on_expired: scopeForm.autoPauseOnExpired,
       model_mapping: scopeModelRestrictionEnabled.value ? buildWhitelistModelMapping(scopeAllowedModels.value) : {},
       codex_cli_only: account.platform === 'openai' ? scopeForm.codexCLIOnly : false,
+      contribution_5h_reserve_percent: normalizeReservePercent(scopeForm.fiveHourReservePercent),
+      contribution_weekly_reserve_percent: normalizeReservePercent(scopeForm.weeklyReservePercent),
+      contribution_probe_failure_policy: scopeForm.probeFailurePolicy,
     })
     replaceAccount(updated)
     appStore.showSuccess(t('accountPool.scopeSaveSuccess'))

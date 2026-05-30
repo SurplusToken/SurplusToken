@@ -68,23 +68,29 @@ type UserAccountPoolGroup struct {
 }
 
 type CreateUserOAuthAccountRequest struct {
-	Name               string         `json:"name"`
-	Platform           string         `json:"platform"`
-	Type               string         `json:"type"`
-	Credentials        map[string]any `json:"credentials"`
-	Extra              map[string]any `json:"extra"`
-	Schedulable        *bool          `json:"schedulable"`
-	GroupIDs           []int64        `json:"group_ids"`
-	ExpiresAt          *int64         `json:"expires_at"`
-	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
+	Name                               string         `json:"name"`
+	Platform                           string         `json:"platform"`
+	Type                               string         `json:"type"`
+	Credentials                        map[string]any `json:"credentials"`
+	Extra                              map[string]any `json:"extra"`
+	Schedulable                        *bool          `json:"schedulable"`
+	GroupIDs                           []int64        `json:"group_ids"`
+	ExpiresAt                          *int64         `json:"expires_at"`
+	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
+	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
 }
 
 type UpdateUserAccountScopeRequest struct {
-	GroupIDs           *[]int64           `json:"group_ids"`
-	ExpiresAt          *int64             `json:"expires_at"`
-	AutoPauseOnExpired *bool              `json:"auto_pause_on_expired"`
-	ModelMapping       *map[string]string `json:"model_mapping"`
-	CodexCLIOnly       *bool              `json:"codex_cli_only"`
+	GroupIDs                           *[]int64           `json:"group_ids"`
+	ExpiresAt                          *int64             `json:"expires_at"`
+	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
+	ModelMapping                       *map[string]string `json:"model_mapping"`
+	CodexCLIOnly                       *bool              `json:"codex_cli_only"`
+	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
 type UpdateUserAccountLimitsRequest struct {
@@ -159,6 +165,17 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	}
 
 	extra := buildUserOAuthAccountExtra(platform, req.Extra)
+	protectionUpdates, err := buildUserContributionProtectionUpdates(
+		req.ContributionFiveHourReservePercent,
+		req.ContributionWeeklyReservePercent,
+		req.ContributionProbeFailurePolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range protectionUpdates {
+		extra[key] = value
+	}
 
 	schedulable := true
 	if req.Schedulable != nil {
@@ -302,6 +319,23 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 			account.Extra["codex_cli_only"] = true
 		} else {
 			delete(account.Extra, "codex_cli_only")
+		}
+		extraChanged = true
+	}
+	protectionUpdates, err := buildUserContributionProtectionUpdates(
+		req.ContributionFiveHourReservePercent,
+		req.ContributionWeeklyReservePercent,
+		req.ContributionProbeFailurePolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(protectionUpdates) > 0 {
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		for key, value := range protectionUpdates {
+			account.Extra[key] = value
 		}
 		extraChanged = true
 	}
@@ -486,6 +520,24 @@ func isUserOAuthPlatformAllowed(platform string) bool {
 	default:
 		return false
 	}
+}
+
+func buildUserContributionProtectionUpdates(fiveHourReserve, weeklyReserve *float64, probeFailurePolicy *string) (map[string]any, error) {
+	updates := make(map[string]any, 3)
+	if err := setUserLimitUpdate(updates, "contribution_5h_reserve_percent", fiveHourReserve); err != nil {
+		return nil, err
+	}
+	if err := setUserLimitUpdate(updates, "contribution_weekly_reserve_percent", weeklyReserve); err != nil {
+		return nil, err
+	}
+	if probeFailurePolicy != nil {
+		policy, err := normalizeContributionProbeFailurePolicy(*probeFailurePolicy)
+		if err != nil {
+			return nil, err
+		}
+		updates["contribution_probe_failure_policy"] = policy
+	}
+	return updates, nil
 }
 
 func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLimitsRequest) (map[string]any, error) {
