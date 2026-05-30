@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { AccountPlatform, PaginatedResponse, Proxy, UserAccountPoolItem } from '@/types'
+import type { AccountPlatform, AccountUsageStatsResponse, PaginatedResponse, Proxy, UserAccountPoolItem } from '@/types'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -141,6 +141,18 @@ export async function updateScope(
   return data
 }
 
+export async function deleteAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/accounts/${id}`)
+  return data
+}
+
+export async function getStats(id: number, days: number = 30): Promise<AccountUsageStatsResponse> {
+  const { data } = await apiClient.get<AccountUsageStatsResponse>(`/accounts/${id}/stats`, {
+    params: { days },
+  })
+  return data
+}
+
 export const accountsAPI = {
   listPool,
   listProxies,
@@ -150,6 +162,8 @@ export const accountsAPI = {
   exchangeOAuthCode,
   setSchedulable,
   updateScope,
+  deleteAccount,
+  getStats,
 }
 
 export default accountsAPI

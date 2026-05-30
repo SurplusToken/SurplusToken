@@ -304,6 +304,16 @@ func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, 
 	return &item, nil
 }
 
+func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountID int64) error {
+	if _, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID); err != nil {
+		return err
+	}
+	if err := s.accountRepo.Delete(ctx, accountID); err != nil {
+		return fmt.Errorf("delete user account: %w", err)
+	}
+	return nil
+}
+
 func (s *AccountService) UpdateUserAccountLimits(ctx context.Context, userID, accountID int64, req UpdateUserAccountLimitsRequest) (*UserAccountPoolItem, error) {
 	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
 	if err != nil {

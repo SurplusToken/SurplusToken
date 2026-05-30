@@ -21,6 +21,7 @@ type accountPoolRepoStub struct {
 	pagination   *pagination.PaginationResult
 	accountsByID map[int64]*Account
 	updated      *Account
+	deletedIDs   []int64
 	extraUpdates map[string]any
 	boundGroups  []int64
 }
@@ -75,6 +76,14 @@ func (s *accountPoolRepoStub) Update(ctx context.Context, account *Account) erro
 	if s.accountsByID != nil {
 		accountCopy := copied
 		s.accountsByID[account.ID] = &accountCopy
+	}
+	return nil
+}
+
+func (s *accountPoolRepoStub) Delete(ctx context.Context, id int64) error {
+	s.deletedIDs = append(s.deletedIDs, id)
+	if s.accountsByID != nil {
+		delete(s.accountsByID, id)
 	}
 	return nil
 }
@@ -178,6 +187,47 @@ func TestAccountServiceUserAccountOwnership(t *testing.T) {
 	_, err = svc.SetUserAccountSchedulable(context.Background(), 99, 7, true)
 	require.ErrorIs(t, err, ErrAccountOwnerRequired)
 	require.Equal(t, 403, infraerrors.Code(err))
+}
+
+func TestAccountServiceDeleteUserAccount(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}}
+	svc := &AccountService{accountRepo: repo}
+
+	require.NoError(t, svc.DeleteUserAccount(context.Background(), ownerID, 7))
+	require.Equal(t, []int64{7}, repo.deletedIDs)
+
+	err := svc.DeleteUserAccount(context.Background(), 99, 7)
+	require.ErrorIs(t, err, ErrAccountNotFound)
+}
+
+func TestAccountServiceDeleteUserAccountRejectsOtherOwner(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}}
+	svc := &AccountService{accountRepo: repo}
+
+	err := svc.DeleteUserAccount(context.Background(), 99, 7)
+
+	require.ErrorIs(t, err, ErrAccountOwnerRequired)
+	require.Empty(t, repo.deletedIDs)
 }
 
 func TestAccountServiceUpdateUserAccountLimits(t *testing.T) {

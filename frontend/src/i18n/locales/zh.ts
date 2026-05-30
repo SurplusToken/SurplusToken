@@ -1081,6 +1081,13 @@ export default {
     scopeSaveSuccess: '账号可用范围已更新',
     schedulableSaved: '调度设置已更新',
     loadFailed: '账号池加载失败',
+    moreActions: '更多操作',
+    delete: {
+      title: '删除贡献账号',
+      confirm: '确定要删除账号“{name}”吗？删除后这个账号将不再参与共享调度。',
+      success: '账号已删除',
+      failed: '删除账号失败',
+    },
     rewards: {
       available: '可用贡献余额',
       frozen: '冻结贡献余额',

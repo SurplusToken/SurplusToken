@@ -1077,6 +1077,13 @@ export default {
     scopeSaveSuccess: 'Account availability updated',
     schedulableSaved: 'Scheduling setting updated',
     loadFailed: 'Failed to load account pool',
+    moreActions: 'More Actions',
+    delete: {
+      title: 'Delete Contributed Account',
+      confirm: 'Delete account "{name}"? It will no longer participate in shared scheduling.',
+      success: 'Account deleted',
+      failed: 'Failed to delete account',
+    },
     rewards: {
       available: 'Available Contribution Balance',
       frozen: 'Frozen Contribution Balance',

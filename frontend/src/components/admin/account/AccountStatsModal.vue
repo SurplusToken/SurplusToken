@@ -467,8 +467,9 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageStatsResponse } from '@/types'
+
+type AccountStatsModalAccount = Pick<Account, 'id' | 'name' | 'status'>
 
 ChartJS.register(
   CategoryScale,
@@ -485,7 +486,8 @@ const { t } = useI18n()
 
 const props = defineProps<{
   show: boolean
-  account: Account | null
+  account: AccountStatsModalAccount | null
+  loadStats?: (accountID: number, days: number) => Promise<AccountUsageStatsResponse>
 }>()
 
 const emit = defineEmits<{
@@ -659,7 +661,12 @@ const loadStats = async () => {
 
   loading.value = true
   try {
-    stats.value = await adminAPI.accounts.getStats(props.account.id, 30)
+    if (props.loadStats) {
+      stats.value = await props.loadStats(props.account.id, 30)
+    } else {
+      const { adminAPI } = await import('@/api/admin')
+      stats.value = await adminAPI.accounts.getStats(props.account.id, 30)
+    }
   } catch (error) {
     console.error('Failed to load account stats:', error)
     stats.value = null

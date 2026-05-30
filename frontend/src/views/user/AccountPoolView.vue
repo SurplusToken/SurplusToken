@@ -74,221 +74,276 @@
             </select>
           </div>
 
-          <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('accountPool.refresh')" @click="loadAccounts">
-            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('accountPool.refresh')" @click="loadAccounts">
+              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+            </button>
+            <div ref="columnsDropdownRef" class="relative">
+              <button
+                type="button"
+                class="btn btn-secondary px-2 md:px-3"
+                :title="t('accountPool.moreActions')"
+                @click="showColumnsDropdown = !showColumnsDropdown"
+              >
+                <Icon name="more" size="sm" class="md:mr-1.5" />
+                <span class="hidden md:inline">{{ t('accountPool.moreActions') }}</span>
+                <Icon name="chevronDown" size="xs" class="ml-1 hidden md:inline" />
+              </button>
+              <div
+                v-if="showColumnsDropdown"
+                class="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
+              >
+                <div class="max-h-[70vh] overflow-y-auto p-2">
+                  <div class="px-2 py-2">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                        {{ t('admin.accounts.viewColumns') }}
+                      </span>
+                      <Icon name="grid" size="sm" class="text-gray-400" />
+                    </div>
+                  </div>
+                  <button
+                    v-for="col in toggleableColumns"
+                    :key="col.key"
+                    type="button"
+                    class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                    @click="toggleColumn(col.key)"
+                  >
+                    <span class="truncate">{{ col.label }}</span>
+                    <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </template>
 
       <template #table>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>{{ t('accountPool.columns.account') }}</th>
-                <th>{{ t('accountPool.columns.accountType') }}</th>
-                <th>{{ t('accountPool.columns.owner') }}</th>
-                <th>{{ t('accountPool.columns.status') }}</th>
-                <th>{{ t('accountPool.columns.scheduling') }}</th>
-                <th>{{ t('accountPool.columns.fiveHour') }}</th>
-                <th>{{ t('accountPool.columns.weekly') }}</th>
-                <th>{{ t('accountPool.columns.protection') }}</th>
-                <th>{{ t('accountPool.columns.availability') }}</th>
-                <th>{{ t('accountPool.columns.expiresAt') }}</th>
-                <th>{{ t('accountPool.columns.actions') }}</th>
-                <th>{{ t('accountPool.columns.updated') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="loading && accounts.length === 0">
-                <td colspan="12" class="text-center text-gray-500 dark:text-dark-300">
-                  {{ t('common.loading') }}
-                </td>
-              </tr>
-              <tr v-else-if="accounts.length === 0">
-                <td colspan="12" class="text-center text-gray-500 dark:text-dark-300">
-                  {{ t('accountPool.empty') }}
-                </td>
-              </tr>
-              <tr v-for="account in accounts" :key="account.id">
-                <td>
-                  <div class="min-w-56">
-                    <div class="font-medium text-gray-900 dark:text-white">{{ account.name }}</div>
-                    <div class="text-xs text-gray-500 dark:text-dark-400">#{{ account.id }}</div>
-                    <div v-if="account.is_mine" class="mt-1 flex flex-wrap gap-1">
-                      <span
-                        v-for="group in account.groups || []"
-                        :key="group.id"
-                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
-                      >
-                        {{ group.name }}
-                      </span>
-                      <span
-                        v-if="account.model_mapping && Object.keys(account.model_mapping).length > 0"
-                        class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                      >
-                        {{ t('accountPool.settings.modelLimited') }}
-                      </span>
-                      <span
-                        v-if="account.codex_cli_only"
-                        class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
-                      >
-                        Codex
-                      </span>
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <PlatformTypeBadge
-                    :platform="account.platform"
-                    :type="account.type"
-                    :plan-type="account.plan_type || undefined"
-                    :privacy-mode="account.privacy_mode || undefined"
-                    :subscription-expires-at="account.subscription_expires_at || undefined"
-                  />
-                </td>
-                <td>
-                  <span :class="account.is_mine ? 'badge badge-primary' : 'badge badge-gray'">
-                    {{ ownerLabel(account) }}
-                  </span>
-                </td>
-                <td>
-                  <div class="flex flex-col gap-1">
-                    <span :class="statusClass(account.status)">{{ statusLabel(account.status) }}</span>
-                    <span :class="account.effective_schedulable ? 'text-xs text-green-600 dark:text-green-400' : 'text-xs text-amber-600 dark:text-amber-400'">
-                      {{ account.effective_schedulable ? t('accountPool.statuses.effective') : t('accountPool.statuses.blocked') }}
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <label v-if="account.is_mine" class="inline-flex items-center gap-2">
-                    <input
-                      :checked="account.schedulable"
-                      type="checkbox"
-                      class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                      :disabled="savingIDs.has(account.id)"
-                      @change="toggleSchedulable(account, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('accountPool.fields.schedulable') }}</span>
-                  </label>
-                  <span v-else class="text-sm text-gray-500 dark:text-dark-400">
-                    {{ account.schedulable ? t('common.enabled') : t('common.disabled') }}
-                  </span>
-                </td>
-                <td>
-                  <div class="min-w-36 space-y-1 text-sm">
-                    <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_5h_usage_percent) }}</div>
-                    <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ formatMoney(account.current_window_cost || 0) }} / {{ formatMoney(account.window_cost_limit) }}
-                    </div>
-                    <div class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_5h_reserve_percent) }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <div class="min-w-44 space-y-1 text-sm">
-                    <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
-                    <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
-                    </div>
-                    <div v-if="account.quota_weekly_limit > 0" :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
-                      {{ t('accountPool.fields.remaining') }} {{ formatMoney(account.quota_weekly_remaining) }}
-                      <span v-if="account.quota_weekly_min_remaining > 0">
-                        · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
-                      </span>
-                    </div>
-                    <div v-else class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <div class="min-w-48 space-y-1 text-sm">
-                    <span :class="account.contribution_protection_blocked || account.weekly_remaining_below_policy ? 'badge badge-warning' : 'badge badge-success'">
-                      {{ account.contribution_protection_blocked || account.weekly_remaining_below_policy ? t('accountPool.policy.blocked') : t('accountPool.policy.sharing') }}
-                    </span>
-                    <div class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.policy.probeFailureLabel') }}: {{ probeFailurePolicyLabel(account.contribution_probe_failure_policy) }}
-                    </div>
-                    <div v-if="account.weekly_remaining_below_policy" class="text-xs text-amber-600 dark:text-amber-400">
-                      {{ t('accountPool.policy.weeklyRemainingBlocked') }}
-                    </div>
-                    <div v-else-if="account.contribution_protection_blocked" class="text-xs text-amber-600 dark:text-amber-400">
-                      {{ t('accountPool.policy.protectionBlocked') }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <div v-if="account.is_mine" class="min-w-64 space-y-1.5 text-sm">
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-if="isModelLimited(account)"
-                        class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                      >
-                        {{ t('accountPool.settings.modelCount', { count: modelLimitCount(account) }) }}
-                      </span>
-                      <span
-                        v-else
-                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
-                      >
-                        {{ t('accountPool.settings.allModels') }}
-                      </span>
-                      <span
-                        v-if="account.codex_cli_only"
-                        class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
-                      >
-                        {{ t('accountPool.settings.codexOnly') }}
-                      </span>
-                    </div>
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-for="group in account.groups || []"
-                        :key="group.id"
-                        class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
-                      >
-                        {{ group.name }}
-                      </span>
-                      <span
-                        v-if="!account.groups || account.groups.length === 0"
-                        class="text-xs text-gray-500 dark:text-dark-400"
-                      >
-                        {{ t('accountPool.settings.noGroups') }}
-                      </span>
-                    </div>
-                  </div>
-                  <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
-                </td>
-                <td>
-                  <div class="min-w-40 text-sm">
-                    <div>{{ formatOptionalUnixDate(account.expires_at) }}</div>
-                    <div v-if="account.auto_pause_on_expired && account.expires_at" class="text-xs text-green-600 dark:text-green-400">
-                      {{ t('accountPool.settings.autoPauseEnabled') }}
-                    </div>
-                    <div v-else class="text-xs text-gray-500 dark:text-dark-400">
-                      {{ t('accountPool.settings.noExpiry') }}
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <button
-                    v-if="account.is_mine"
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="savingIDs.has(account.id)"
-                    @click="openScopeDialog(account)"
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <DataTable
+            :columns="visibleColumns"
+            :data="accounts"
+            :loading="loading"
+            row-key="id"
+            :sticky-first-column="true"
+            :sticky-actions-column="true"
+            :estimate-row-height="96"
+          >
+            <template #empty>
+              <div class="flex flex-col items-center">
+                <Icon name="inbox" size="xl" class="mb-4 h-12 w-12 text-gray-400 dark:text-dark-500" />
+                <p class="text-lg font-medium text-gray-900 dark:text-gray-100">{{ t('accountPool.empty') }}</p>
+              </div>
+            </template>
+
+            <template #cell-account="{ row: account }">
+              <div class="min-w-56">
+                <div class="font-medium text-gray-900 dark:text-white">{{ account.name }}</div>
+                <div class="text-xs text-gray-500 dark:text-dark-400">#{{ account.id }}</div>
+                <div v-if="account.is_mine" class="mt-1 flex flex-wrap gap-1">
+                  <span
+                    v-for="group in account.groups || []"
+                    :key="group.id"
+                    class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
                   >
-                    <Icon name="edit" size="sm" />
-                    <span>{{ t('accountPool.settings.edit') }}</span>
-                  </button>
-                  <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
-                </td>
-                <td class="whitespace-nowrap text-sm text-gray-500 dark:text-dark-400">
-                  {{ formatDate(account.updated_at) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    {{ group.name }}
+                  </span>
+                  <span
+                    v-if="account.model_mapping && Object.keys(account.model_mapping).length > 0"
+                    class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                  >
+                    {{ t('accountPool.settings.modelLimited') }}
+                  </span>
+                  <span
+                    v-if="account.codex_cli_only"
+                    class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
+                  >
+                    Codex
+                  </span>
+                </div>
+              </div>
+            </template>
+
+            <template #cell-account_type="{ row: account }">
+              <PlatformTypeBadge
+                :platform="account.platform"
+                :type="account.type"
+                :plan-type="account.plan_type || undefined"
+                :privacy-mode="account.privacy_mode || undefined"
+                :subscription-expires-at="account.subscription_expires_at || undefined"
+              />
+            </template>
+
+            <template #cell-owner="{ row: account }">
+              <span :class="account.is_mine ? 'badge badge-primary' : 'badge badge-gray'">
+                {{ ownerLabel(account) }}
+              </span>
+            </template>
+
+            <template #cell-status="{ row: account }">
+              <div class="flex flex-col gap-1">
+                <span :class="statusClass(account.status)">{{ statusLabel(account.status) }}</span>
+                <span :class="account.effective_schedulable ? 'text-xs text-green-600 dark:text-green-400' : 'text-xs text-amber-600 dark:text-amber-400'">
+                  {{ account.effective_schedulable ? t('accountPool.statuses.effective') : t('accountPool.statuses.blocked') }}
+                </span>
+              </div>
+            </template>
+
+            <template #cell-scheduling="{ row: account }">
+              <label v-if="account.is_mine" class="inline-flex items-center gap-2">
+                <input
+                  :checked="account.schedulable"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  :disabled="savingIDs.has(account.id)"
+                  @change="toggleSchedulable(account, ($event.target as HTMLInputElement).checked)"
+                />
+                <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('accountPool.fields.schedulable') }}</span>
+              </label>
+              <span v-else class="text-sm text-gray-500 dark:text-dark-400">
+                {{ account.schedulable ? t('common.enabled') : t('common.disabled') }}
+              </span>
+            </template>
+
+            <template #cell-five_hour="{ row: account }">
+              <div class="min-w-36 space-y-1 text-sm">
+                <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_5h_usage_percent) }}</div>
+                <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ formatMoney(account.current_window_cost || 0) }} / {{ formatMoney(account.window_cost_limit) }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_5h_reserve_percent) }}
+                </div>
+              </div>
+            </template>
+
+            <template #cell-weekly="{ row: account }">
+              <div class="min-w-44 space-y-1 text-sm">
+                <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
+                <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
+                </div>
+                <div v-if="account.quota_weekly_limit > 0" :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
+                  {{ t('accountPool.fields.remaining') }} {{ formatMoney(account.quota_weekly_remaining) }}
+                  <span v-if="account.quota_weekly_min_remaining > 0">
+                    · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
+                  </span>
+                </div>
+                <div v-else class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
+                </div>
+              </div>
+            </template>
+
+            <template #cell-protection="{ row: account }">
+              <div class="min-w-48 space-y-1 text-sm">
+                <span :class="account.contribution_protection_blocked || account.weekly_remaining_below_policy ? 'badge badge-warning' : 'badge badge-success'">
+                  {{ account.contribution_protection_blocked || account.weekly_remaining_below_policy ? t('accountPool.policy.blocked') : t('accountPool.policy.sharing') }}
+                </span>
+                <div class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('accountPool.policy.probeFailureLabel') }}: {{ probeFailurePolicyLabel(account.contribution_probe_failure_policy) }}
+                </div>
+                <div v-if="account.weekly_remaining_below_policy" class="text-xs text-amber-600 dark:text-amber-400">
+                  {{ t('accountPool.policy.weeklyRemainingBlocked') }}
+                </div>
+                <div v-else-if="account.contribution_protection_blocked" class="text-xs text-amber-600 dark:text-amber-400">
+                  {{ t('accountPool.policy.protectionBlocked') }}
+                </div>
+              </div>
+            </template>
+
+            <template #cell-availability="{ row: account }">
+              <div v-if="account.is_mine" class="min-w-64 space-y-1.5 text-sm">
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-if="isModelLimited(account)"
+                    class="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                  >
+                    {{ t('accountPool.settings.modelCount', { count: modelLimitCount(account) }) }}
+                  </span>
+                  <span
+                    v-else
+                    class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
+                  >
+                    {{ t('accountPool.settings.allModels') }}
+                  </span>
+                  <span
+                    v-if="account.codex_cli_only"
+                    class="inline-flex items-center rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700 dark:bg-green-900/20 dark:text-green-300"
+                  >
+                    {{ t('accountPool.settings.codexOnly') }}
+                  </span>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-for="group in account.groups || []"
+                    :key="group.id"
+                    class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
+                  >
+                    {{ group.name }}
+                  </span>
+                  <span
+                    v-if="!account.groups || account.groups.length === 0"
+                    class="text-xs text-gray-500 dark:text-dark-400"
+                  >
+                    {{ t('accountPool.settings.noGroups') }}
+                  </span>
+                </div>
+              </div>
+              <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
+            </template>
+
+            <template #cell-expires_at="{ row: account }">
+              <div class="min-w-40 text-sm">
+                <div>{{ formatOptionalUnixDate(account.expires_at) }}</div>
+                <div v-if="account.auto_pause_on_expired && account.expires_at" class="text-xs text-green-600 dark:text-green-400">
+                  {{ t('accountPool.settings.autoPauseEnabled') }}
+                </div>
+                <div v-else class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('accountPool.settings.noExpiry') }}
+                </div>
+              </div>
+            </template>
+
+            <template #cell-actions="{ row: account }">
+              <div v-if="account.is_mine" class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                  :disabled="savingIDs.has(account.id)"
+                  @click="openScopeDialog(account)"
+                >
+                  <Icon name="edit" size="sm" />
+                  <span class="text-xs">{{ t('common.edit') }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                  :disabled="savingIDs.has(account.id)"
+                  @click="openDeleteDialog(account)"
+                >
+                  <Icon name="trash" size="sm" />
+                  <span class="text-xs">{{ t('common.delete') }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
+                  @click="openAccountMenu(account, $event)"
+                >
+                  <Icon name="more" size="sm" />
+                  <span class="text-xs">{{ t('common.more') }}</span>
+                </button>
+              </div>
+              <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
+            </template>
+
+            <template #cell-updated="{ row: account }">
+              <span class="whitespace-nowrap text-sm text-gray-500 dark:text-dark-400">
+                {{ formatDate(account.updated_at) }}
+              </span>
+            </template>
+          </DataTable>
         </div>
       </template>
 
@@ -784,22 +839,55 @@
         </div>
       </template>
     </BaseDialog>
+
+    <AccountStatsModal
+      :show="showStats"
+      :account="statsAccount"
+      :load-stats="accountsAPI.getStats"
+      @close="closeStatsModal"
+    />
+
+    <UserAccountActionMenu
+      :show="actionMenu.show"
+      :account="actionMenu.account"
+      :position="actionMenu.position"
+      @close="actionMenu.show = false"
+      @stats="openStatsModal"
+      @edit="openScopeDialog"
+      @delete="openDeleteDialog"
+    />
+
+    <ConfirmDialog
+      :show="showDeleteDialog"
+      :title="t('accountPool.delete.title')"
+      :message="t('accountPool.delete.confirm', { name: deletingAccount?.name })"
+      :confirm-text="t('common.delete')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmDelete"
+      @cancel="closeDeleteDialog"
+    />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import type { Column } from '@/components/common/types'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
+import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import UserAccountActionMenu from '@/components/user/UserAccountActionMenu.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
   type UserOAuthAuthUrlRequest,
@@ -842,6 +930,24 @@ const platformFilter = ref<AccountPlatform | ''>('')
 const planTypeFilter = ref<'' | 'plus' | 'pro'>('')
 const savingIDs = ref(new Set<number>())
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
+const showColumnsDropdown = ref(false)
+const columnsDropdownRef = ref<HTMLElement | null>(null)
+const hiddenColumns = reactive<Set<string>>(new Set())
+const HIDDEN_COLUMNS_KEY = 'account-pool-hidden-columns'
+const DEFAULT_HIDDEN_COLUMNS = ['owner', 'updated']
+const actionMenu = reactive<{
+  show: boolean
+  account: UserAccountPoolItem | null
+  position: { top: number; left: number } | null
+}>({
+  show: false,
+  account: null,
+  position: null,
+})
+const showDeleteDialog = ref(false)
+const deletingAccount = ref<UserAccountPoolItem | null>(null)
+const showStats = ref(false)
+const statsAccount = ref<UserAccountPoolItem | null>(null)
 const oauthSession = reactive({
   authUrl: '',
   sessionId: '',
@@ -926,6 +1032,70 @@ const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
   return Boolean(authCode.trim() && oauthSession.sessionId && !oauthLoading.value && !creating.value)
 })
+
+const allColumns = computed<Column[]>(() => [
+  { key: 'account', label: t('accountPool.columns.account'), sortable: false },
+  { key: 'account_type', label: t('accountPool.columns.accountType'), sortable: false },
+  { key: 'owner', label: t('accountPool.columns.owner'), sortable: false },
+  { key: 'status', label: t('accountPool.columns.status'), sortable: false },
+  { key: 'scheduling', label: t('accountPool.columns.scheduling'), sortable: false },
+  { key: 'five_hour', label: t('accountPool.columns.fiveHour'), sortable: false },
+  { key: 'weekly', label: t('accountPool.columns.weekly'), sortable: false },
+  { key: 'protection', label: t('accountPool.columns.protection'), sortable: false },
+  { key: 'availability', label: t('accountPool.columns.availability'), sortable: false },
+  { key: 'expires_at', label: t('accountPool.columns.expiresAt'), sortable: false },
+  { key: 'updated', label: t('accountPool.columns.updated'), sortable: false },
+  { key: 'actions', label: t('accountPool.columns.actions'), sortable: false },
+])
+
+const toggleableColumns = computed(() =>
+  allColumns.value.filter((column) => column.key !== 'account' && column.key !== 'actions')
+)
+
+const visibleColumns = computed(() =>
+  allColumns.value.filter((column) =>
+    column.key === 'account' || column.key === 'actions' || !hiddenColumns.has(column.key)
+  )
+)
+
+function loadSavedColumns() {
+  try {
+    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved) as string[]
+      parsed.forEach((key) => hiddenColumns.add(key))
+      return
+    }
+  } catch (err) {
+    console.error('Failed to load account pool columns:', err)
+  }
+  DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+}
+
+function saveColumnsToStorage() {
+  try {
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+  } catch (err) {
+    console.error('Failed to save account pool columns:', err)
+  }
+}
+
+function toggleColumn(key: string) {
+  if (hiddenColumns.has(key)) {
+    hiddenColumns.delete(key)
+  } else {
+    hiddenColumns.add(key)
+  }
+  saveColumnsToStorage()
+}
+
+function isColumnVisible(key: string) {
+  return !hiddenColumns.has(key)
+}
+
+if (typeof window !== 'undefined') {
+  loadSavedColumns()
+}
 
 function platformLabel(platform: AccountPlatform): string {
   return t(`accountPool.platforms.${platform}`)
@@ -1411,6 +1581,70 @@ async function saveScope() {
   }
 }
 
+function openAccountMenu(account: UserAccountPoolItem, event: MouseEvent) {
+  actionMenu.account = account
+  const target = event.currentTarget as HTMLElement | null
+  if (target) {
+    const rect = target.getBoundingClientRect()
+    const menuWidth = 208
+    const menuHeight = account.is_mine ? 150 : 54
+    const padding = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    let left = Math.max(padding, Math.min(rect.right - menuWidth, viewportWidth - menuWidth - padding))
+    let top = rect.bottom + 4
+    if (top + menuHeight > viewportHeight - padding) {
+      top = Math.max(padding, rect.top - menuHeight - 4)
+    }
+    actionMenu.position = { top, left }
+  } else {
+    actionMenu.position = { top: event.clientY, left: event.clientX - 208 }
+  }
+  actionMenu.show = true
+}
+
+function openStatsModal(account: UserAccountPoolItem) {
+  if (!account.is_mine) {
+    appStore.showError(t('accountPool.readonly'))
+    return
+  }
+  statsAccount.value = account
+  showStats.value = true
+}
+
+function closeStatsModal() {
+  showStats.value = false
+  statsAccount.value = null
+}
+
+function openDeleteDialog(account: UserAccountPoolItem) {
+  if (!account.is_mine) return
+  deletingAccount.value = account
+  showDeleteDialog.value = true
+}
+
+function closeDeleteDialog() {
+  showDeleteDialog.value = false
+  deletingAccount.value = null
+}
+
+async function confirmDelete() {
+  const account = deletingAccount.value
+  if (!account) return
+  savingIDs.value.add(account.id)
+  try {
+    await accountsAPI.deleteAccount(account.id)
+    appStore.showSuccess(t('accountPool.delete.success'))
+    closeDeleteDialog()
+    await loadAccounts()
+    await loadContributionSummary()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.delete.failed')))
+  } finally {
+    savingIDs.value.delete(account.id)
+  }
+}
+
 function handlePageChange(page: number) {
   pagination.page = page
   loadAccounts()
@@ -1431,10 +1665,28 @@ watch(
   }
 )
 
+function handleScroll() {
+  actionMenu.show = false
+}
+
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (columnsDropdownRef.value && !columnsDropdownRef.value.contains(target)) {
+    showColumnsDropdown.value = false
+  }
+}
+
 onMounted(() => {
   loadAccounts()
   loadContributionSummary()
   loadAvailableGroups()
   loadProxies()
+  window.addEventListener('scroll', handleScroll, true)
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll, true)
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>

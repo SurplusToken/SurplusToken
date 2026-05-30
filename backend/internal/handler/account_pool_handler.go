@@ -9,6 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -422,6 +423,70 @@ func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
 	items := []service.UserAccountPoolItem{*item}
 	h.hydrateCurrentWindowCost(c.Request.Context(), items)
 	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) Delete(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+
+	if err := h.accountService.DeleteUserAccount(c.Request.Context(), subject.UserID, accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "account deleted"})
+}
+
+func (h *AccountPoolHandler) GetStats(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.accountUsageService == nil {
+		response.InternalError(c, "account usage service is not configured")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+
+	account, err := h.accountService.GetByID(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if account.OwnerUserID == nil || *account.OwnerUserID != subject.UserID {
+		response.ErrorFrom(c, service.ErrAccountOwnerRequired)
+		return
+	}
+
+	days := 30
+	if daysStr := c.Query("days"); daysStr != "" {
+		if parsedDays, err := strconv.Atoi(daysStr); err == nil && parsedDays > 0 && parsedDays <= 90 {
+			days = parsedDays
+		}
+	}
+
+	now := timezone.Now()
+	endTime := timezone.StartOfDay(now.AddDate(0, 0, 1))
+	startTime := timezone.StartOfDay(now.AddDate(0, 0, -days+1))
+
+	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, startTime, endTime)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, stats)
 }
 
 func (h *AccountPoolHandler) UpdateLimits(c *gin.Context) {
