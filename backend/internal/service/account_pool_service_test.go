@@ -107,9 +107,9 @@ func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 		Type:                               AccountTypeOAuth,
 		Credentials:                        map[string]any{"refresh_token": "secret"},
 		Extra:                              map[string]any{"window_cost_limit": 50.0, "quota_weekly_min_remaining": 20.0},
-		ContributionFiveHourReservePercent: floatPtr(20),
-		ContributionWeeklyReservePercent:   floatPtr(30),
-		ContributionProbeFailurePolicy:     stringPtr(ContributionProbeFailurePolicyPause),
+		ContributionFiveHourReservePercent: accountPoolFloatPtr(20),
+		ContributionWeeklyReservePercent:   accountPoolFloatPtr(30),
+		ContributionProbeFailurePolicy:     accountPoolStringPtr(ContributionProbeFailurePolicyPause),
 	})
 
 	require.NoError(t, err)
@@ -184,9 +184,9 @@ func TestAccountServiceUpdateUserAccountLimits(t *testing.T) {
 	svc := &AccountService{accountRepo: repo}
 
 	item, err := svc.UpdateUserAccountLimits(context.Background(), ownerID, 7, UpdateUserAccountLimitsRequest{
-		WindowCostLimit:         floatPtr(50),
-		QuotaWeeklyLimit:        floatPtr(100),
-		QuotaWeeklyMinRemaining: floatPtr(20),
+		WindowCostLimit:         accountPoolFloatPtr(50),
+		QuotaWeeklyLimit:        accountPoolFloatPtr(100),
+		QuotaWeeklyMinRemaining: accountPoolFloatPtr(20),
 	})
 
 	require.NoError(t, err)
@@ -224,12 +224,12 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	item, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
 		GroupIDs:                           &groupIDs,
 		ExpiresAt:                          &expiresAt,
-		AutoPauseOnExpired:                 boolPtr(true),
+		AutoPauseOnExpired:                 accountPoolBoolPtr(true),
 		ModelMapping:                       &modelMapping,
 		CodexCLIOnly:                       &codexOnly,
-		ContributionFiveHourReservePercent: floatPtr(25),
-		ContributionWeeklyReservePercent:   floatPtr(35),
-		ContributionProbeFailurePolicy:     stringPtr(ContributionProbeFailurePolicyLocal),
+		ContributionFiveHourReservePercent: accountPoolFloatPtr(25),
+		ContributionWeeklyReservePercent:   accountPoolFloatPtr(35),
+		ContributionProbeFailurePolicy:     accountPoolStringPtr(ContributionProbeFailurePolicyLocal),
 	})
 
 	require.NoError(t, err)
@@ -332,14 +332,14 @@ func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {
 	require.Equal(t, int64(2), filtered[0].ID)
 }
 
-func floatPtr(v float64) *float64 {
+func accountPoolFloatPtr(v float64) *float64 {
 	return &v
 }
 
-func boolPtr(v bool) *bool {
+func accountPoolBoolPtr(v bool) *bool {
 	return &v
 }
 
-func stringPtr(v string) *string {
+func accountPoolStringPtr(v string) *string {
 	return &v
 }
