@@ -84,6 +84,8 @@ func RegisterUserRoutes(
 		accounts := authenticated.Group("/accounts")
 		{
 			accounts.GET("/pool", h.AccountPool.ListPool)
+			accounts.GET("/proxies", h.AccountPool.ListProxies)
+			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
 			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
 			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)

@@ -127,6 +127,7 @@ type UpdateAccountRequest struct {
 type AccountService struct {
 	accountRepo AccountRepository
 	groupRepo   GroupRepository
+	proxyRepo   ProxyRepository
 }
 
 type groupExistenceBatchChecker interface {
@@ -139,6 +140,10 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 		accountRepo: accountRepo,
 		groupRepo:   groupRepo,
 	}
+}
+
+func (s *AccountService) SetProxyRepository(proxyRepo ProxyRepository) {
+	s.proxyRepo = proxyRepo
 }
 
 // Create 创建账号

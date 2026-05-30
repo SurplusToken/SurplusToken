@@ -34,6 +34,8 @@ type UserAccountPoolItem struct {
 	PlanType                           string                 `json:"plan_type,omitempty"`
 	PrivacyMode                        string                 `json:"privacy_mode,omitempty"`
 	SubscriptionExpiresAt              string                 `json:"subscription_expires_at,omitempty"`
+	ProxyID                            *int64                 `json:"proxy_id,omitempty"`
+	Proxy                              *Proxy                 `json:"proxy,omitempty"`
 	Status                             string                 `json:"status"`
 	IsMine                             bool                   `json:"is_mine"`
 	IsUserContributed                  bool                   `json:"is_user_contributed"`
@@ -82,6 +84,7 @@ type CreateUserOAuthAccountRequest struct {
 	Credentials                        map[string]any     `json:"credentials"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
 	Extra                              map[string]any     `json:"extra"`
+	ProxyID                            *int64             `json:"proxy_id"`
 	Schedulable                        *bool              `json:"schedulable"`
 	GroupIDs                           []int64            `json:"group_ids"`
 	ExpiresAt                          *int64             `json:"expires_at"`
@@ -93,6 +96,7 @@ type CreateUserOAuthAccountRequest struct {
 
 type UpdateUserAccountScopeRequest struct {
 	GroupIDs                           *[]int64           `json:"group_ids"`
+	ProxyID                            *int64             `json:"proxy_id"`
 	ExpiresAt                          *int64             `json:"expires_at"`
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
@@ -230,6 +234,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		Type:               AccountTypeOAuth,
 		Credentials:        credentials,
 		Extra:              extra,
+		ProxyID:            normalizeUserAccountProxyID(req.ProxyID),
 		OwnerUserID:        &ownerUserID,
 		Concurrency:        1,
 		Priority:           100,
@@ -237,6 +242,9 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		Schedulable:        schedulable,
 		ExpiresAt:          expiresAt,
 		AutoPauseOnExpired: autoPauseOnExpired,
+	}
+	if err := s.validateUserAccountProxy(ctx, account.ProxyID); err != nil {
+		return nil, err
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
@@ -382,8 +390,15 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
+	if req.ProxyID != nil {
+		account.ProxyID = normalizeUserAccountProxyID(req.ProxyID)
+		account.Proxy = nil
+		if err := s.validateUserAccountProxy(ctx, account.ProxyID); err != nil {
+			return nil, err
+		}
+	}
 
-	needsAccountUpdate := extraChanged || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil
+	needsAccountUpdate := extraChanged || req.ProxyID != nil || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil
 	if needsAccountUpdate {
 		if err := s.accountRepo.Update(ctx, account); err != nil {
 			return nil, fmt.Errorf("update user account scope: %w", err)
@@ -445,6 +460,7 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		PlanType:                           account.GetCredential("plan_type"),
 		PrivacyMode:                        account.getExtraString("privacy_mode"),
 		SubscriptionExpiresAt:              account.GetCredential("subscription_expires_at"),
+		ProxyID:                            account.ProxyID,
 		Status:                             account.Status,
 		IsMine:                             isMine,
 		IsUserContributed:                  account.IsUserContributed(),
@@ -473,6 +489,11 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 	}
 	if isMine {
 		item.GroupIDs = append([]int64(nil), account.GroupIDs...)
+		if account.Proxy != nil {
+			proxy := *account.Proxy
+			proxy.Password = ""
+			item.Proxy = &proxy
+		}
 	}
 	if isMine && len(account.Groups) > 0 {
 		item.Groups = make([]UserAccountPoolGroup, 0, len(account.Groups))
@@ -601,6 +622,31 @@ func normalizeUserModelMapping(input map[string]string) map[string]any {
 		return nil
 	}
 	return out
+}
+
+func normalizeUserAccountProxyID(proxyID *int64) *int64 {
+	if proxyID == nil || *proxyID <= 0 {
+		return nil
+	}
+	id := *proxyID
+	return &id
+}
+
+func (s *AccountService) validateUserAccountProxy(ctx context.Context, proxyID *int64) error {
+	if proxyID == nil {
+		return nil
+	}
+	if s.proxyRepo == nil {
+		return infraerrors.BadRequest("ACCOUNT_PROXY_NOT_AVAILABLE", "proxy service is not configured")
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
+	if err != nil {
+		return fmt.Errorf("get proxy: %w", err)
+	}
+	if proxy == nil || !proxy.IsActive() {
+		return infraerrors.BadRequest("ACCOUNT_PROXY_NOT_AVAILABLE", "proxy is not available")
+	}
+	return nil
 }
 
 func isUserOAuthPlatformAllowed(platform string) bool {

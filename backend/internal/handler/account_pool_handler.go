@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -18,6 +19,7 @@ type AccountPoolHandler struct {
 	accountService          *service.AccountService
 	apiKeyService           *service.APIKeyService
 	accountUsageService     *service.AccountUsageService
+	proxyService            *service.ProxyService
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
@@ -27,6 +29,7 @@ func NewAccountPoolHandler(
 	accountService *service.AccountService,
 	apiKeyService *service.APIKeyService,
 	accountUsageService *service.AccountUsageService,
+	proxyService *service.ProxyService,
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
@@ -35,6 +38,7 @@ func NewAccountPoolHandler(
 		accountService:          accountService,
 		apiKeyService:           apiKeyService,
 		accountUsageService:     accountUsageService,
+		proxyService:            proxyService,
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
@@ -48,6 +52,7 @@ type createUserOAuthAccountPayload struct {
 	Credentials                        map[string]any     `json:"credentials"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
 	Extra                              map[string]any     `json:"extra"`
+	ProxyID                            *int64             `json:"proxy_id"`
 	Schedulable                        *bool              `json:"schedulable"`
 	GroupIDs                           []int64            `json:"group_ids"`
 	ExpiresAt                          *int64             `json:"expires_at"`
@@ -73,6 +78,7 @@ type updateUserAccountLimitsPayload struct {
 
 type updateUserAccountScopePayload struct {
 	GroupIDs                           *[]int64           `json:"group_ids"`
+	ProxyID                            *int64             `json:"proxy_id"`
 	ExpiresAt                          *int64             `json:"expires_at"`
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
@@ -80,6 +86,49 @@ type updateUserAccountScopePayload struct {
 	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+}
+
+func (h *AccountPoolHandler) ListProxies(c *gin.Context) {
+	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.proxyService == nil {
+		response.InternalError(c, "proxy service is not configured")
+		return
+	}
+
+	proxies, err := h.proxyService.ListActive(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]dto.Proxy, 0, len(proxies))
+	for i := range proxies {
+		out = append(out, *dto.ProxyFromService(&proxies[i]))
+	}
+	response.Success(c, out)
+}
+
+func (h *AccountPoolHandler) TestProxy(c *gin.Context) {
+	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.proxyService == nil {
+		response.InternalError(c, "proxy service is not configured")
+		return
+	}
+	proxyID, ok := parseProxyIDParam(c)
+	if !ok {
+		return
+	}
+	result, err := h.proxyService.Test(c.Request.Context(), proxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 type userOAuthAuthURLPayload struct {
@@ -154,6 +203,7 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 		Credentials:                        payload.Credentials,
 		ModelMapping:                       payload.ModelMapping,
 		Extra:                              payload.Extra,
+		ProxyID:                            payload.ProxyID,
 		Schedulable:                        payload.Schedulable,
 		GroupIDs:                           groupIDs,
 		ExpiresAt:                          payload.ExpiresAt,
@@ -356,6 +406,7 @@ func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
 
 	item, err := h.accountService.UpdateUserAccountScope(c.Request.Context(), subject.UserID, accountID, service.UpdateUserAccountScopeRequest{
 		GroupIDs:                           groupIDs,
+		ProxyID:                            payload.ProxyID,
 		ExpiresAt:                          payload.ExpiresAt,
 		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
 		ModelMapping:                       payload.ModelMapping,
@@ -413,6 +464,15 @@ func parseAccountIDParam(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		response.BadRequest(c, "Invalid account ID")
+		return 0, false
+	}
+	return id, true
+}
+
+func parseProxyIDParam(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid proxy ID")
 		return 0, false
 	}
 	return id, true

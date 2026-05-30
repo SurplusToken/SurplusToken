@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { AccountPlatform, PaginatedResponse, UserAccountPoolItem } from '@/types'
+import type { AccountPlatform, PaginatedResponse, Proxy, UserAccountPoolItem } from '@/types'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -10,6 +10,7 @@ export interface CreateUserOAuthAccountRequest {
   credentials: Record<string, unknown>
   model_mapping?: Record<string, string>
   extra?: Record<string, unknown>
+  proxy_id?: number | null
   schedulable?: boolean
   group_ids?: number[]
   expires_at?: number | null
@@ -21,6 +22,7 @@ export interface CreateUserOAuthAccountRequest {
 
 export interface UpdateUserAccountScopeRequest {
   group_ids?: number[]
+  proxy_id?: number | null
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   model_mapping?: Record<string, string>
@@ -77,6 +79,34 @@ export async function listPool(
   return data
 }
 
+export async function listProxies(): Promise<Proxy[]> {
+  const { data } = await apiClient.get<Proxy[]>('/accounts/proxies')
+  return data
+}
+
+export async function testProxy(id: number): Promise<{
+  success: boolean
+  message: string
+  latency_ms?: number
+  ip_address?: string
+  city?: string
+  region?: string
+  country?: string
+  country_code?: string
+}> {
+  const { data } = await apiClient.post<{
+    success: boolean
+    message: string
+    latency_ms?: number
+    ip_address?: string
+    city?: string
+    region?: string
+    country?: string
+    country_code?: string
+  }>(`/accounts/proxies/${id}/test`)
+  return data
+}
+
 export async function createOAuth(payload: CreateUserOAuthAccountRequest): Promise<UserAccountPoolItem> {
   const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/oauth', payload)
   return data
@@ -113,6 +143,8 @@ export async function updateScope(
 
 export const accountsAPI = {
   listPool,
+  listProxies,
+  testProxy,
   createOAuth,
   generateOAuthAuthUrl,
   exchangeOAuthCode,

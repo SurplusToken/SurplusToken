@@ -54,7 +54,8 @@ type UpdateProxyRequest struct {
 
 // ProxyService 代理管理服务
 type ProxyService struct {
-	proxyRepo ProxyRepository
+	proxyRepo   ProxyRepository
+	proxyProber ProxyExitInfoProber
 }
 
 // NewProxyService 创建代理服务实例
@@ -62,6 +63,10 @@ func NewProxyService(proxyRepo ProxyRepository) *ProxyService {
 	return &ProxyService{
 		proxyRepo: proxyRepo,
 	}
+}
+
+func (s *ProxyService) SetProxyProber(proxyProber ProxyExitInfoProber) {
+	s.proxyProber = proxyProber
 }
 
 // Create 创建代理
@@ -109,6 +114,38 @@ func (s *ProxyService) ListActive(ctx context.Context) ([]Proxy, error) {
 		return nil, fmt.Errorf("list active proxies: %w", err)
 	}
 	return proxies, nil
+}
+
+func (s *ProxyService) Test(ctx context.Context, id int64) (*ProxyTestResult, error) {
+	proxy, err := s.proxyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get proxy: %w", err)
+	}
+	if s.proxyProber == nil {
+		return &ProxyTestResult{
+			Success: false,
+			Message: "proxy probe service is not configured",
+		}, nil
+	}
+
+	exitInfo, latencyMs, err := s.proxyProber.ProbeProxy(ctx, proxy.URL())
+	if err != nil {
+		return &ProxyTestResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &ProxyTestResult{
+		Success:     true,
+		Message:     "Proxy is accessible",
+		LatencyMs:   latencyMs,
+		IPAddress:   exitInfo.IP,
+		City:        exitInfo.City,
+		Region:      exitInfo.Region,
+		Country:     exitInfo.Country,
+		CountryCode: exitInfo.CountryCode,
+	}, nil
 }
 
 // Update 更新代理

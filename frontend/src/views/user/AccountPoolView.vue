@@ -486,6 +486,15 @@
               :platform="createForm.platform"
               searchable="auto"
             />
+
+            <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+              <label class="input-label">{{ t('admin.accounts.proxy') }}</label>
+              <ProxySelector
+                v-model="createForm.proxyId"
+                :proxies="proxies"
+                :test-proxy="testUserProxy"
+              />
+            </div>
           </div>
         </div>
 
@@ -693,6 +702,15 @@
               :platform="scopeAccount.platform"
               searchable="auto"
             />
+
+            <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+              <label class="input-label">{{ t('admin.accounts.proxy') }}</label>
+              <ProxySelector
+                v-model="scopeForm.proxyId"
+                :proxies="proxies"
+                :test-proxy="testUserProxy"
+              />
+            </div>
           </div>
         </div>
 
@@ -780,6 +798,7 @@ import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
@@ -788,7 +807,7 @@ import accountsAPI, {
 } from '@/api/accounts'
 import userAPI from '@/api/user'
 import { userGroupsAPI } from '@/api/groups'
-import type { AccountPlatform, Group, UserAccountPoolItem } from '@/types'
+import type { AccountPlatform, Group, Proxy, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
@@ -810,6 +829,7 @@ const appStore = useAppStore()
 const platforms: AccountPlatform[] = ['anthropic', 'openai']
 const accounts = ref<UserAccountPoolItem[]>([])
 const availableGroups = ref<Group[]>([])
+const proxies = ref<Proxy[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const transferringContribution = ref(false)
@@ -847,6 +867,7 @@ const createForm = reactive({
   projectId: '',
   tierId: '',
   schedulable: true,
+  proxyId: null as number | null,
   groupIds: [] as number[],
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
@@ -862,6 +883,7 @@ const scopeAccount = ref<UserAccountPoolItem | null>(null)
 const scopeAllowedModels = ref<string[]>([])
 const scopeForm = reactive({
   groupIds: [] as number[],
+  proxyId: null as number | null,
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
   codexCLIOnly: false,
@@ -1147,6 +1169,18 @@ async function loadAvailableGroups() {
   }
 }
 
+async function loadProxies() {
+  try {
+    proxies.value = await accountsAPI.listProxies()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.proxies.failedToLoad')))
+  }
+}
+
+async function testUserProxy(proxy: Proxy) {
+  return accountsAPI.testProxy(proxy.id)
+}
+
 async function handleGenerateUrl() {
   oauthLoading.value = true
   oauthError.value = ''
@@ -1272,6 +1306,7 @@ async function handleExchangeCode() {
       credentials,
       model_mapping: buildUserModelWhitelist(allowedModels.value),
       extra: buildExtra(tokenInfo),
+      proxy_id: createForm.proxyId,
       schedulable: createForm.schedulable,
       group_ids: createForm.groupIds,
       expires_at: createForm.expiresAt,
@@ -1298,6 +1333,7 @@ function resetCreateForm() {
   createForm.projectId = ''
   createForm.tierId = ''
   createForm.schedulable = true
+  createForm.proxyId = null
   createForm.groupIds = []
   createForm.expiresAt = null
   createForm.autoPauseOnExpired = true
@@ -1324,6 +1360,7 @@ async function toggleSchedulable(account: UserAccountPoolItem, schedulable: bool
 function openScopeDialog(account: UserAccountPoolItem) {
   scopeAccount.value = account
   scopeForm.groupIds = [...(account.group_ids || [])]
+  scopeForm.proxyId = account.proxy_id || null
   scopeForm.expiresAt = account.expires_at ? Math.floor(new Date(account.expires_at).getTime() / 1000) : null
   scopeForm.autoPauseOnExpired = account.auto_pause_on_expired
   scopeForm.codexCLIOnly = account.codex_cli_only
@@ -1339,6 +1376,7 @@ function handleScopeClose() {
   scopeAccount.value = null
   resetScopeModelWhitelist()
   scopeForm.groupIds = []
+  scopeForm.proxyId = null
   scopeForm.expiresAt = null
   scopeForm.autoPauseOnExpired = true
   scopeForm.codexCLIOnly = false
@@ -1354,6 +1392,7 @@ async function saveScope() {
   try {
     const updated = await accountsAPI.updateScope(account.id, {
       group_ids: scopeForm.groupIds,
+      proxy_id: scopeForm.proxyId || 0,
       expires_at: scopeForm.expiresAt ?? 0,
       auto_pause_on_expired: scopeForm.autoPauseOnExpired,
       model_mapping: buildUserModelWhitelist(scopeAllowedModels.value),
@@ -1396,5 +1435,6 @@ onMounted(() => {
   loadAccounts()
   loadContributionSummary()
   loadAvailableGroups()
+  loadProxies()
 })
 </script>

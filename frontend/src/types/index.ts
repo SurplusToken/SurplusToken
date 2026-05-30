@@ -939,6 +939,8 @@ export interface UserAccountPoolItem {
   plan_type?: string | null
   privacy_mode?: string | null
   subscription_expires_at?: string | null
+  proxy_id?: number | null
+  proxy?: Proxy | null
   status: 'active' | 'inactive' | 'error'
   is_mine: boolean
   is_user_contributed: boolean

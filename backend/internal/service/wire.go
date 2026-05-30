@@ -438,6 +438,20 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+// ProvideAccountService wires AccountService with optional proxy lookup for user-owned accounts.
+func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository) *AccountService {
+	svc := NewAccountService(accountRepo, groupRepo)
+	svc.SetProxyRepository(proxyRepo)
+	return svc
+}
+
+// ProvideProxyService wires ProxyService with the shared proxy prober.
+func ProvideProxyService(proxyRepo ProxyRepository, proxyProber ProxyExitInfoProber) *ProxyService {
+	svc := NewProxyService(proxyRepo)
+	svc.SetProxyProber(proxyProber)
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -446,8 +460,8 @@ var ProviderSet = wire.NewSet(
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
 	NewGroupService,
-	NewAccountService,
-	NewProxyService,
+	ProvideAccountService,
+	ProvideProxyService,
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,

@@ -38,7 +38,7 @@
             />
           </div>
           <button
-            v-if="proxies.length > 0"
+            v-if="showTestActions && proxies.length > 0"
             type="button"
             @click.stop="handleBatchTest"
             :disabled="batchTesting"
@@ -120,6 +120,7 @@
 
             <!-- Individual test button -->
             <button
+              v-if="showTestActions"
               type="button"
               @click.stop="handleTestProxy(proxy)"
               :disabled="testingProxyIds.has(proxy.id)"
@@ -190,10 +191,13 @@ interface Props {
   modelValue: number | null
   proxies: Proxy[]
   disabled?: boolean
+  showTestActions?: boolean
+  testProxy?: (proxy: Proxy) => Promise<ProxyTestResult>
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  disabled: false
+  disabled: false,
+  showTestActions: true
 })
 
 const emit = defineEmits<{
@@ -256,7 +260,7 @@ const handleTestProxy = async (proxy: Proxy) => {
 
   testingProxyIds.add(proxy.id)
   try {
-    const result = await adminAPI.proxies.testProxy(proxy.id)
+    const result = props.testProxy ? await props.testProxy(proxy) : await adminAPI.proxies.testProxy(proxy.id)
     testResults[proxy.id] = result
   } catch (error: any) {
     testResults[proxy.id] = {
@@ -277,7 +281,7 @@ const handleBatchTest = async () => {
   const testPromises = props.proxies.map(async (proxy) => {
     testingProxyIds.add(proxy.id)
     try {
-      const result = await adminAPI.proxies.testProxy(proxy.id)
+      const result = props.testProxy ? await props.testProxy(proxy) : await adminAPI.proxies.testProxy(proxy.id)
       testResults[proxy.id] = result
     } catch (error: any) {
       testResults[proxy.id] = {
