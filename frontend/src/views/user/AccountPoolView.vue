@@ -433,32 +433,12 @@
           <div class="space-y-4">
             <div>
               <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-              <ModelRestrictionEditor
-                v-if="modelRestrictionEnabled"
-                :platform="createForm.platform"
-                v-model:mode="modelRestrictionMode"
-                v-model:allowed-models="allowedModels"
-                v-model:model-mappings="modelMappings"
-                @allow-all="disableModelRestriction"
-              />
-              <div v-else>
-                <div class="mb-3 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
-                  <button
-                    type="button"
-                    :class="restrictionModeClass(true)"
-                  >
-                    {{ t('accountPool.settings.allowAllModels') }}
-                  </button>
-                  <button
-                    type="button"
-                    @click="enableModelRestriction"
-                    :class="restrictionModeClass(false)"
-                  >
-                    {{ t('accountPool.settings.limitModels') }}
-                  </button>
-                </div>
-                <p class="input-hint">{{ t('accountPool.settings.allowAllModelsHint') }}</p>
+              <div class="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                <Icon name="checkCircle" size="sm" class="text-primary-500" />
+                {{ t('admin.accounts.modelWhitelist') }}
               </div>
+              <ModelWhitelistSelector v-model="allowedModels" :platform="createForm.platform" />
+              <p class="input-hint">{{ t('accountPool.settings.modelWhitelistHint') }}</p>
             </div>
 
             <div v-if="createForm.platform === 'openai'" class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -654,32 +634,17 @@
           <div class="space-y-4">
             <div>
               <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-              <ModelRestrictionEditor
-                v-if="scopeModelRestrictionEnabled && scopeAccount"
-                :platform="scopeAccount.platform"
-                v-model:mode="scopeModelRestrictionMode"
-                v-model:allowed-models="scopeAllowedModels"
-                v-model:model-mappings="scopeModelMappings"
-                @allow-all="disableScopeModelRestriction"
-              />
-              <div v-else>
-                <div class="mb-3 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
-                  <button
-                    type="button"
-                    :class="restrictionModeClass(true)"
-                  >
-                    {{ t('accountPool.settings.allowAllModels') }}
-                  </button>
-                  <button
-                    type="button"
-                    @click="enableScopeModelRestriction"
-                    :class="restrictionModeClass(false)"
-                  >
-                    {{ t('accountPool.settings.limitModels') }}
-                  </button>
-                </div>
-                <p class="input-hint">{{ t('accountPool.settings.allowAllModelsHint') }}</p>
+              <div class="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                <Icon name="checkCircle" size="sm" class="text-primary-500" />
+                {{ t('admin.accounts.modelWhitelist') }}
               </div>
+              <ModelWhitelistSelector
+                v-if="scopeAccount"
+                v-model="scopeAllowedModels"
+                :platform="scopeAccount.platform"
+                :account-id="scopeAccount.id"
+              />
+              <p class="input-hint">{{ t('accountPool.settings.modelWhitelistHint') }}</p>
             </div>
 
             <div v-if="scopeAccount?.platform === 'openai'" class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -805,7 +770,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, reactive, ref, watch, type PropType } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -828,11 +793,7 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   buildModelMappingObject,
-  getModelsByPlatform,
-  getPresetMappingsByPlatform,
   splitModelMappingObject,
-  type ModelMappingEntry,
-  type ModelRestrictionMode,
 } from '@/composables/useModelWhitelist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 
@@ -842,153 +803,6 @@ interface OAuthFlowExposed {
   projectId: string
   reset: () => void
 }
-
-type UserModelRestrictionMode = Exclude<ModelRestrictionMode, 'combined'>
-
-const ModelRestrictionEditor = defineComponent({
-  name: 'UserAccountModelRestrictionEditor',
-  props: {
-    platform: {
-      type: String as PropType<AccountPlatform>,
-      required: true,
-    },
-    mode: {
-      type: String as PropType<UserModelRestrictionMode>,
-      required: true,
-    },
-    allowedModels: {
-      type: Array as PropType<string[]>,
-      required: true,
-    },
-    modelMappings: {
-      type: Array as PropType<ModelMappingEntry[]>,
-      required: true,
-    },
-  },
-  emits: ['update:mode', 'update:allowedModels', 'update:modelMappings', 'allowAll'],
-  setup(props, { emit }) {
-    const { t } = useI18n()
-    const appStore = useAppStore()
-
-    const modeButtonClass = (active: boolean, color: 'primary' | 'purple') => [
-      'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-      active
-        ? color === 'purple'
-          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-          : 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500',
-    ]
-
-    const setMode = (mode: UserModelRestrictionMode) => emit('update:mode', mode)
-    const updateMappingAt = (index: number, key: keyof ModelMappingEntry, value: string) => {
-      const next = props.modelMappings.map((mapping, i) =>
-        i === index ? { ...mapping, [key]: value } : mapping
-      )
-      emit('update:modelMappings', next)
-    }
-    const addModelMapping = () => emit('update:modelMappings', [...props.modelMappings, { from: '', to: '' }])
-    const removeModelMapping = (index: number) => {
-      emit('update:modelMappings', props.modelMappings.filter((_, i) => i !== index))
-    }
-    const addPresetMapping = (from: string, to: string) => {
-      if (props.modelMappings.some((mapping) => mapping.from === from)) {
-        appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-        return
-      }
-      emit('update:modelMappings', [...props.modelMappings, { from, to }])
-    }
-
-    return () => h('div', [
-      h('div', { class: 'mb-4 flex gap-2' }, [
-        h('button', {
-          type: 'button',
-          class: modeButtonClass(props.mode === 'whitelist', 'primary'),
-          onClick: () => setMode('whitelist'),
-        }, [
-          h(Icon, { name: 'checkCircle', size: 'sm', class: 'mr-1.5 inline' }),
-          t('admin.accounts.modelWhitelist'),
-        ]),
-        h('button', {
-          type: 'button',
-          class: modeButtonClass(props.mode === 'mapping', 'purple'),
-          onClick: () => setMode('mapping'),
-        }, [
-          h(Icon, { name: 'swap', size: 'sm', class: 'mr-1.5 inline' }),
-          t('admin.accounts.modelMapping'),
-        ]),
-      ]),
-      props.mode === 'whitelist'
-        ? h('div', [
-          h(ModelWhitelistSelector, {
-            modelValue: props.allowedModels,
-            platform: props.platform,
-            'onUpdate:modelValue': (value: string[]) => emit('update:allowedModels', value),
-          }),
-          h('p', { class: 'input-hint' }, [
-            t('admin.accounts.selectedModels', { count: props.allowedModels.length }),
-            props.allowedModels.length === 0 ? ` ${t('admin.accounts.supportsAllModels')}` : '',
-          ]),
-        ])
-        : h('div', [
-          h('div', { class: 'mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20' }, [
-            h('p', { class: 'text-xs text-purple-700 dark:text-purple-400' }, [
-              h(Icon, { name: 'infoCircle', size: 'sm', class: 'mr-1 inline' }),
-              t('admin.accounts.mapRequestModels'),
-            ]),
-          ]),
-          props.modelMappings.length > 0
-            ? h('div', { class: 'mb-3 space-y-2' }, props.modelMappings.map((mapping, index) =>
-              h('div', { key: index, class: 'flex items-center gap-2' }, [
-                h('input', {
-                  value: mapping.from,
-                  type: 'text',
-                  class: 'input flex-1',
-                  placeholder: t('admin.accounts.requestModel'),
-                  onInput: (event: Event) => updateMappingAt(index, 'from', (event.target as HTMLInputElement).value),
-                }),
-                h(Icon, { name: 'arrowRight', size: 'sm', class: 'shrink-0 text-gray-400' }),
-                h('input', {
-                  value: mapping.to,
-                  type: 'text',
-                  class: 'input flex-1',
-                  placeholder: t('admin.accounts.actualModel'),
-                  onInput: (event: Event) => updateMappingAt(index, 'to', (event.target as HTMLInputElement).value),
-                }),
-                h('button', {
-                  type: 'button',
-                  class: 'rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20',
-                  onClick: () => removeModelMapping(index),
-                }, h(Icon, { name: 'trash', size: 'sm' })),
-              ])
-            ))
-            : null,
-          h('button', {
-            type: 'button',
-            class: 'mb-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300',
-            onClick: addModelMapping,
-          }, [
-            h(Icon, { name: 'plus', size: 'sm' }),
-            t('admin.accounts.addMapping'),
-          ]),
-          h('div', { class: 'flex flex-wrap gap-2' }, getPresetMappingsByPlatform(props.platform).map((preset) =>
-            h('button', {
-              key: preset.label,
-              type: 'button',
-              class: ['rounded-lg px-3 py-1 text-xs transition-colors', preset.color],
-              onClick: () => addPresetMapping(preset.from, preset.to),
-            }, `+ ${preset.label}`)
-          )),
-        ]),
-      h('div', { class: 'mt-3 flex justify-end' }, [
-        h('button', {
-          type: 'button',
-          class: 'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-dark-300 dark:hover:text-dark-100',
-          onClick: () => emit('allowAll'),
-        }, t('accountPool.settings.allowAllModels')),
-      ]),
-    ])
-  },
-})
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1042,16 +856,10 @@ const createForm = reactive({
   probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
 })
 
-const modelRestrictionEnabled = ref(false)
-const modelRestrictionMode = ref<UserModelRestrictionMode>('whitelist')
 const allowedModels = ref<string[]>([])
-const modelMappings = ref<ModelMappingEntry[]>([])
 const showScopeForm = ref(false)
 const scopeAccount = ref<UserAccountPoolItem | null>(null)
-const scopeModelRestrictionEnabled = ref(false)
-const scopeModelRestrictionMode = ref<UserModelRestrictionMode>('whitelist')
 const scopeAllowedModels = ref<string[]>([])
-const scopeModelMappings = ref<ModelMappingEntry[]>([])
 const scopeForm = reactive({
   groupIds: [] as number[],
   expiresAt: null as number | null,
@@ -1154,31 +962,13 @@ function modelLimitCount(account: UserAccountPoolItem): number {
   return Object.keys(account.model_mapping || {}).length
 }
 
-function parseUserModelRestriction(mapping: Record<string, string> | null | undefined) {
+function parseUserModelWhitelist(mapping: Record<string, string> | null | undefined): string[] {
   const parsed = splitModelMappingObject(mapping)
-  const enabled = parsed.allowedModels.length > 0 || parsed.modelMappings.length > 0
-  if (parsed.modelMappings.length > 0) {
-    return {
-      enabled,
-      mode: 'mapping' as UserModelRestrictionMode,
-      allowedModels: parsed.allowedModels,
-      modelMappings: [
-        ...parsed.allowedModels.map((model) => ({ from: model, to: model })),
-        ...parsed.modelMappings,
-      ],
-    }
-  }
-  return { enabled, mode: 'whitelist' as UserModelRestrictionMode, ...parsed }
+  return parsed.allowedModels
 }
 
-function buildUserModelMapping(
-  enabled: boolean,
-  mode: UserModelRestrictionMode,
-  models: string[],
-  mappings: ModelMappingEntry[],
-): Record<string, string> {
-  if (!enabled) return {}
-  return buildModelMappingObject(mode, models, mappings) || {}
+function buildUserModelWhitelist(models: string[]): Record<string, string> {
+  return buildModelMappingObject('whitelist', models, []) || {}
 }
 
 function probeFailurePolicyLabel(policy: UserAccountPoolItem['contribution_probe_failure_policy']): string {
@@ -1199,8 +989,7 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
 }
 
 function withModelMapping(credentials: Record<string, unknown>): Record<string, unknown> {
-  if (!modelRestrictionEnabled.value) return credentials
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildUserModelWhitelist(allowedModels.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -1301,9 +1090,6 @@ function selectCreatePlatform(platform: 'openai' | 'gemini' | 'antigravity') {
   if (platform !== 'openai') {
     createForm.codexCLIOnly = false
   }
-  if (modelRestrictionEnabled.value && modelRestrictionMode.value === 'whitelist') {
-    allowedModels.value = [...getModelsByPlatform(platform)]
-  }
   resetOAuthSession()
   oauthFlowRef.value?.reset()
 }
@@ -1327,15 +1113,6 @@ function platformButtonClass(platform: 'openai' | 'gemini' | 'antigravity', colo
   ]
 }
 
-function restrictionModeClass(active: boolean) {
-  return [
-    'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all',
-    active
-      ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
-      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
-  ]
-}
-
 function toggleClass(active: boolean) {
   return [
     'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -1350,32 +1127,12 @@ function toggleKnobClass(active: boolean) {
   ]
 }
 
-function enableModelRestriction() {
-  modelRestrictionEnabled.value = true
-  if (modelRestrictionMode.value === 'whitelist' && allowedModels.value.length === 0) {
-    allowedModels.value = [...getModelsByPlatform(createForm.platform)]
-  }
-}
-
-function disableModelRestriction() {
-  modelRestrictionEnabled.value = false
-  modelRestrictionMode.value = 'whitelist'
+function resetModelWhitelist() {
   allowedModels.value = []
-  modelMappings.value = []
 }
 
-function enableScopeModelRestriction() {
-  scopeModelRestrictionEnabled.value = true
-  if (scopeModelRestrictionMode.value === 'whitelist' && scopeAllowedModels.value.length === 0 && scopeAccount.value) {
-    scopeAllowedModels.value = [...getModelsByPlatform(scopeAccount.value.platform)]
-  }
-}
-
-function disableScopeModelRestriction() {
-  scopeModelRestrictionEnabled.value = false
-  scopeModelRestrictionMode.value = 'whitelist'
+function resetScopeModelWhitelist() {
   scopeAllowedModels.value = []
-  scopeModelMappings.value = []
 }
 
 async function loadAvailableGroups() {
@@ -1513,12 +1270,7 @@ async function handleExchangeCode() {
       platform: createForm.platform,
       type: 'oauth',
       credentials,
-      model_mapping: buildUserModelMapping(
-        modelRestrictionEnabled.value,
-        modelRestrictionMode.value,
-        allowedModels.value,
-        modelMappings.value,
-      ),
+      model_mapping: buildUserModelWhitelist(allowedModels.value),
       extra: buildExtra(tokenInfo),
       schedulable: createForm.schedulable,
       group_ids: createForm.groupIds,
@@ -1553,7 +1305,7 @@ function resetCreateForm() {
   createForm.fiveHourReservePercent = 0
   createForm.weeklyReservePercent = 0
   createForm.probeFailurePolicy = 'continue'
-  disableModelRestriction()
+  resetModelWhitelist()
 }
 
 async function toggleSchedulable(account: UserAccountPoolItem, schedulable: boolean) {
@@ -1578,18 +1330,14 @@ function openScopeDialog(account: UserAccountPoolItem) {
   scopeForm.fiveHourReservePercent = account.contribution_5h_reserve_percent
   scopeForm.weeklyReservePercent = account.contribution_weekly_reserve_percent
   scopeForm.probeFailurePolicy = account.contribution_probe_failure_policy
-  const restriction = parseUserModelRestriction(account.model_mapping)
-  scopeModelRestrictionEnabled.value = restriction.enabled
-  scopeModelRestrictionMode.value = restriction.mode
-  scopeAllowedModels.value = restriction.allowedModels
-  scopeModelMappings.value = restriction.modelMappings
+  scopeAllowedModels.value = parseUserModelWhitelist(account.model_mapping)
   showScopeForm.value = true
 }
 
 function handleScopeClose() {
   showScopeForm.value = false
   scopeAccount.value = null
-  disableScopeModelRestriction()
+  resetScopeModelWhitelist()
   scopeForm.groupIds = []
   scopeForm.expiresAt = null
   scopeForm.autoPauseOnExpired = true
@@ -1608,12 +1356,7 @@ async function saveScope() {
       group_ids: scopeForm.groupIds,
       expires_at: scopeForm.expiresAt ?? 0,
       auto_pause_on_expired: scopeForm.autoPauseOnExpired,
-      model_mapping: buildUserModelMapping(
-        scopeModelRestrictionEnabled.value,
-        scopeModelRestrictionMode.value,
-        scopeAllowedModels.value,
-        scopeModelMappings.value,
-      ),
+      model_mapping: buildUserModelWhitelist(scopeAllowedModels.value),
       codex_cli_only: account.platform === 'openai' ? scopeForm.codexCLIOnly : false,
       contribution_5h_reserve_percent: normalizeReservePercent(scopeForm.fiveHourReservePercent),
       contribution_weekly_reserve_percent: normalizeReservePercent(scopeForm.weeklyReservePercent),

@@ -1098,6 +1098,7 @@ export default {
       allowAllModels: 'Allow all models',
       limitModels: 'Limit models',
       allowAllModelsHint: 'No model restriction will be written; the account can use platform default models.',
+      modelWhitelistHint: 'Only fill the model whitelist allowed for this account. Leave it empty to write no model restriction.',
       modelLimited: 'Model-limited',
       allModels: 'All models',
       modelCount: '{count} models',

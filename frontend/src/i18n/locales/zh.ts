@@ -1102,6 +1102,7 @@ export default {
       allowAllModels: '允许全部模型',
       limitModels: '限制模型',
       allowAllModelsHint: '不写入模型限制，账号可支持平台默认模型。',
+      modelWhitelistHint: '只填写允许使用的模型白名单；留空则不写入模型限制。',
       modelLimited: '模型受限',
       allModels: '全部模型',
       modelCount: '{count} 个模型',
