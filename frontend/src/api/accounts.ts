@@ -8,6 +8,7 @@ export interface CreateUserOAuthAccountRequest {
   platform: AccountPlatform
   type?: 'oauth'
   credentials: Record<string, unknown>
+  model_mapping?: Record<string, string>
   extra?: Record<string, unknown>
   schedulable?: boolean
   group_ids?: number[]
