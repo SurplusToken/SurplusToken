@@ -1077,6 +1077,16 @@ export default {
     scopeSaveSuccess: '账号可用范围已更新',
     schedulableSaved: '调度设置已更新',
     loadFailed: '账号池加载失败',
+    rewards: {
+      available: '可用贡献余额',
+      frozen: '冻结贡献余额',
+      history: '历史贡献收益',
+      transfer: '转入余额',
+      transferring: '转入中',
+      transferSuccess: '已转入余额：{amount}',
+      transferFailed: '贡献余额转入失败',
+      loadFailed: '贡献余额加载失败',
+    },
     settings: {
       title: '账号可用范围',
       description: '设置这个账号允许被调度到哪些模型和分组，以及到期后的共享行为。',

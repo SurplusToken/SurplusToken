@@ -142,6 +142,12 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
+	if cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
+		if err := accrueUsageBillingContributionReward(ctx, tx, cmd); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -334,4 +340,123 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 		}
 	}
 	return &state, nil
+}
+
+func accrueUsageBillingContributionReward(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.ContributorUserID <= 0 || cmd.ContributionRewardAmount <= 0 {
+		return nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO user_contributions (user_id, created_at, updated_at)
+VALUES ($1, NOW(), NOW())
+ON CONFLICT (user_id) DO NOTHING`, cmd.ContributorUserID); err != nil {
+		return err
+	}
+
+	if cmd.ContributionRewardFreezeHours > 0 {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE user_contributions
+SET contribution_frozen_quota = contribution_frozen_quota + $1,
+    contribution_history_quota = contribution_history_quota + $1,
+    updated_at = NOW()
+WHERE user_id = $2`, cmd.ContributionRewardAmount, cmd.ContributorUserID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE user_contributions
+SET contribution_quota = contribution_quota + $1,
+    contribution_history_quota = contribution_history_quota + $1,
+    updated_at = NOW()
+WHERE user_id = $2`, cmd.ContributionRewardAmount, cmd.ContributorUserID); err != nil {
+			return err
+		}
+	}
+
+	if cmd.ContributionRewardFreezeHours > 0 {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO user_contribution_ledger (
+    user_id, action, amount, usage_billing_request_id, api_key_id, account_id, consumer_user_id,
+    model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, image_count,
+    total_cost, account_stats_cost, account_rate_multiplier, reward_rate, frozen_until,
+    created_at, updated_at
+) VALUES (
+    $1, 'accrue', $2, $3, $4, $5, $6,
+    $7, $8, $9, $10, $11, $12,
+    $13, $14, $15, $16, NOW() + make_interval(hours => $17),
+    NOW(), NOW()
+)`,
+			cmd.ContributorUserID,
+			cmd.ContributionRewardAmount,
+			cmd.RequestID,
+			nullablePositiveInt64(cmd.APIKeyID),
+			nullablePositiveInt64(cmd.AccountID),
+			nullablePositiveInt64(cmd.UserID),
+			nullableString(strings.TrimSpace(cmd.Model)),
+			cmd.InputTokens,
+			cmd.OutputTokens,
+			cmd.CacheCreationTokens,
+			cmd.CacheReadTokens,
+			cmd.ImageCount,
+			cmd.ContributionTotalCost,
+			nullableFloat64Arg(cmd.ContributionAccountStatsCost),
+			cmd.ContributionAccountRateMultiplier,
+			cmd.ContributionRewardRatePercent,
+			cmd.ContributionRewardFreezeHours,
+		)
+		return err
+	}
+
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO user_contribution_ledger (
+    user_id, action, amount, usage_billing_request_id, api_key_id, account_id, consumer_user_id,
+    model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, image_count,
+    total_cost, account_stats_cost, account_rate_multiplier, reward_rate,
+    created_at, updated_at
+) VALUES (
+    $1, 'accrue', $2, $3, $4, $5, $6,
+    $7, $8, $9, $10, $11, $12,
+    $13, $14, $15, $16,
+    NOW(), NOW()
+)`,
+		cmd.ContributorUserID,
+		cmd.ContributionRewardAmount,
+		cmd.RequestID,
+		nullablePositiveInt64(cmd.APIKeyID),
+		nullablePositiveInt64(cmd.AccountID),
+		nullablePositiveInt64(cmd.UserID),
+		nullableString(strings.TrimSpace(cmd.Model)),
+		cmd.InputTokens,
+		cmd.OutputTokens,
+		cmd.CacheCreationTokens,
+		cmd.CacheReadTokens,
+		cmd.ImageCount,
+		cmd.ContributionTotalCost,
+		nullableFloat64Arg(cmd.ContributionAccountStatsCost),
+		cmd.ContributionAccountRateMultiplier,
+		cmd.ContributionRewardRatePercent,
+	)
+	return err
+}
+
+func nullablePositiveInt64(v int64) any {
+	if v <= 0 {
+		return nil
+	}
+	return v
+}
+
+func nullableFloat64Arg(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func nullableString(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
 }

@@ -1757,6 +1757,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		settings.AffiliateRebatePerInviteeCap = AffiliateRebatePerInviteeCapDefault
 	}
 	updates[SettingKeyAffiliateRebatePerInviteeCap] = strconv.FormatFloat(settings.AffiliateRebatePerInviteeCap, 'f', 8, 64)
+	settings.ContributionRewardRate = clampContributionRewardRate(settings.ContributionRewardRate)
+	updates[SettingKeyContributionRewardRate] = strconv.FormatFloat(settings.ContributionRewardRate, 'f', 8, 64)
+	settings.ContributionRewardFreezeHours = normalizeContributionFreezeHours(settings.ContributionRewardFreezeHours)
+	updates[SettingKeyContributionRewardFreezeHours] = strconv.Itoa(settings.ContributionRewardFreezeHours)
 	updates[SettingKeyDefaultUserRPMLimit] = strconv.Itoa(settings.DefaultUserRPMLimit)
 	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
 	if err != nil {
@@ -2344,6 +2348,32 @@ func (s *SettingService) GetAffiliateRebatePerInviteeCap(ctx context.Context) fl
 	return cap
 }
 
+// GetContributionRewardRatePercent 读取贡献账号收益比例。
+func (s *SettingService) GetContributionRewardRatePercent(ctx context.Context) float64 {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyContributionRewardRate)
+	if err != nil {
+		return ContributionRewardRateDefault
+	}
+	rate, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return ContributionRewardRateDefault
+	}
+	return clampContributionRewardRate(rate)
+}
+
+// GetContributionRewardFreezeHours 返回贡献收益冻结期（小时）。
+func (s *SettingService) GetContributionRewardFreezeHours(ctx context.Context) int {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyContributionRewardFreezeHours)
+	if err != nil {
+		return ContributionRewardFreezeHoursDefault
+	}
+	hours, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return ContributionRewardFreezeHoursDefault
+	}
+	return normalizeContributionFreezeHours(hours)
+}
+
 // IsPasswordResetEnabled 检查是否启用密码重置功能
 // 要求：必须同时开启邮件验证
 func (s *SettingService) IsPasswordResetEnabled(ctx context.Context) bool {
@@ -2634,6 +2664,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateRebateFreezeHours:                strconv.Itoa(AffiliateRebateFreezeHoursDefault),
 		SettingKeyAffiliateRebateDurationDays:               strconv.Itoa(AffiliateRebateDurationDaysDefault),
 		SettingKeyAffiliateRebatePerInviteeCap:              strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 2, 64),
+		SettingKeyContributionRewardRate:                    strconv.FormatFloat(ContributionRewardRateDefault, 'f', 8, 64),
+		SettingKeyContributionRewardFreezeHours:             strconv.Itoa(ContributionRewardFreezeHoursDefault),
 		SettingKeyDefaultUserRPMLimit:                       "0",
 		SettingKeyDefaultSubscriptions:                      "[]",
 		SettingKeyAuthSourceDefaultEmailBalance:             "0",
@@ -2821,6 +2853,16 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	if perInviteeCap, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebatePerInviteeCap], 64); err == nil && perInviteeCap >= 0 {
 		result.AffiliateRebatePerInviteeCap = perInviteeCap
+	}
+	if rewardRate, err := strconv.ParseFloat(settings[SettingKeyContributionRewardRate], 64); err == nil {
+		result.ContributionRewardRate = clampContributionRewardRate(rewardRate)
+	} else {
+		result.ContributionRewardRate = ContributionRewardRateDefault
+	}
+	if freezeHours, err := strconv.Atoi(settings[SettingKeyContributionRewardFreezeHours]); err == nil {
+		result.ContributionRewardFreezeHours = normalizeContributionFreezeHours(freezeHours)
+	} else {
+		result.ContributionRewardFreezeHours = ContributionRewardFreezeHoursDefault
 	}
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 

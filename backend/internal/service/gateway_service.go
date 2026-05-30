@@ -8017,16 +8017,18 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
-	Cost                  *CostBreakdown
-	User                  *User
-	APIKey                *APIKey
-	Account               *Account
-	Subscription          *UserSubscription
-	RequestPayloadHash    string
-	IsSubscriptionBill    bool
-	AccountRateMultiplier float64
-	APIKeyService         APIKeyQuotaUpdater
-	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	Cost                          *CostBreakdown
+	User                          *User
+	APIKey                        *APIKey
+	Account                       *Account
+	Subscription                  *UserSubscription
+	RequestPayloadHash            string
+	IsSubscriptionBill            bool
+	AccountRateMultiplier         float64
+	APIKeyService                 APIKeyQuotaUpdater
+	Platform                      string // 来自 APIKey 关联 Group 的平台标识
+	ContributionRewardRatePercent float64
+	ContributionRewardFreezeHours int
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -8037,6 +8039,34 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 		return ""
 	}
 	return apiKey.Group.Platform
+}
+
+func (s *GatewayService) contributionRewardRatePercent(ctx context.Context) float64 {
+	if s == nil || s.settingService == nil {
+		return ContributionRewardRateDefault
+	}
+	return s.settingService.GetContributionRewardRatePercent(ctx)
+}
+
+func (s *GatewayService) contributionRewardFreezeHours(ctx context.Context) int {
+	if s == nil || s.settingService == nil {
+		return ContributionRewardFreezeHoursDefault
+	}
+	return s.settingService.GetContributionRewardFreezeHours(ctx)
+}
+
+func (s *OpenAIGatewayService) contributionRewardRatePercent(ctx context.Context) float64 {
+	if s == nil || s.settingService == nil {
+		return ContributionRewardRateDefault
+	}
+	return s.settingService.GetContributionRewardRatePercent(ctx)
+}
+
+func (s *OpenAIGatewayService) contributionRewardFreezeHours(ctx context.Context) int {
+	if s == nil || s.settingService == nil {
+		return ContributionRewardFreezeHoursDefault
+	}
+	return s.settingService.GetContributionRewardFreezeHours(ctx)
 }
 
 // QuotaPlatform 返回 user×platform 配额计量使用的平台标识。
@@ -8211,6 +8241,24 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
+	}
+	if p.Account.OwnerUserID != nil && *p.Account.OwnerUserID > 0 && *p.Account.OwnerUserID != p.User.ID {
+		accountStatsCost := p.Cost.TotalCost
+		if usageLog != nil && usageLog.AccountStatsCost != nil {
+			accountStatsCost = *usageLog.AccountStatsCost
+			cmd.ContributionAccountStatsCost = usageLog.AccountStatsCost
+		}
+		accountCost := accountStatsCost * p.AccountRateMultiplier
+		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
+		rewardAmount := roundTo(accountCost*(rewardRate/100), 8)
+		if rewardAmount > 0 {
+			cmd.ContributorUserID = *p.Account.OwnerUserID
+			cmd.ContributionRewardAmount = rewardAmount
+			cmd.ContributionRewardRatePercent = rewardRate
+			cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
+			cmd.ContributionTotalCost = p.Cost.TotalCost
+			cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
+		}
 	}
 
 	cmd.Normalize()
@@ -8648,16 +8696,18 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	requestID := usageLog.RequestID
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-		Cost:                  cost,
-		User:                  user,
-		APIKey:                apiKey,
-		Account:               account,
-		Subscription:          subscription,
-		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-		IsSubscriptionBill:    isSubscriptionBilling,
-		AccountRateMultiplier: accountRateMultiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              quotaPlatform,
+		Cost:                          cost,
+		User:                          user,
+		APIKey:                        apiKey,
+		Account:                       account,
+		Subscription:                  subscription,
+		RequestPayloadHash:            resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+		IsSubscriptionBill:            isSubscriptionBilling,
+		AccountRateMultiplier:         accountRateMultiplier,
+		APIKeyService:                 input.APIKeyService,
+		Platform:                      quotaPlatform,
+		ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx),
+		ContributionRewardFreezeHours: s.contributionRewardFreezeHours(ctx),
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {

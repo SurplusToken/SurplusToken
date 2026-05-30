@@ -151,6 +151,23 @@ export interface AffiliateTransferResponse {
   balance: number
 }
 
+export interface UserContributionSummary {
+  user_id: number
+  contribution_quota: number
+  contribution_frozen_quota: number
+  contribution_history_quota: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ContributionTransferResponse {
+  transferred_quota: number
+  balance: number
+  contribution_quota: number
+  contribution_frozen_quota: number
+  contribution_history_quota: number
+}
+
 export interface SendVerifyCodeRequest {
   email: string
   turnstile_token?: string

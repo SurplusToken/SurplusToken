@@ -21,6 +21,7 @@ type UserHandler struct {
 	emailService          *service.EmailService
 	emailCache            service.EmailCache
 	affiliateService      *service.AffiliateService
+	contributionService   *service.ContributionService
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository
 }
 
@@ -31,6 +32,7 @@ func NewUserHandler(
 	emailService *service.EmailService,
 	emailCache service.EmailCache,
 	affiliateService *service.AffiliateService,
+	contributionService *service.ContributionService,
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository,
 ) *UserHandler {
 	return &UserHandler{
@@ -39,6 +41,7 @@ func NewUserHandler(
 		emailService:          emailService,
 		emailCache:            emailCache,
 		affiliateService:      affiliateService,
+		contributionService:   contributionService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
 }
@@ -230,6 +233,48 @@ func (h *UserHandler) TransferAffiliateQuota(c *gin.Context) {
 		"transferred_quota": transferred,
 		"balance":           balance,
 	})
+}
+
+// GetContribution returns the current user's contribution balance.
+// GET /api/v1/user/contribution
+func (h *UserHandler) GetContribution(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+
+	summary, err := h.contributionService.GetSummary(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, summary)
+}
+
+// TransferContributionQuota transfers all available contribution quota into current balance.
+// POST /api/v1/user/contribution/transfer
+func (h *UserHandler) TransferContributionQuota(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+
+	result, err := h.contributionService.TransferContributionQuota(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 type StartIdentityBindingRequest struct {

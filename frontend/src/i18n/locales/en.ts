@@ -1073,6 +1073,16 @@ export default {
     scopeSaveSuccess: 'Account availability updated',
     schedulableSaved: 'Scheduling setting updated',
     loadFailed: 'Failed to load account pool',
+    rewards: {
+      available: 'Available Contribution Balance',
+      frozen: 'Frozen Contribution Balance',
+      history: 'Historical Contribution Earnings',
+      transfer: 'Transfer to Balance',
+      transferring: 'Transferring',
+      transferSuccess: '{amount} has been transferred to balance',
+      transferFailed: 'Failed to transfer contribution balance',
+      loadFailed: 'Failed to load contribution balance',
+    },
     settings: {
       title: 'Account Availability',
       description: 'Set which models and groups this account can be scheduled for, and how sharing behaves after expiry.',

@@ -16,6 +16,8 @@ import type {
   UserAuthProvider,
   UserAffiliateDetail,
   AffiliateTransferResponse,
+  UserContributionSummary,
+  ContributionTransferResponse,
   PlatformQuotasResponse,
 } from '@/types'
 
@@ -186,6 +188,16 @@ export async function transferAffiliateQuota(): Promise<AffiliateTransferRespons
   return data
 }
 
+export async function getContributionSummary(): Promise<UserContributionSummary> {
+  const { data } = await apiClient.get<UserContributionSummary>('/user/contribution')
+  return data
+}
+
+export async function transferContributionQuota(): Promise<ContributionTransferResponse> {
+  const { data } = await apiClient.post<ContributionTransferResponse>('/user/contribution/transfer')
+  return data
+}
+
 /**
  * 获取当前用户的平台限额 + 用量。
  */
@@ -209,6 +221,8 @@ export const userAPI = {
   startOAuthBinding,
   getAffiliateDetail,
   transferAffiliateQuota,
+  getContributionSummary,
+  transferContributionQuota,
   getMyPlatformQuotas,
 }
 

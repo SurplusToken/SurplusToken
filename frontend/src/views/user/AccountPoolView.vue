@@ -21,6 +21,30 @@
               <span>{{ t('accountPool.addAccount') }}</span>
             </button>
           </div>
+
+          <div class="grid gap-3 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-center">
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.available') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_quota) }}</div>
+            </div>
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.frozen') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_frozen_quota) }}</div>
+            </div>
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.history') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_history_quota) }}</div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-secondary md:justify-self-end"
+              :disabled="transferringContribution || contributionSummary.contribution_quota <= 0"
+              @click="transferContribution"
+            >
+              <Icon name="arrowRight" size="sm" />
+              <span>{{ transferringContribution ? t('accountPool.rewards.transferring') : t('accountPool.rewards.transfer') }}</span>
+            </button>
+          </div>
         </div>
       </template>
 
@@ -801,6 +825,7 @@ import accountsAPI, {
   type UserOAuthAuthUrlRequest,
   type UserOAuthTokenInfo,
 } from '@/api/accounts'
+import userAPI from '@/api/user'
 import { userGroupsAPI } from '@/api/groups'
 import type { AccountPlatform, Group, UserAccountPoolItem } from '@/types'
 import { useAppStore } from '@/stores/app'
@@ -977,6 +1002,7 @@ const accounts = ref<UserAccountPoolItem[]>([])
 const availableGroups = ref<Group[]>([])
 const loading = ref(false)
 const creating = ref(false)
+const transferringContribution = ref(false)
 const oauthLoading = ref(false)
 const oauthError = ref('')
 const showCreateForm = ref(false)
@@ -995,6 +1021,12 @@ const pagination = reactive({
   page: 1,
   page_size: 50,
   total: 0,
+})
+
+const contributionSummary = reactive({
+  contribution_quota: 0,
+  contribution_frozen_quota: 0,
+  contribution_history_quota: 0,
 })
 
 const createForm = reactive({
@@ -1415,6 +1447,33 @@ async function loadAccounts() {
   }
 }
 
+async function loadContributionSummary() {
+  try {
+    const summary = await userAPI.getContributionSummary()
+    contributionSummary.contribution_quota = summary.contribution_quota || 0
+    contributionSummary.contribution_frozen_quota = summary.contribution_frozen_quota || 0
+    contributionSummary.contribution_history_quota = summary.contribution_history_quota || 0
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.rewards.loadFailed')))
+  }
+}
+
+async function transferContribution() {
+  if (contributionSummary.contribution_quota <= 0 || transferringContribution.value) return
+  transferringContribution.value = true
+  try {
+    const result = await userAPI.transferContributionQuota()
+    contributionSummary.contribution_quota = result.contribution_quota || 0
+    contributionSummary.contribution_frozen_quota = result.contribution_frozen_quota || 0
+    contributionSummary.contribution_history_quota = result.contribution_history_quota || 0
+    appStore.showSuccess(t('accountPool.rewards.transferSuccess', { amount: formatMoney(result.transferred_quota) }))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.rewards.transferFailed')))
+  } finally {
+    transferringContribution.value = false
+  }
+}
+
 function reloadFirstPage() {
   pagination.page = 1
   loadAccounts()
@@ -1594,6 +1653,7 @@ watch(
 
 onMounted(() => {
   loadAccounts()
+  loadContributionSummary()
   loadAvailableGroups()
 })
 </script>
