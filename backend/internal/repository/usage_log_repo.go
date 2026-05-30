@@ -2524,7 +2524,12 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	contributionStatsQuery := `
 		SELECT
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_contribution_tokens,
+			COALESCE(SUM(input_tokens), 0) as total_contribution_input_tokens,
+			COALESCE(SUM(output_tokens), 0) as total_contribution_output_tokens,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $2), 0) as today_contribution_tokens,
+			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $2), 0) as today_contribution_input_tokens,
+			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $2), 0) as today_contribution_output_tokens,
+			COALESCE((SELECT contribution_quota::double precision FROM user_contributions WHERE user_id = $1), 0) as current_contribution_quota,
 			COALESCE(SUM(amount), 0)::double precision as total_contribution_earned_quota,
 			COALESCE(SUM(amount) FILTER (WHERE created_at >= $2), 0)::double precision as today_contribution_earned_quota
 		FROM user_contribution_ledger
@@ -2536,7 +2541,12 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		contributionStatsQuery,
 		[]any{userID, today},
 		&stats.TotalContributionTokens,
+		&stats.TotalContributionInputTokens,
+		&stats.TotalContributionOutputTokens,
 		&stats.TodayContributionTokens,
+		&stats.TodayContributionInputTokens,
+		&stats.TodayContributionOutputTokens,
+		&stats.CurrentContributionQuota,
 		&stats.TotalContributionEarnedQuota,
 		&stats.TodayContributionEarnedQuota,
 	); err != nil {

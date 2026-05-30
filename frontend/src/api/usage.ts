@@ -45,7 +45,12 @@ export interface UserDashboardStats {
   today_cost: number // 今日标准计费
   today_actual_cost: number // 今日实际扣除
   total_contribution_tokens: number
+  total_contribution_input_tokens: number
+  total_contribution_output_tokens: number
   today_contribution_tokens: number
+  today_contribution_input_tokens: number
+  today_contribution_output_tokens: number
+  current_contribution_quota: number
   total_contribution_earned_quota: number
   today_contribution_earned_quota: number
   average_duration_ms: number

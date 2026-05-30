@@ -133,7 +133,7 @@
   </div>
 
   <!-- Row 3: Contribution Stats -->
-  <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
     <!-- Today Contribution Tokens -->
     <div class="card p-4">
       <div class="flex items-center gap-3">
@@ -143,7 +143,10 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionTokens') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.today_contribution_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ formatTokens(stats?.total_contribution_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('dashboard.input') }}: {{ formatTokens(stats?.today_contribution_input_tokens || 0) }} /
+            {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_contribution_output_tokens || 0) }}
+          </p>
         </div>
       </div>
     </div>
@@ -157,7 +160,10 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalContributionTokens') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.total_contribution_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionTokens') }}: {{ formatTokens(stats?.today_contribution_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('dashboard.input') }}: {{ formatTokens(stats?.total_contribution_input_tokens || 0) }} /
+            {{ t('dashboard.output') }}: {{ formatTokens(stats?.total_contribution_output_tokens || 0) }}
+          </p>
         </div>
       </div>
     </div>
@@ -171,10 +177,21 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayContributionEarned') }}</p>
           <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(stats?.today_contribution_earned_quota || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">
-            {{ t('common.total') }}: {{ formatMoney(stats?.total_contribution_earned_quota || 0) }} ·
-            {{ t('dashboard.todayContributionTokens') }}: {{ formatTokens(stats?.today_contribution_tokens || 0) }}
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ formatMoney(stats?.total_contribution_earned_quota || 0) }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Current Contribution Balance -->
+    <div class="card p-4">
+      <div class="flex items-center gap-3">
+        <div class="rounded-lg bg-lime-100 p-2 dark:bg-lime-900/30">
+          <Icon name="dollar" size="md" class="text-lime-600 dark:text-lime-400" :stroke-width="2" />
+        </div>
+        <div>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.currentContributionBalance') }}</p>
+          <p class="text-xl font-bold text-lime-700 dark:text-lime-300">{{ formatMoney(stats?.current_contribution_quota || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.available') }}</p>
         </div>
       </div>
     </div>

@@ -850,6 +850,16 @@ func (s *UsageLogRepoSuite) TestGetUserDashboardStats() {
 
 	s.createUsageLog(user, apiKey, account, 10, 20, 0.5, time.Now())
 	_, err := s.tx.ExecContext(s.ctx, `
+		INSERT INTO user_contributions (
+			user_id, contribution_quota, contribution_frozen_quota, contribution_history_quota, created_at, updated_at
+		)
+		VALUES ($1, 3.5, 0, 3.5, NOW(), NOW())
+		ON CONFLICT (user_id) DO UPDATE
+		SET contribution_quota = EXCLUDED.contribution_quota,
+		    contribution_frozen_quota = EXCLUDED.contribution_frozen_quota,
+		    contribution_history_quota = EXCLUDED.contribution_history_quota,
+		    updated_at = NOW();
+
 		INSERT INTO user_contribution_ledger (
 			user_id, action, amount, usage_billing_request_id, api_key_id, account_id,
 			consumer_user_id, model, input_tokens, output_tokens, cache_creation_tokens,
@@ -875,7 +885,12 @@ func (s *UsageLogRepoSuite) TestGetUserDashboardStats() {
 	s.Require().Equal(int64(1), stats.TotalAPIKeys)
 	s.Require().Equal(int64(1), stats.TotalRequests)
 	s.Require().Equal(int64(195), stats.TotalContributionTokens)
+	s.Require().Equal(int64(120), stats.TotalContributionInputTokens)
+	s.Require().Equal(int64(60), stats.TotalContributionOutputTokens)
 	s.Require().Equal(int64(165), stats.TodayContributionTokens)
+	s.Require().Equal(int64(100), stats.TodayContributionInputTokens)
+	s.Require().Equal(int64(50), stats.TodayContributionOutputTokens)
+	s.Require().InDelta(3.5, stats.CurrentContributionQuota, 0.000001)
 	s.Require().InDelta(2.0, stats.TotalContributionEarnedQuota, 0.000001)
 	s.Require().InDelta(1.25, stats.TodayContributionEarnedQuota, 0.000001)
 }

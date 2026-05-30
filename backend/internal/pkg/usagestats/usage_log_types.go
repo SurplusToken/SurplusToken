@@ -238,10 +238,15 @@ type UserDashboardStats struct {
 	TodayActualCost          float64 `json:"today_actual_cost"` // 今日实际扣除
 
 	// 贡献账号收益统计
-	TotalContributionTokens      int64   `json:"total_contribution_tokens"`       // 累计贡献 Token
-	TodayContributionTokens      int64   `json:"today_contribution_tokens"`       // 今日贡献 Token
-	TotalContributionEarnedQuota float64 `json:"total_contribution_earned_quota"` // 累计贡献收益
-	TodayContributionEarnedQuota float64 `json:"today_contribution_earned_quota"` // 今日贡献收益
+	TotalContributionTokens       int64   `json:"total_contribution_tokens"`        // 累计贡献 Token
+	TotalContributionInputTokens  int64   `json:"total_contribution_input_tokens"`  // 累计贡献输入 Token
+	TotalContributionOutputTokens int64   `json:"total_contribution_output_tokens"` // 累计贡献输出 Token
+	TodayContributionTokens       int64   `json:"today_contribution_tokens"`        // 今日贡献 Token
+	TodayContributionInputTokens  int64   `json:"today_contribution_input_tokens"`  // 今日贡献输入 Token
+	TodayContributionOutputTokens int64   `json:"today_contribution_output_tokens"` // 今日贡献输出 Token
+	CurrentContributionQuota      float64 `json:"current_contribution_quota"`       // 当前可用贡献余额
+	TotalContributionEarnedQuota  float64 `json:"total_contribution_earned_quota"`  // 累计贡献收益
+	TodayContributionEarnedQuota  float64 `json:"today_contribution_earned_quota"`  // 今日贡献收益
 
 	// 性能统计
 	AverageDurationMs float64 `json:"average_duration_ms"`
