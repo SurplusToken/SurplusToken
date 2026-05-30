@@ -580,7 +580,7 @@ func normalizeUserModelMapping(input map[string]string) map[string]any {
 
 func isUserOAuthPlatformAllowed(platform string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity:
+	case PlatformOpenAI:
 		return true
 	default:
 		return false

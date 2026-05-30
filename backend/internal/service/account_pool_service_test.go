@@ -141,6 +141,21 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOAuthType(t *testing.T) {
 	require.Nil(t, repo.created)
 }
 
+func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	_, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:        "gemini",
+		Platform:    PlatformGemini,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "secret"},
+	})
+
+	require.Error(t, err)
+	require.Nil(t, repo.created)
+}
+
 func TestAccountServiceUserAccountOwnership(t *testing.T) {
 	ownerID := int64(42)
 	account := &Account{

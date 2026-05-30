@@ -369,22 +369,6 @@
               <Icon name="key" size="sm" />
               OpenAI
             </button>
-            <button
-              type="button"
-              @click="selectCreatePlatform('gemini')"
-              :class="platformButtonClass('gemini', 'blue')"
-            >
-              <Icon name="sparkles" size="sm" />
-              Gemini
-            </button>
-            <button
-              type="button"
-              @click="selectCreatePlatform('antigravity')"
-              :class="platformButtonClass('antigravity', 'purple')"
-            >
-              <Icon name="cloud" size="sm" />
-              Antigravity
-            </button>
           </div>
         </div>
 

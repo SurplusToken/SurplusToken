@@ -247,25 +247,6 @@ func (h *AccountPoolHandler) GenerateOAuthAuthURL(c *gin.Context) {
 			return
 		}
 		response.Success(c, result)
-	case service.PlatformGemini:
-		oauthType := normalizedGeminiOAuthType(payload.OAuthType)
-		if oauthType == "" {
-			response.BadRequest(c, "Invalid oauth_type: must be 'code_assist', 'google_one', or 'ai_studio'")
-			return
-		}
-		result, err := h.geminiOAuthService.GenerateAuthURL(c.Request.Context(), nil, deriveUserOAuthRedirectURI(c), strings.TrimSpace(payload.ProjectID), oauthType, strings.TrimSpace(payload.TierID))
-		if err != nil {
-			response.BadRequest(c, "Failed to generate auth URL: "+err.Error())
-			return
-		}
-		response.Success(c, result)
-	case service.PlatformAntigravity:
-		result, err := h.antigravityOAuthService.GenerateAuthURL(c.Request.Context(), nil)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		response.Success(c, result)
 	default:
 		response.BadRequest(c, "unsupported OAuth account platform")
 	}
@@ -296,43 +277,6 @@ func (h *AccountPoolHandler) ExchangeOAuthCode(c *gin.Context) {
 		})
 		if err != nil {
 			response.ErrorFrom(c, err)
-			return
-		}
-		response.Success(c, tokenInfo)
-	case service.PlatformGemini:
-		if strings.TrimSpace(payload.State) == "" {
-			response.BadRequest(c, "state is required")
-			return
-		}
-		oauthType := normalizedGeminiOAuthType(payload.OAuthType)
-		if oauthType == "" {
-			response.BadRequest(c, "Invalid oauth_type: must be 'code_assist', 'google_one', or 'ai_studio'")
-			return
-		}
-		tokenInfo, err := h.geminiOAuthService.ExchangeCode(c.Request.Context(), &service.GeminiExchangeCodeInput{
-			SessionID: payload.SessionID,
-			State:     payload.State,
-			Code:      payload.Code,
-			OAuthType: oauthType,
-			TierID:    strings.TrimSpace(payload.TierID),
-		})
-		if err != nil {
-			response.BadRequest(c, "Failed to exchange code: "+err.Error())
-			return
-		}
-		response.Success(c, tokenInfo)
-	case service.PlatformAntigravity:
-		if strings.TrimSpace(payload.State) == "" {
-			response.BadRequest(c, "state is required")
-			return
-		}
-		tokenInfo, err := h.antigravityOAuthService.ExchangeCode(c.Request.Context(), &service.AntigravityExchangeCodeInput{
-			SessionID: payload.SessionID,
-			State:     payload.State,
-			Code:      payload.Code,
-		})
-		if err != nil {
-			response.BadRequest(c, "Token exchange failed: "+err.Error())
 			return
 		}
 		response.Success(c, tokenInfo)
