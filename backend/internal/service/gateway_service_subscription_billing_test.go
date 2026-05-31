@@ -84,7 +84,7 @@ func TestBuildUsageBillingCommand_SubscriptionAppliesRateMultiplier(t *testing.T
 	}
 }
 
-func TestBuildUsageBillingCommand_ContributionRewardUsesAccountCost(t *testing.T) {
+func TestBuildUsageBillingCommand_ContributionRewardUsesActualCost(t *testing.T) {
 	ownerID := int64(99)
 	accountMultiplier := 1.5
 	statsCost := 2.0
@@ -108,13 +108,33 @@ func TestBuildUsageBillingCommand_ContributionRewardUsesAccountCost(t *testing.T
 	if cmd.ContributorUserID != ownerID {
 		t.Fatalf("ContributorUserID = %d, want %d", cmd.ContributorUserID, ownerID)
 	}
-	// account cost = account_stats_cost 2.0 * account multiplier 1.5 = 3.0
-	// reward = 3.0 * 80% = 2.4
-	if cmd.ContributionRewardAmount != 2.4 {
-		t.Fatalf("ContributionRewardAmount = %v, want 2.4", cmd.ContributionRewardAmount)
+	// Contribution reward follows the consumer's actual charged cost, so group
+	// or user-specific group multipliers are reflected in contributor earnings.
+	if cmd.ContributionRewardAmount != 3.2 {
+		t.Fatalf("ContributionRewardAmount = %v, want 3.2", cmd.ContributionRewardAmount)
 	}
 	if cmd.ContributionAccountStatsCost == nil || *cmd.ContributionAccountStatsCost != statsCost {
 		t.Fatalf("ContributionAccountStatsCost = %#v, want %v", cmd.ContributionAccountStatsCost, statsCost)
+	}
+}
+
+func TestBuildUsageBillingCommand_ContributionRewardTracksDiscountedActualCost(t *testing.T) {
+	ownerID := int64(99)
+	p := &postUsageBillingParams{
+		Cost:                          &CostBreakdown{TotalCost: 10.0, ActualCost: 2.5},
+		User:                          &User{ID: 1},
+		APIKey:                        &APIKey{ID: 2},
+		Account:                       &Account{ID: 3, OwnerUserID: &ownerID},
+		AccountRateMultiplier:         1,
+		ContributionRewardRatePercent: 80,
+	}
+
+	cmd := buildUsageBillingCommand("req-contribution-discount", nil, p)
+	if cmd == nil {
+		t.Fatal("buildUsageBillingCommand returned nil")
+	}
+	if cmd.ContributionRewardAmount != 2.0 {
+		t.Fatalf("ContributionRewardAmount = %v, want 2.0", cmd.ContributionRewardAmount)
 	}
 }
 

@@ -8277,14 +8277,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
 	if p.Account.OwnerUserID != nil && *p.Account.OwnerUserID > 0 && *p.Account.OwnerUserID != p.User.ID {
-		accountStatsCost := p.Cost.TotalCost
 		if usageLog != nil && usageLog.AccountStatsCost != nil {
-			accountStatsCost = *usageLog.AccountStatsCost
 			cmd.ContributionAccountStatsCost = usageLog.AccountStatsCost
 		}
-		accountCost := accountStatsCost * p.AccountRateMultiplier
 		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
-		rewardAmount := roundTo(accountCost*(rewardRate/100), 8)
+		rewardAmount := roundTo(p.Cost.ActualCost*(rewardRate/100), 8)
 		if rewardAmount > 0 {
 			cmd.ContributorUserID = *p.Account.OwnerUserID
 			cmd.ContributionRewardAmount = rewardAmount
