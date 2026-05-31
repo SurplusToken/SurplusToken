@@ -942,6 +942,15 @@ export interface UserAccountPoolItem {
   proxy_id?: number | null
   proxy?: Proxy | null
   status: 'active' | 'inactive' | 'error'
+  rate_limit_reset_at?: string | null
+  overload_until?: string | null
+  temp_unschedulable_until?: string | null
+  temp_unschedulable_reason?: string | null
+  extra?: {
+    model_rate_limits?: Record<string, { rate_limited_at?: string; rate_limit_reset_at: string }>
+    antigravity_quota_scopes?: Record<string, unknown>
+    privacy_mode?: string
+  } & Record<string, unknown>
   is_mine: boolean
   is_user_contributed: boolean
   schedulable: boolean

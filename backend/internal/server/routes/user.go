@@ -89,10 +89,25 @@ func RegisterUserRoutes(
 			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
 			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
+			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
+			accounts.POST("/:id/test", h.AccountPool.Test)
+			accounts.POST("/:id/refresh", h.AccountPool.Refresh)
+			accounts.POST("/:id/recover-state", h.AccountPool.RecoverState)
+			accounts.POST("/:id/set-privacy", h.AccountPool.SetPrivacy)
+			accounts.POST("/:id/apply-oauth-credentials", h.AccountPool.ApplyOAuthCredentials)
+			accounts.GET("/:id/scheduled-test-plans", h.AccountPool.ListScheduledTestPlans)
 			accounts.GET("/:id/stats", h.AccountPool.GetStats)
 			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
 			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
 			accounts.DELETE("/:id", h.AccountPool.Delete)
+		}
+
+		scheduledTests := authenticated.Group("/scheduled-test-plans")
+		{
+			scheduledTests.POST("", h.AccountPool.CreateScheduledTestPlan)
+			scheduledTests.PUT("/:id", h.AccountPool.UpdateScheduledTestPlan)
+			scheduledTests.DELETE("/:id", h.AccountPool.DeleteScheduledTestPlan)
+			scheduledTests.GET("/:id/results", h.AccountPool.ListScheduledTestResults)
 		}
 
 		// 使用记录

@@ -484,6 +484,26 @@ const props = defineProps<{
   show: boolean
   accountId: number | null
   modelOptions: SelectOption[]
+  api?: {
+    listByAccount: (accountId: number) => Promise<ScheduledTestPlan[]>
+    create: (req: {
+      account_id: number
+      model_id: string
+      cron_expression: string
+      enabled?: boolean
+      max_results?: number
+      auto_recover?: boolean
+    }) => Promise<ScheduledTestPlan>
+    update: (id: number, req: {
+      model_id?: string
+      cron_expression?: string
+      enabled?: boolean
+      max_results?: number
+      auto_recover?: boolean
+    }) => Promise<ScheduledTestPlan>
+    delete: (id: number) => Promise<void>
+    listResults: (planId: number, limit?: number) => Promise<ScheduledTestResult[]>
+  }
 }>()
 
 const emit = defineEmits<{
@@ -548,7 +568,7 @@ const loadPlans = async () => {
   if (!props.accountId) return
   loading.value = true
   try {
-    plans.value = await adminAPI.scheduledTests.listByAccount(props.accountId)
+    plans.value = await (props.api || adminAPI.scheduledTests).listByAccount(props.accountId)
   } catch (error: any) {
     appStore.showError(error?.message || 'Failed to load plans')
   } finally {
@@ -561,7 +581,7 @@ const handleCreate = async () => {
   creating.value = true
   try {
     const maxResults = Number(newPlan.max_results) || 100
-    await adminAPI.scheduledTests.create({
+    await (props.api || adminAPI.scheduledTests).create({
       account_id: props.accountId,
       model_id: newPlan.model_id,
       cron_expression: newPlan.cron_expression,
@@ -582,7 +602,7 @@ const handleCreate = async () => {
 
 const handleToggleEnabled = async (plan: ScheduledTestPlan, enabled: boolean) => {
   try {
-    const updated = await adminAPI.scheduledTests.update(plan.id, { enabled })
+    const updated = await (props.api || adminAPI.scheduledTests).update(plan.id, { enabled })
     const index = plans.value.findIndex((p) => p.id === plan.id)
     if (index !== -1) {
       plans.value[index] = updated
@@ -610,7 +630,7 @@ const handleEdit = async () => {
   if (!editingPlanId.value || !editForm.model_id || !editForm.cron_expression) return
   updating.value = true
   try {
-    const updated = await adminAPI.scheduledTests.update(editingPlanId.value, {
+    const updated = await (props.api || adminAPI.scheduledTests).update(editingPlanId.value, {
       model_id: editForm.model_id,
       cron_expression: editForm.cron_expression,
       max_results: Number(editForm.max_results) || 100,
@@ -638,7 +658,7 @@ const confirmDeletePlan = (plan: ScheduledTestPlan) => {
 const handleDelete = async () => {
   if (!deletingPlan.value) return
   try {
-    await adminAPI.scheduledTests.delete(deletingPlan.value.id)
+    await (props.api || adminAPI.scheduledTests).delete(deletingPlan.value.id)
     appStore.showSuccess(t('admin.scheduledTests.deleteSuccess'))
     plans.value = plans.value.filter((p) => p.id !== deletingPlan.value!.id)
     if (expandedPlanId.value === deletingPlan.value.id) {
@@ -665,7 +685,7 @@ const toggleExpand = async (planId: number) => {
   expandedResultIds.clear()
   loadingResults.value = true
   try {
-    results.value = await adminAPI.scheduledTests.listResults(planId, 20)
+    results.value = await (props.api || adminAPI.scheduledTests).listResults(planId, 20)
   } catch (error: any) {
     appStore.showError(error?.message || 'Failed to load results')
     results.value = []

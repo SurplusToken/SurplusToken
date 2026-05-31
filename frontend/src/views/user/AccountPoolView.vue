@@ -847,12 +847,101 @@
       @close="closeStatsModal"
     />
 
+    <AccountTestModal
+      :show="showTest"
+      :account="testingAccount"
+      :load-models="accountsAPI.getAvailableModels"
+      :test-endpoint="userAccountTestEndpoint"
+      @close="closeTestModal"
+    />
+
+    <ScheduledTestsPanel
+      :show="showSchedulePanel"
+      :account-id="scheduleAccount?.id ?? null"
+      :model-options="scheduleModelOptions"
+      :api="accountsAPI.scheduledTests"
+      @close="closeSchedulePanel"
+    />
+
+    <BaseDialog
+      :show="showReAuth"
+      :title="t('admin.accounts.reAuthorizeAccount')"
+      width="normal"
+      @close="closeReAuthModal"
+    >
+      <div v-if="reAuthAccount" class="space-y-4">
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-700">
+          <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-green-600">
+              <Icon name="link" size="md" class="text-white" />
+            </div>
+            <div>
+              <span class="block font-semibold text-gray-900 dark:text-white">{{ reAuthAccount.name }}</span>
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openaiAccount') }}</span>
+            </div>
+          </div>
+        </div>
+
+        <OAuthAuthorizationFlow
+          ref="reAuthFlowRef"
+          add-method="oauth"
+          :auth-url="reAuthSession.authUrl"
+          :session-id="reAuthSession.sessionId"
+          :loading="reAuthLoading"
+          :error="reAuthError"
+          :show-help="false"
+          :show-proxy-warning="false"
+          :allow-multiple="false"
+          :show-cookie-option="false"
+          :show-refresh-token-option="false"
+          :show-mobile-refresh-token-option="false"
+          :show-session-token-option="false"
+          :show-access-token-option="false"
+          :show-codex-session-import-option="false"
+          platform="openai"
+          @generate-url="handleReAuthGenerateUrl"
+        />
+      </div>
+
+      <template #footer>
+        <div class="flex justify-between gap-3">
+          <button type="button" class="btn btn-secondary" @click="closeReAuthModal">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            :disabled="!canReAuthExchangeCode"
+            class="btn btn-primary"
+            @click="handleReAuthExchangeCode"
+          >
+            <svg
+              v-if="reAuthLoading"
+              class="-ml-1 mr-2 h-4 w-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            {{ reAuthLoading ? t('admin.accounts.oauth.verifying') : t('admin.accounts.oauth.completeAuth') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <UserAccountActionMenu
       :show="actionMenu.show"
       :account="actionMenu.account"
       :position="actionMenu.position"
       @close="actionMenu.show = false"
+      @test="openTestModal"
       @stats="openStatsModal"
+      @schedule="openSchedulePanel"
+      @reauth="openReAuthModal"
+      @refresh-token="refreshAccountToken"
+      @set-privacy="setAccountPrivacy"
+      @recover-state="recoverAccountState"
+      @toggle-scheduling="toggleSchedulable"
       @edit="openScopeDialog"
       @delete="openDeleteDialog"
     />
@@ -887,6 +976,8 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import UserAccountActionMenu from '@/components/user/UserAccountActionMenu.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
@@ -896,6 +987,7 @@ import accountsAPI, {
 import userAPI from '@/api/user'
 import { userGroupsAPI } from '@/api/groups'
 import type { AccountPlatform, Group, Proxy, UserAccountPoolItem } from '@/types'
+import type { SelectOption } from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
@@ -903,6 +995,10 @@ import {
   splitModelMappingObject,
 } from '@/composables/useModelWhitelist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
+
+type UserAccountModalItem = UserAccountPoolItem & {
+  credentials?: Record<string, unknown>
+}
 
 interface OAuthFlowExposed {
   authCode: string
@@ -948,6 +1044,21 @@ const showDeleteDialog = ref(false)
 const deletingAccount = ref<UserAccountPoolItem | null>(null)
 const showStats = ref(false)
 const statsAccount = ref<UserAccountPoolItem | null>(null)
+const showTest = ref(false)
+const testingAccount = ref<UserAccountModalItem | null>(null)
+const showSchedulePanel = ref(false)
+const scheduleAccount = ref<UserAccountPoolItem | null>(null)
+const scheduleModelOptions = ref<SelectOption[]>([])
+const showReAuth = ref(false)
+const reAuthAccount = ref<UserAccountPoolItem | null>(null)
+const reAuthFlowRef = ref<OAuthFlowExposed | null>(null)
+const reAuthLoading = ref(false)
+const reAuthError = ref('')
+const reAuthSession = reactive({
+  authUrl: '',
+  sessionId: '',
+  state: '',
+})
 const oauthSession = reactive({
   authUrl: '',
   sessionId: '',
@@ -1031,6 +1142,11 @@ const probeFailurePolicyOptions = computed(() => [
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
   return Boolean(authCode.trim() && oauthSession.sessionId && !oauthLoading.value && !creating.value)
+})
+
+const canReAuthExchangeCode = computed(() => {
+  const authCode = reAuthFlowRef.value?.authCode || ''
+  return Boolean(authCode.trim() && reAuthSession.sessionId && !reAuthLoading.value)
 })
 
 const allColumns = computed<Column[]>(() => [
@@ -1174,6 +1290,14 @@ function resetOAuthSession() {
   oauthError.value = ''
 }
 
+function resetReAuthSession() {
+  reAuthSession.authUrl = ''
+  reAuthSession.sessionId = ''
+  reAuthSession.state = ''
+  reAuthError.value = ''
+  reAuthFlowRef.value?.reset()
+}
+
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(input).filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -1246,6 +1370,15 @@ function buildExtra(tokenInfo: UserOAuthTokenInfo): Record<string, unknown> | un
   if (createForm.platform === 'openai' && createForm.codexCLIOnly) {
     extra.codex_cli_only = true
   }
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+function buildOpenAIExtra(tokenInfo: UserOAuthTokenInfo): Record<string, unknown> | undefined {
+  const extra = compactRecord({
+    email: tokenInfo.email,
+    name: tokenInfo.name,
+    privacy_mode: tokenInfo.privacy_mode,
+  })
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -1358,6 +1491,7 @@ async function handleGenerateUrl() {
     const projectId = oauthFlowRef.value?.projectId || createForm.projectId
     const payload: UserOAuthAuthUrlRequest = {
       platform: createForm.platform,
+      proxy_id: createForm.proxyId,
     }
     if (createForm.platform === 'gemini') {
       payload.redirect_uri = `${window.location.origin}/auth/callback`
@@ -1459,6 +1593,7 @@ async function handleExchangeCode() {
       session_id: oauthSession.sessionId,
       code: authCode.trim(),
       state,
+      proxy_id: createForm.proxyId,
       project_id: projectId || undefined,
       oauth_type: createForm.platform === 'gemini' ? createForm.oauthType : undefined,
       tier_id: createForm.tierId || undefined,
@@ -1587,7 +1722,7 @@ function openAccountMenu(account: UserAccountPoolItem, event: MouseEvent) {
   if (target) {
     const rect = target.getBoundingClientRect()
     const menuWidth = 208
-    const menuHeight = account.is_mine ? 150 : 54
+    const menuHeight = account.is_mine ? 360 : 54
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -1615,6 +1750,178 @@ function openStatsModal(account: UserAccountPoolItem) {
 function closeStatsModal() {
   showStats.value = false
   statsAccount.value = null
+}
+
+function userAccountTestEndpoint(id: number): string {
+  return `/api/v1/accounts/${id}/test`
+}
+
+function openTestModal(account: UserAccountPoolItem) {
+  if (!account.is_mine) {
+    appStore.showError(t('accountPool.readonly'))
+    return
+  }
+  testingAccount.value = {
+    ...account,
+    credentials: {},
+  }
+  showTest.value = true
+}
+
+function closeTestModal() {
+  showTest.value = false
+  testingAccount.value = null
+}
+
+async function openSchedulePanel(account: UserAccountPoolItem) {
+  if (!account.is_mine) {
+    appStore.showError(t('accountPool.readonly'))
+    return
+  }
+  scheduleAccount.value = account
+  scheduleModelOptions.value = []
+  showSchedulePanel.value = true
+  try {
+    const models = await accountsAPI.getAvailableModels(account.id)
+    scheduleModelOptions.value = models.map((model) => ({
+      value: model.id,
+      label: model.display_name || model.id,
+    }))
+  } catch {
+    scheduleModelOptions.value = []
+  }
+}
+
+function closeSchedulePanel() {
+  showSchedulePanel.value = false
+  scheduleAccount.value = null
+  scheduleModelOptions.value = []
+}
+
+function openReAuthModal(account: UserAccountPoolItem) {
+  if (!account.is_mine || account.platform !== 'openai') {
+    appStore.showError(t('accountPool.readonly'))
+    return
+  }
+  reAuthAccount.value = account
+  resetReAuthSession()
+  showReAuth.value = true
+}
+
+function closeReAuthModal() {
+  showReAuth.value = false
+  reAuthAccount.value = null
+  resetReAuthSession()
+}
+
+async function handleReAuthGenerateUrl() {
+  const account = reAuthAccount.value
+  if (!account) return
+  reAuthLoading.value = true
+  reAuthError.value = ''
+  try {
+    const result = await accountsAPI.generateOAuthAuthUrl({
+      platform: 'openai',
+      proxy_id: account.proxy_id || null,
+    })
+    reAuthSession.authUrl = result.auth_url
+    reAuthSession.sessionId = result.session_id
+    reAuthSession.state = result.state || ''
+  } catch (err: unknown) {
+    reAuthError.value = extractApiErrorMessage(err, t('accountPool.oauth.startFailed'))
+    appStore.showError(reAuthError.value)
+  } finally {
+    reAuthLoading.value = false
+  }
+}
+
+async function handleReAuthExchangeCode() {
+  const account = reAuthAccount.value
+  if (!account || !reAuthSession.sessionId) return
+
+  const authCode = reAuthFlowRef.value?.authCode || ''
+  const state = reAuthFlowRef.value?.oauthState || reAuthSession.state
+  if (!authCode.trim()) {
+    appStore.showError(t('accountPool.oauth.codeRequired'))
+    return
+  }
+  if (!state.trim()) {
+    reAuthError.value = t('admin.accounts.oauth.authFailed')
+    appStore.showError(reAuthError.value)
+    return
+  }
+
+  reAuthLoading.value = true
+  reAuthError.value = ''
+  try {
+    const tokenInfo = await accountsAPI.exchangeOAuthCode({
+      platform: 'openai',
+      session_id: reAuthSession.sessionId,
+      code: authCode.trim(),
+      state,
+      proxy_id: account.proxy_id || null,
+    })
+    const credentials = buildOpenAICredentials(tokenInfo)
+    if (Object.keys(credentials).length === 0) {
+      appStore.showError(t('accountPool.oauth.credentialsMissing'))
+      return
+    }
+    const updated = await accountsAPI.applyOAuthCredentials(account.id, {
+      type: 'oauth',
+      credentials,
+      extra: buildOpenAIExtra(tokenInfo),
+    })
+    replaceAccount(updated)
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    closeReAuthModal()
+  } catch (err: unknown) {
+    reAuthError.value = extractApiErrorMessage(err, t('admin.accounts.oauth.authFailed'))
+    appStore.showError(reAuthError.value)
+  } finally {
+    reAuthLoading.value = false
+  }
+}
+
+async function refreshAccountToken(account: UserAccountPoolItem) {
+  if (!account.is_mine) return
+  savingIDs.value.add(account.id)
+  try {
+    const updated = await accountsAPI.refreshCredentials(account.id)
+    replaceAccount(updated)
+    appStore.showSuccess(t('accountPool.actions.refreshTokenSuccess'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  } finally {
+    savingIDs.value.delete(account.id)
+  }
+}
+
+async function recoverAccountState(account: UserAccountPoolItem) {
+  if (!account.is_mine) return
+  savingIDs.value.add(account.id)
+  try {
+    const updated = await accountsAPI.recoverState(account.id)
+    replaceAccount(updated)
+    appStore.showSuccess(t('admin.accounts.recoverStateSuccess'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.accounts.recoverStateFailed')))
+  } finally {
+    savingIDs.value.delete(account.id)
+  }
+}
+
+async function setAccountPrivacy(account: UserAccountPoolItem) {
+  if (!account.is_mine) return
+  savingIDs.value.add(account.id)
+  try {
+    const updated = await accountsAPI.setPrivacy(account.id)
+    replaceAccount(updated)
+    appStore.showSuccess(t('accountPool.actions.privacySetSuccess'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.accounts.privacyFailed')))
+  } finally {
+    savingIDs.value.delete(account.id)
+  }
 }
 
 function openDeleteDialog(account: UserAccountPoolItem) {

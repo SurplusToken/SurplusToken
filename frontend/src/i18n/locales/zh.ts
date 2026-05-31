@@ -1082,6 +1082,13 @@ export default {
     schedulableSaved: '调度设置已更新',
     loadFailed: '账号池加载失败',
     moreActions: '更多操作',
+    actions: {
+      editSettings: '编辑共享设置',
+      pauseSharing: '暂停共享',
+      resumeSharing: '恢复共享',
+      refreshTokenSuccess: '令牌已刷新',
+      privacySetSuccess: '隐私设置已更新',
+    },
     delete: {
       title: '删除贡献账号',
       confirm: '确定要删除账号“{name}”吗？删除后这个账号将不再参与共享调度。',

@@ -37,6 +37,11 @@ type UserAccountPoolItem struct {
 	ProxyID                            *int64                 `json:"proxy_id,omitempty"`
 	Proxy                              *Proxy                 `json:"proxy,omitempty"`
 	Status                             string                 `json:"status"`
+	RateLimitResetAt                   *time.Time             `json:"rate_limit_reset_at,omitempty"`
+	OverloadUntil                      *time.Time             `json:"overload_until,omitempty"`
+	TempUnschedulableUntil             *time.Time             `json:"temp_unschedulable_until,omitempty"`
+	TempUnschedulableReason            string                 `json:"temp_unschedulable_reason,omitempty"`
+	Extra                              map[string]any         `json:"extra,omitempty"`
 	IsMine                             bool                   `json:"is_mine"`
 	IsUserContributed                  bool                   `json:"is_user_contributed"`
 	Schedulable                        bool                   `json:"schedulable"`
@@ -114,6 +119,12 @@ type UpdateUserAccountLimitsRequest struct {
 	WindowCostStickyReserve            *float64 `json:"window_cost_sticky_reserve"`
 	QuotaWeeklyLimit                   *float64 `json:"quota_weekly_limit"`
 	QuotaWeeklyMinRemaining            *float64 `json:"quota_weekly_min_remaining"`
+}
+
+type ApplyUserOAuthCredentialsRequest struct {
+	Type        string         `json:"type"`
+	Credentials map[string]any `json:"credentials"`
+	Extra       map[string]any `json:"extra"`
 }
 
 func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, params pagination.PaginationParams, filters UserAccountPoolListFilters) ([]UserAccountPoolItem, *pagination.PaginationResult, error) {
@@ -430,6 +441,134 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 	return &item, nil
 }
 
+func (s *AccountService) GetOwnedUserOAuthAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
+	return s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+}
+
+func (s *AccountService) ApplyUserOAuthCredentials(ctx context.Context, userID, accountID int64, req ApplyUserOAuthCredentialsRequest) (*UserAccountPoolItem, error) {
+	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Type) != AccountTypeOAuth {
+		return nil, ErrUserOAuthOnly
+	}
+	if len(req.Credentials) == 0 {
+		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
+	}
+
+	newCredentials := cloneCredentials(req.Credentials)
+	for key, value := range account.Credentials {
+		if _, exists := newCredentials[key]; !exists {
+			newCredentials[key] = value
+		}
+	}
+	if err := persistAccountCredentials(ctx, s.accountRepo, account, newCredentials); err != nil {
+		return nil, fmt.Errorf("apply user OAuth credentials: %w", err)
+	}
+
+	if safeExtra := buildUserOAuthAccountExtra(account.Platform, req.Extra); len(safeExtra) > 0 {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, safeExtra); err != nil {
+			return nil, fmt.Errorf("update user OAuth extra: %w", err)
+		}
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		for key, value := range safeExtra {
+			account.Extra[key] = value
+		}
+	}
+
+	if account.Status == StatusError {
+		if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
+			return nil, fmt.Errorf("clear user account error: %w", err)
+		}
+		refreshed, refreshErr := s.accountRepo.GetByID(ctx, account.ID)
+		if refreshErr == nil && refreshed != nil {
+			account = refreshed
+		} else {
+			account.Status = StatusActive
+			account.ErrorMessage = ""
+		}
+	}
+
+	refreshed, refreshErr := s.accountRepo.GetByID(ctx, account.ID)
+	if refreshErr == nil && refreshed != nil {
+		account = refreshed
+	}
+
+	item := accountToUserPoolItem(account, userID)
+	return &item, nil
+}
+
+func (s *AccountService) ForceUserOpenAIPrivacy(ctx context.Context, account *Account, privacyClientFactory PrivacyClientFactory) string {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+		return ""
+	}
+	if privacyClientFactory == nil {
+		return ""
+	}
+
+	token, _ := account.Credentials["access_token"].(string)
+	if token == "" {
+		return ""
+	}
+
+	mode := disableOpenAITraining(ctx, privacyClientFactory, token, s.userAccountProxyURL(ctx, account))
+	if mode == "" {
+		return ""
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		return mode
+	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra["privacy_mode"] = mode
+	return mode
+}
+
+func (s *AccountService) ForceUserAntigravityPrivacy(ctx context.Context, account *Account) string {
+	if account == nil || account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+		return ""
+	}
+
+	token, _ := account.Credentials["access_token"].(string)
+	if token == "" {
+		return ""
+	}
+	projectID, _ := account.Credentials["project_id"].(string)
+
+	mode := setAntigravityPrivacy(ctx, token, projectID, s.userAccountProxyURL(ctx, account))
+	if mode == "" {
+		return ""
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		return mode
+	}
+	applyAntigravityPrivacyMode(account, mode)
+	return mode
+}
+
+func (s *AccountService) userAccountProxyURL(ctx context.Context, account *Account) string {
+	if account == nil || account.ProxyID == nil {
+		return ""
+	}
+	if account.Proxy != nil {
+		return account.Proxy.URL()
+	}
+	if s.proxyRepo == nil {
+		return ""
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
+	if err != nil || proxy == nil {
+		return ""
+	}
+	return proxy.URL()
+}
+
 func (s *AccountService) getOwnedUserOAuthAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
 	if userID <= 0 {
 		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
@@ -449,6 +588,10 @@ func (s *AccountService) getOwnedUserOAuthAccount(ctx context.Context, userID, a
 		return nil, ErrUserOAuthOnly
 	}
 	return account, nil
+}
+
+func UserAccountPoolItemFromAccount(account *Account, currentUserID int64) UserAccountPoolItem {
+	return accountToUserPoolItem(account, currentUserID)
 }
 
 func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoolItem {
@@ -472,6 +615,10 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		SubscriptionExpiresAt:              account.GetCredential("subscription_expires_at"),
 		ProxyID:                            account.ProxyID,
 		Status:                             account.Status,
+		RateLimitResetAt:                   account.RateLimitResetAt,
+		OverloadUntil:                      account.OverloadUntil,
+		TempUnschedulableUntil:             account.TempUnschedulableUntil,
+		TempUnschedulableReason:            account.TempUnschedulableReason,
 		IsMine:                             isMine,
 		IsUserContributed:                  account.IsUserContributed(),
 		Schedulable:                        account.Schedulable,
@@ -499,6 +646,7 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 	}
 	if isMine {
 		item.GroupIDs = append([]int64(nil), account.GroupIDs...)
+		item.Extra = userVisibleAccountExtra(account.Extra)
 		if account.Proxy != nil {
 			proxy := *account.Proxy
 			proxy.Password = ""
@@ -523,6 +671,22 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		item.WindowCostStart = &start
 	}
 	return item
+}
+
+func userVisibleAccountExtra(extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string]any, 3)
+	for _, key := range []string{"model_rate_limits", "antigravity_quota_scopes", "privacy_mode"} {
+		if value, ok := extra[key]; ok {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func filterUserAccountPoolAccountsByPlanType(accounts []Account, planType string) []Account {

@@ -3,10 +3,16 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -24,6 +30,11 @@ type AccountPoolHandler struct {
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
+	accountTestService      *service.AccountTestService
+	scheduledTestService    *service.ScheduledTestService
+	rateLimitService        *service.RateLimitService
+	tokenCacheInvalidator   service.TokenCacheInvalidator
+	privacyClientFactory    service.PrivacyClientFactory
 }
 
 func NewAccountPoolHandler(
@@ -34,6 +45,11 @@ func NewAccountPoolHandler(
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
+	accountTestService *service.AccountTestService,
+	scheduledTestService *service.ScheduledTestService,
+	rateLimitService *service.RateLimitService,
+	tokenCacheInvalidator service.TokenCacheInvalidator,
+	privacyClientFactory service.PrivacyClientFactory,
 ) *AccountPoolHandler {
 	return &AccountPoolHandler{
 		accountService:          accountService,
@@ -43,6 +59,11 @@ func NewAccountPoolHandler(
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
+		accountTestService:      accountTestService,
+		scheduledTestService:    scheduledTestService,
+		rateLimitService:        rateLimitService,
+		tokenCacheInvalidator:   tokenCacheInvalidator,
+		privacyClientFactory:    privacyClientFactory,
 	}
 }
 
@@ -89,6 +110,35 @@ type updateUserAccountScopePayload struct {
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
+type testUserAccountPayload struct {
+	ModelID string `json:"model_id"`
+	Prompt  string `json:"prompt"`
+	Mode    string `json:"mode"`
+}
+
+type applyUserOAuthCredentialsPayload struct {
+	Type        string         `json:"type" binding:"required,oneof=oauth"`
+	Credentials map[string]any `json:"credentials" binding:"required"`
+	Extra       map[string]any `json:"extra"`
+}
+
+type createUserScheduledTestPlanPayload struct {
+	AccountID      int64  `json:"account_id" binding:"required"`
+	ModelID        string `json:"model_id"`
+	CronExpression string `json:"cron_expression" binding:"required"`
+	Enabled        *bool  `json:"enabled"`
+	MaxResults     int    `json:"max_results"`
+	AutoRecover    *bool  `json:"auto_recover"`
+}
+
+type updateUserScheduledTestPlanPayload struct {
+	ModelID        string `json:"model_id"`
+	CronExpression string `json:"cron_expression"`
+	Enabled        *bool  `json:"enabled"`
+	MaxResults     int    `json:"max_results"`
+	AutoRecover    *bool  `json:"auto_recover"`
+}
+
 func (h *AccountPoolHandler) ListProxies(c *gin.Context) {
 	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -132,12 +182,45 @@ func (h *AccountPoolHandler) TestProxy(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *AccountPoolHandler) requireOwnedUserAccount(c *gin.Context, userID, accountID int64) (*service.Account, bool) {
+	account, err := h.accountService.GetOwnedUserOAuthAccount(c.Request.Context(), userID, accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return nil, false
+	}
+	return account, true
+}
+
+func (h *AccountPoolHandler) invalidateUserAccountToken(ctx context.Context, accountID int64) {
+	if h.tokenCacheInvalidator == nil {
+		return
+	}
+	account, err := h.accountService.GetByID(ctx, accountID)
+	if err != nil || account == nil || !account.IsOAuth() {
+		return
+	}
+	if err := h.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
+		slog.Warn("user_account_pool.invalidate_token_failed", "account_id", accountID, "err", err)
+	}
+}
+
+func buildUserOpenAIExtra(raw map[string]any) map[string]any {
+	extra := make(map[string]any, 2)
+	for _, key := range []string{"email", "name", "privacy_mode"} {
+		if value, ok := raw[key].(string); ok && strings.TrimSpace(value) != "" {
+			extra[key] = strings.TrimSpace(value)
+		}
+	}
+	return extra
+}
+
 type userOAuthAuthURLPayload struct {
 	Platform    string `json:"platform"`
 	RedirectURI string `json:"redirect_uri"`
 	ProjectID   string `json:"project_id"`
 	OAuthType   string `json:"oauth_type"`
 	TierID      string `json:"tier_id"`
+	ProxyID     *int64 `json:"proxy_id"`
 }
 
 type userOAuthExchangePayload struct {
@@ -148,6 +231,7 @@ type userOAuthExchangePayload struct {
 	ProjectID string `json:"project_id"`
 	OAuthType string `json:"oauth_type"`
 	TierID    string `json:"tier_id"`
+	ProxyID   *int64 `json:"proxy_id"`
 }
 
 func (h *AccountPoolHandler) ListPool(c *gin.Context) {
@@ -292,7 +376,7 @@ func (h *AccountPoolHandler) GenerateOAuthAuthURL(c *gin.Context) {
 
 	switch strings.TrimSpace(payload.Platform) {
 	case service.PlatformOpenAI:
-		result, err := h.openaiOAuthService.GenerateAuthURL(c.Request.Context(), nil, strings.TrimSpace(payload.RedirectURI), service.PlatformOpenAI)
+		result, err := h.openaiOAuthService.GenerateAuthURL(c.Request.Context(), payload.ProxyID, strings.TrimSpace(payload.RedirectURI), service.PlatformOpenAI)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -325,6 +409,7 @@ func (h *AccountPoolHandler) ExchangeOAuthCode(c *gin.Context) {
 			SessionID: payload.SessionID,
 			Code:      payload.Code,
 			State:     payload.State,
+			ProxyID:   payload.ProxyID,
 		})
 		if err != nil {
 			response.ErrorFrom(c, err)
@@ -489,6 +574,472 @@ func (h *AccountPoolHandler) GetStats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
+func (h *AccountPoolHandler) GetAvailableModels(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+
+	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
+	if !ok {
+		return
+	}
+
+	if account.IsOpenAI() {
+		if account.IsOpenAIPassthroughEnabled() {
+			response.Success(c, openai.DefaultModels)
+			return
+		}
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, openai.DefaultModels)
+			return
+		}
+		models := make([]openai.Model, 0, len(mapping))
+		for requestedModel := range mapping {
+			var found bool
+			for _, model := range openai.DefaultModels {
+				if model.ID == requestedModel {
+					models = append(models, model)
+					found = true
+					break
+				}
+			}
+			if !found {
+				models = append(models, openai.Model{
+					ID:          requestedModel,
+					Object:      "model",
+					Type:        "model",
+					DisplayName: requestedModel,
+				})
+			}
+		}
+		response.Success(c, models)
+		return
+	}
+
+	if account.IsGemini() {
+		response.Success(c, geminicli.DefaultModels)
+		return
+	}
+
+	if account.Platform == service.PlatformAntigravity {
+		response.Success(c, antigravity.DefaultModels())
+		return
+	}
+
+	if account.IsOAuth() {
+		response.Success(c, claude.DefaultModels)
+		return
+	}
+
+	response.Success(c, claude.DefaultModels)
+}
+
+func (h *AccountPoolHandler) Test(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.accountTestService == nil {
+		response.InternalError(c, "account test service is not configured")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+
+	var payload testUserAccountPayload
+	_ = c.ShouldBindJSON(&payload)
+
+	if err := h.accountTestService.TestAccountConnection(c, accountID, payload.ModelID, payload.Prompt, payload.Mode); err != nil {
+		return
+	}
+
+	if h.rateLimitService != nil {
+		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID); err != nil {
+			_ = c.Error(err)
+		}
+	}
+}
+
+func (h *AccountPoolHandler) Refresh(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
+	if !ok {
+		return
+	}
+	if !account.IsOpenAI() {
+		response.ErrorFrom(c, infraerrors.BadRequest("ACCOUNT_PLATFORM_NOT_ALLOWED", "only OpenAI OAuth accounts are supported"))
+		return
+	}
+	if h.openaiOAuthService == nil {
+		response.InternalError(c, "OpenAI OAuth service is not configured")
+		return
+	}
+
+	tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(c.Request.Context(), account)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	newCredentials := h.openaiOAuthService.BuildAccountCredentials(tokenInfo)
+	for key, value := range account.Credentials {
+		if _, exists := newCredentials[key]; !exists {
+			newCredentials[key] = value
+		}
+	}
+
+	item, err := h.accountService.ApplyUserOAuthCredentials(c.Request.Context(), subject.UserID, accountID, service.ApplyUserOAuthCredentialsRequest{
+		Type:        service.AccountTypeOAuth,
+		Credentials: newCredentials,
+		Extra: buildUserOpenAIExtra(map[string]any{
+			"email":        tokenInfo.Email,
+			"privacy_mode": tokenInfo.PrivacyMode,
+		}),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	h.invalidateUserAccountToken(c.Request.Context(), accountID)
+	items := []service.UserAccountPoolItem{*item}
+	h.hydrateCurrentWindowCost(c.Request.Context(), items)
+	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) ApplyOAuthCredentials(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
+	if !ok {
+		return
+	}
+	if !account.IsOpenAI() {
+		response.ErrorFrom(c, infraerrors.BadRequest("ACCOUNT_PLATFORM_NOT_ALLOWED", "only OpenAI OAuth accounts are supported"))
+		return
+	}
+
+	var payload applyUserOAuthCredentialsPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	item, err := h.accountService.ApplyUserOAuthCredentials(c.Request.Context(), subject.UserID, accountID, service.ApplyUserOAuthCredentialsRequest{
+		Type:        payload.Type,
+		Credentials: payload.Credentials,
+		Extra:       payload.Extra,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	h.invalidateUserAccountToken(c.Request.Context(), accountID)
+	items := []service.UserAccountPoolItem{*item}
+	h.hydrateCurrentWindowCost(c.Request.Context(), items)
+	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) RecoverState(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.rateLimitService == nil {
+		response.InternalError(c, "rate limit service is not configured")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+
+	if _, err := h.rateLimitService.RecoverAccountState(c.Request.Context(), accountID, service.AccountRecoveryOptions{
+		InvalidateToken: true,
+	}); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	refreshed, err := h.accountService.GetOwnedUserOAuthAccount(c.Request.Context(), subject.UserID, accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	item := service.UserAccountPoolItemFromAccount(refreshed, subject.UserID)
+	items := []service.UserAccountPoolItem{item}
+	h.hydrateCurrentWindowCost(c.Request.Context(), items)
+	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) SetPrivacy(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
+	if !ok {
+		return
+	}
+
+	var mode string
+	switch account.Platform {
+	case service.PlatformOpenAI:
+		mode = h.accountService.ForceUserOpenAIPrivacy(c.Request.Context(), account, h.privacyClientFactory)
+	case service.PlatformAntigravity:
+		mode = h.accountService.ForceUserAntigravityPrivacy(c.Request.Context(), account)
+	default:
+		response.ErrorFrom(c, infraerrors.BadRequest("ACCOUNT_PLATFORM_NOT_ALLOWED", "only OpenAI and Antigravity OAuth accounts support privacy setting"))
+		return
+	}
+	if mode == "" {
+		response.ErrorFrom(c, infraerrors.BadRequest("ACCOUNT_PRIVACY_NOT_AVAILABLE", "cannot set privacy: missing access token"))
+		return
+	}
+
+	refreshed, err := h.accountService.GetOwnedUserOAuthAccount(c.Request.Context(), subject.UserID, accountID)
+	if err == nil && refreshed != nil {
+		account = refreshed
+	} else {
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		account.Extra["privacy_mode"] = mode
+	}
+	item := service.UserAccountPoolItemFromAccount(account, subject.UserID)
+	items := []service.UserAccountPoolItem{item}
+	h.hydrateCurrentWindowCost(c.Request.Context(), items)
+	response.Success(c, items[0])
+}
+
+func (h *AccountPoolHandler) ListScheduledTestPlans(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.scheduledTestService == nil {
+		response.InternalError(c, "scheduled test service is not configured")
+		return
+	}
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+
+	plans, err := h.scheduledTestService.ListPlansByAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, plans)
+}
+
+func (h *AccountPoolHandler) CreateScheduledTestPlan(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.scheduledTestService == nil {
+		response.InternalError(c, "scheduled test service is not configured")
+		return
+	}
+
+	var payload createUserScheduledTestPlanPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, payload.AccountID); !ok {
+		return
+	}
+
+	plan := &service.ScheduledTestPlan{
+		AccountID:      payload.AccountID,
+		ModelID:        payload.ModelID,
+		CronExpression: payload.CronExpression,
+		Enabled:        true,
+		MaxResults:     payload.MaxResults,
+	}
+	if payload.Enabled != nil {
+		plan.Enabled = *payload.Enabled
+	}
+	if payload.AutoRecover != nil {
+		plan.AutoRecover = *payload.AutoRecover
+	}
+
+	created, err := h.scheduledTestService.CreatePlan(c.Request.Context(), plan)
+	if err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("SCHEDULED_TEST_PLAN_INVALID", err.Error()))
+		return
+	}
+	response.Success(c, created)
+}
+
+func (h *AccountPoolHandler) UpdateScheduledTestPlan(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.scheduledTestService == nil {
+		response.InternalError(c, "scheduled test service is not configured")
+		return
+	}
+	planID, ok := parsePlanIDParam(c)
+	if !ok {
+		return
+	}
+
+	plan, err := h.scheduledTestService.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, plan.AccountID); !ok {
+		return
+	}
+
+	var payload updateUserScheduledTestPlanPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if payload.ModelID != "" {
+		plan.ModelID = payload.ModelID
+	}
+	if payload.CronExpression != "" {
+		plan.CronExpression = payload.CronExpression
+	}
+	if payload.Enabled != nil {
+		plan.Enabled = *payload.Enabled
+	}
+	if payload.MaxResults > 0 {
+		plan.MaxResults = payload.MaxResults
+	}
+	if payload.AutoRecover != nil {
+		plan.AutoRecover = *payload.AutoRecover
+	}
+
+	updated, err := h.scheduledTestService.UpdatePlan(c.Request.Context(), plan)
+	if err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("SCHEDULED_TEST_PLAN_INVALID", err.Error()))
+		return
+	}
+	response.Success(c, updated)
+}
+
+func (h *AccountPoolHandler) DeleteScheduledTestPlan(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.scheduledTestService == nil {
+		response.InternalError(c, "scheduled test service is not configured")
+		return
+	}
+	planID, ok := parsePlanIDParam(c)
+	if !ok {
+		return
+	}
+
+	plan, err := h.scheduledTestService.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, plan.AccountID); !ok {
+		return
+	}
+
+	if err := h.scheduledTestService.DeletePlan(c.Request.Context(), planID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "deleted"})
+}
+
+func (h *AccountPoolHandler) ListScheduledTestResults(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.scheduledTestService == nil {
+		response.InternalError(c, "scheduled test service is not configured")
+		return
+	}
+	planID, ok := parsePlanIDParam(c)
+	if !ok {
+		return
+	}
+
+	plan, err := h.scheduledTestService.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, plan.AccountID); !ok {
+		return
+	}
+
+	limit := 50
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
+		limit = l
+	}
+	results, err := h.scheduledTestService.ListResults(c.Request.Context(), planID, limit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, results)
+}
+
 func (h *AccountPoolHandler) UpdateLimits(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -538,6 +1089,15 @@ func parseProxyIDParam(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		response.BadRequest(c, "Invalid proxy ID")
+		return 0, false
+	}
+	return id, true
+}
+
+func parsePlanIDParam(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid plan ID")
 		return 0, false
 	}
 	return id, true

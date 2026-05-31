@@ -254,9 +254,13 @@ interface PreviewImage {
   mimeType?: string
 }
 
+type TestableAccount = Pick<Account, 'id' | 'name' | 'platform' | 'type' | 'status'>
+
 const props = defineProps<{
   show: boolean
-  account: Account | null
+  account: TestableAccount | null
+  loadModels?: (id: number) => Promise<ClaudeModel[]>
+  testEndpoint?: (id: number) => string
 }>()
 
 const emit = defineEmits<{
@@ -328,7 +332,8 @@ const loadAvailableModels = async () => {
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const loader = props.loadModels || adminAPI.accounts.getAvailableModels
+    const models = await loader(props.account.id)
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -400,7 +405,9 @@ const startTest = async () => {
 
   try {
     // Create EventSource for SSE
-    const url = `/api/v1/admin/accounts/${props.account.id}/test`
+    const url = props.testEndpoint
+      ? props.testEndpoint(props.account.id)
+      : `/api/v1/admin/accounts/${props.account.id}/test`
 
     // Use fetch with streaming for SSE since EventSource doesn't support POST
     const response = await fetch(url, {

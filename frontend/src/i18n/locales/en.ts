@@ -1078,6 +1078,13 @@ export default {
     schedulableSaved: 'Scheduling setting updated',
     loadFailed: 'Failed to load account pool',
     moreActions: 'More Actions',
+    actions: {
+      editSettings: 'Edit sharing settings',
+      pauseSharing: 'Pause sharing',
+      resumeSharing: 'Resume sharing',
+      refreshTokenSuccess: 'Token refreshed',
+      privacySetSuccess: 'Privacy setting updated',
+    },
     delete: {
       title: 'Delete Contributed Account',
       confirm: 'Delete account "{name}"? It will no longer participate in shared scheduling.',

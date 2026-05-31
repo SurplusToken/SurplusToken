@@ -1,5 +1,16 @@
 import { apiClient } from './client'
-import type { AccountPlatform, AccountUsageStatsResponse, PaginatedResponse, Proxy, UserAccountPoolItem } from '@/types'
+import type {
+  AccountPlatform,
+  AccountUsageStatsResponse,
+  ClaudeModel,
+  CreateScheduledTestPlanRequest,
+  PaginatedResponse,
+  Proxy,
+  ScheduledTestPlan,
+  ScheduledTestResult,
+  UpdateScheduledTestPlanRequest,
+  UserAccountPoolItem,
+} from '@/types'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -38,6 +49,7 @@ export interface UserOAuthAuthUrlRequest {
   project_id?: string
   oauth_type?: 'code_assist' | 'google_one' | 'ai_studio'
   tier_id?: string
+  proxy_id?: number | null
 }
 
 export interface UserOAuthAuthUrlResponse {
@@ -54,9 +66,16 @@ export interface UserOAuthExchangeCodeRequest {
   project_id?: string
   oauth_type?: 'code_assist' | 'google_one' | 'ai_studio'
   tier_id?: string
+  proxy_id?: number | null
 }
 
 export type UserOAuthTokenInfo = Record<string, unknown>
+
+export interface ApplyUserOAuthCredentialsRequest {
+  type: 'oauth'
+  credentials: Record<string, unknown>
+  extra?: Record<string, unknown>
+}
 
 export async function listPool(
   page = 1,
@@ -153,6 +172,82 @@ export async function getStats(id: number, days: number = 30): Promise<AccountUs
   return data
 }
 
+export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
+  const { data } = await apiClient.get<ClaudeModel[]>(`/accounts/${id}/models`)
+  return data
+}
+
+export async function refreshCredentials(id: number): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>(`/accounts/${id}/refresh`)
+  return data
+}
+
+export async function recoverState(id: number): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>(`/accounts/${id}/recover-state`)
+  return data
+}
+
+export async function setPrivacy(id: number): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>(`/accounts/${id}/set-privacy`)
+  return data
+}
+
+export async function listScheduledTestPlans(accountId: number): Promise<ScheduledTestPlan[]> {
+  const { data } = await apiClient.get<ScheduledTestPlan[]>(
+    `/accounts/${accountId}/scheduled-test-plans`,
+  )
+  return data ?? []
+}
+
+export async function createScheduledTestPlan(
+  payload: CreateScheduledTestPlanRequest,
+): Promise<ScheduledTestPlan> {
+  const { data } = await apiClient.post<ScheduledTestPlan>('/scheduled-test-plans', payload)
+  return data
+}
+
+export async function updateScheduledTestPlan(
+  id: number,
+  payload: UpdateScheduledTestPlanRequest,
+): Promise<ScheduledTestPlan> {
+  const { data } = await apiClient.put<ScheduledTestPlan>(`/scheduled-test-plans/${id}`, payload)
+  return data
+}
+
+export async function deleteScheduledTestPlan(id: number): Promise<void> {
+  await apiClient.delete(`/scheduled-test-plans/${id}`)
+}
+
+export async function listScheduledTestResults(
+  planId: number,
+  limit?: number,
+): Promise<ScheduledTestResult[]> {
+  const { data } = await apiClient.get<ScheduledTestResult[]>(
+    `/scheduled-test-plans/${planId}/results`,
+    { params: limit ? { limit } : undefined },
+  )
+  return data ?? []
+}
+
+export const scheduledTestsAPI = {
+  listByAccount: listScheduledTestPlans,
+  create: createScheduledTestPlan,
+  update: updateScheduledTestPlan,
+  delete: deleteScheduledTestPlan,
+  listResults: listScheduledTestResults,
+}
+
+export async function applyOAuthCredentials(
+  id: number,
+  payload: ApplyUserOAuthCredentialsRequest,
+): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>(
+    `/accounts/${id}/apply-oauth-credentials`,
+    payload,
+  )
+  return data
+}
+
 export const accountsAPI = {
   listPool,
   listProxies,
@@ -164,6 +259,12 @@ export const accountsAPI = {
   updateScope,
   deleteAccount,
   getStats,
+  getAvailableModels,
+  refreshCredentials,
+  recoverState,
+  setPrivacy,
+  scheduledTests: scheduledTestsAPI,
+  applyOAuthCredentials,
 }
 
 export default accountsAPI
