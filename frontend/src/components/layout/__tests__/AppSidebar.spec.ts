@@ -30,3 +30,11 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar payment entries', () => {
+  it('shows purchase and orders according to the payment feature flag', () => {
+    expect(componentSource).toContain('const flagPayment = makeSidebarFlag(FeatureFlags.payment)')
+    expect(componentSource).toContain("{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
+    expect(componentSource).toContain("{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
+  })
+})
