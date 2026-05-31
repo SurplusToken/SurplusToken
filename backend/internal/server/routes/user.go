@@ -88,6 +88,8 @@ func RegisterUserRoutes(
 			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
 			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
 			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
+			accounts.POST("/oauth/refresh-token", h.AccountPool.RefreshOpenAIToken)
+			accounts.POST("/oauth/import/codex-session", h.AccountPool.ImportCodexSession)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
 			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
 			accounts.POST("/:id/test", h.AccountPool.Test)

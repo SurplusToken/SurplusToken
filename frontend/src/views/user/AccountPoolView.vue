@@ -620,14 +620,17 @@
           :show-proxy-warning="false"
           :allow-multiple="false"
           :show-cookie-option="false"
-          :show-refresh-token-option="false"
-          :show-mobile-refresh-token-option="false"
+          :show-refresh-token-option="createForm.platform === 'openai'"
+          :show-mobile-refresh-token-option="createForm.platform === 'openai'"
           :show-session-token-option="false"
           :show-access-token-option="false"
-          :show-codex-session-import-option="false"
+          :show-codex-session-import-option="createForm.platform === 'openai'"
           :platform="createForm.platform"
           :show-project-id="createForm.platform === 'gemini' && createForm.oauthType === 'code_assist'"
           @generate-url="handleGenerateUrl"
+          @validate-refresh-token="handleValidateRefreshToken"
+          @validate-mobile-refresh-token="handleValidateMobileRefreshToken"
+          @import-codex-session="handleImportCodexSession"
         />
       </div>
 
@@ -648,7 +651,8 @@
           <button type="button" class="btn btn-secondary" @click="goBackToBasicInfo">
             {{ t('common.back') }}
           </button>
-          <button
+        <button
+            v-if="isManualInputMethod"
             type="button"
             :disabled="!canExchangeCode"
             class="btn btn-primary"
@@ -995,6 +999,7 @@ import {
   splitModelMappingObject,
 } from '@/composables/useModelWhitelist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
+import type { CodexSessionImportMessage } from '@/types'
 
 type UserAccountModalItem = UserAccountPoolItem & {
   credentials?: Record<string, unknown>
@@ -1004,6 +1009,9 @@ interface OAuthFlowExposed {
   authCode: string
   oauthState: string
   projectId: string
+  inputMethod: string
+  refreshToken: string
+  codexSession: string
   reset: () => void
 }
 
@@ -1139,9 +1147,17 @@ const probeFailurePolicyOptions = computed(() => [
   { value: 'local', label: t('accountPool.policy.probeFailureLocal') },
 ])
 
+const isManualInputMethod = computed(() => oauthFlowRef.value?.inputMethod === 'manual')
+
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
-  return Boolean(authCode.trim() && oauthSession.sessionId && !oauthLoading.value && !creating.value)
+  return Boolean(
+    isManualInputMethod.value &&
+      authCode.trim() &&
+      oauthSession.sessionId &&
+      !oauthLoading.value &&
+      !creating.value
+  )
 })
 
 const canReAuthExchangeCode = computed(() => {
@@ -1382,6 +1398,34 @@ function buildOpenAIExtra(tokenInfo: UserOAuthTokenInfo): Record<string, unknown
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+function buildCreateOAuthPayload(
+  name: string,
+  tokenInfo: UserOAuthTokenInfo,
+  credentials: Record<string, unknown> = buildCredentials(tokenInfo),
+) {
+  return {
+    name,
+    platform: createForm.platform,
+    type: 'oauth' as const,
+    credentials,
+    model_mapping: buildUserModelWhitelist(allowedModels.value),
+    extra: buildExtra(tokenInfo),
+    proxy_id: createForm.proxyId,
+    schedulable: createForm.schedulable,
+    group_ids: createForm.groupIds,
+    expires_at: createForm.expiresAt,
+    auto_pause_on_expired: createForm.autoPauseOnExpired,
+    contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
+    contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
+    contribution_probe_failure_policy: createForm.probeFailurePolicy,
+  }
+}
+
+function baseOpenAIAccountName(tokenInfo?: UserOAuthTokenInfo): string {
+  const email = typeof tokenInfo?.email === 'string' ? tokenInfo.email.trim() : ''
+  return createForm.name.trim() || email || 'OpenAI OAuth Account'
+}
+
 function openCreateDialog() {
   showCreateForm.value = true
   createStep.value = 1
@@ -1604,28 +1648,176 @@ async function handleExchangeCode() {
       return
     }
 
-    await accountsAPI.createOAuth({
-      name: createForm.name,
-      platform: createForm.platform,
-      type: 'oauth',
-      credentials,
-      model_mapping: buildUserModelWhitelist(allowedModels.value),
-      extra: buildExtra(tokenInfo),
-      proxy_id: createForm.proxyId,
-      schedulable: createForm.schedulable,
-      group_ids: createForm.groupIds,
-      expires_at: createForm.expiresAt,
-      auto_pause_on_expired: createForm.autoPauseOnExpired,
-      contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
-      contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
-      contribution_probe_failure_policy: createForm.probeFailurePolicy,
-    })
+    await accountsAPI.createOAuth(buildCreateOAuthPayload(createForm.name, tokenInfo, credentials))
     appStore.showSuccess(t('accountPool.createSuccess'))
     resetCreateForm()
     handleCreateClose()
     reloadFirstPage()
   } catch (err: unknown) {
     oauthError.value = extractApiErrorMessage(err, t('common.error'))
+    appStore.showError(oauthError.value)
+  } finally {
+    creating.value = false
+  }
+}
+
+const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
+
+function splitTokenLines(input: string): string[] {
+  return input
+    .split('\n')
+    .map((value) => value.trim())
+    .filter((value) => value)
+}
+
+async function handleBatchRefreshTokenInput(refreshTokenInput: string, clientId?: string) {
+  const refreshTokens = splitTokenLines(refreshTokenInput)
+  if (refreshTokens.length === 0) {
+    oauthError.value = t('admin.accounts.oauth.openai.pleaseEnterRefreshToken')
+    return
+  }
+
+  creating.value = true
+  oauthError.value = ''
+  let successCount = 0
+  let failedCount = 0
+  const errors: string[] = []
+
+  try {
+    for (let i = 0; i < refreshTokens.length; i++) {
+      try {
+        const tokenInfo = await accountsAPI.refreshOpenAIToken(
+          refreshTokens[i],
+          createForm.proxyId,
+          clientId,
+        )
+        const credentials = withModelMapping(buildOpenAICredentials(tokenInfo))
+        if (clientId) {
+          credentials.client_id = clientId
+        }
+        if (Object.keys(credentials).length === 0) {
+          throw new Error(t('accountPool.oauth.credentialsMissing'))
+        }
+        const baseName = baseOpenAIAccountName(tokenInfo)
+        const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
+        await accountsAPI.createOAuth(buildCreateOAuthPayload(accountName, tokenInfo, credentials))
+        successCount++
+      } catch (err: unknown) {
+        failedCount++
+        errors.push(`#${i + 1}: ${extractApiErrorMessage(err, t('common.error'))}`)
+      }
+    }
+
+    if (successCount > 0 && failedCount === 0) {
+      appStore.showSuccess(
+        refreshTokens.length > 1
+          ? t('admin.accounts.oauth.batchSuccess', { count: successCount })
+          : t('accountPool.createSuccess')
+      )
+      resetCreateForm()
+      handleCreateClose()
+      reloadFirstPage()
+      return
+    }
+
+    oauthError.value = errors.join('\n')
+    if (successCount > 0) {
+      appStore.showWarning(
+        t('admin.accounts.oauth.batchPartialSuccess', { success: successCount, failed: failedCount })
+      )
+      reloadFirstPage()
+    } else {
+      appStore.showError(t('admin.accounts.oauth.batchFailed'))
+    }
+  } finally {
+    creating.value = false
+  }
+}
+
+function handleValidateRefreshToken(refreshTokenInput: string) {
+  return handleBatchRefreshTokenInput(refreshTokenInput)
+}
+
+function handleValidateMobileRefreshToken(refreshTokenInput: string) {
+  return handleBatchRefreshTokenInput(refreshTokenInput, OPENAI_MOBILE_RT_CLIENT_ID)
+}
+
+function formatCodexImportMessages(messages?: CodexSessionImportMessage[]) {
+  return (messages || [])
+    .map((item) => {
+      const name = item.name ? ` ${item.name}` : ''
+      return `#${item.index}${name}: ${item.message}`
+    })
+    .join('\n')
+}
+
+async function handleImportCodexSession(content: string) {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    oauthError.value = t('admin.accounts.oauth.openai.codexSessionEmpty')
+    return
+  }
+
+  creating.value = true
+  oauthError.value = ''
+  try {
+    const credentialExtras: Record<string, unknown> = {}
+    const modelMapping = buildUserModelWhitelist(allowedModels.value)
+    if (Object.keys(modelMapping).length > 0) {
+      credentialExtras.model_mapping = modelMapping
+    }
+
+    const result = await accountsAPI.importCodexSession({
+      content: trimmed,
+      name: createForm.name,
+      proxy_id: createForm.proxyId,
+      group_ids: createForm.groupIds,
+      expires_at: createForm.expiresAt,
+      auto_pause_on_expired: createForm.autoPauseOnExpired,
+      credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
+      extra: createForm.codexCLIOnly ? { codex_cli_only: true } : undefined,
+      update_existing: true,
+      schedulable: createForm.schedulable,
+      codex_cli_only: createForm.codexCLIOnly,
+      contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
+      contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
+      contribution_probe_failure_policy: createForm.probeFailurePolicy,
+    })
+
+    const successCount = result.created + result.updated
+    const params = {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      failed: result.failed,
+    }
+
+    if (successCount > 0 && result.failed === 0) {
+      appStore.showSuccess(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
+      resetCreateForm()
+      handleCreateClose()
+      reloadFirstPage()
+      return
+    }
+
+    const errorText = formatCodexImportMessages(result.errors)
+    const warningText = formatCodexImportMessages(result.warnings)
+    oauthError.value = [errorText, warningText].filter(Boolean).join('\n')
+
+    if (result.failed === 0) {
+      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
+      return
+    }
+
+    if (successCount > 0) {
+      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportPartial', params))
+      reloadFirstPage()
+      return
+    }
+
+    appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
+  } catch (err: unknown) {
+    oauthError.value = extractApiErrorMessage(err, t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     appStore.showError(oauthError.value)
   } finally {
     creating.value = false

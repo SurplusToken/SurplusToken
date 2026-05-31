@@ -52,6 +52,16 @@ func (s *accountPoolRepoStub) ListWithFilters(ctx context.Context, params pagina
 	}, nil
 }
 
+func (s *accountPoolRepoStub) ListByPlatform(ctx context.Context, platform string) ([]Account, error) {
+	out := make([]Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		if account.Platform == platform {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
 func (s *accountPoolRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
 	if s.accountsByID == nil {
 		return nil, ErrAccountNotFound
@@ -163,6 +173,26 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing
 
 	require.Error(t, err)
 	require.Nil(t, repo.created)
+}
+
+func TestAccountServiceListOwnedUserOAuthAccountsFiltersOwnerPlatformAndType(t *testing.T) {
+	ownerID := int64(42)
+	otherOwnerID := int64(7)
+	repo := &accountPoolRepoStub{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
+			{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, OwnerUserID: &ownerID},
+			{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth, OwnerUserID: &otherOwnerID},
+			{ID: 4, Platform: PlatformAnthropic, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
+		},
+	}
+	svc := &AccountService{accountRepo: repo}
+
+	accounts, err := svc.ListOwnedUserOAuthAccounts(context.Background(), ownerID, PlatformOpenAI)
+
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.Equal(t, int64(1), accounts[0].ID)
 }
 
 func TestAccountServiceUserAccountOwnership(t *testing.T) {

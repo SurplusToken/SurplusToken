@@ -3,6 +3,8 @@ import type {
   AccountPlatform,
   AccountUsageStatsResponse,
   ClaudeModel,
+  CodexSessionImportRequest,
+  CodexSessionImportResult,
   CreateScheduledTestPlanRequest,
   PaginatedResponse,
   Proxy,
@@ -70,6 +72,23 @@ export interface UserOAuthExchangeCodeRequest {
 }
 
 export type UserOAuthTokenInfo = Record<string, unknown>
+
+export type UserCodexSessionImportRequest = Omit<
+  CodexSessionImportRequest,
+  | 'notes'
+  | 'concurrency'
+  | 'priority'
+  | 'rate_multiplier'
+  | 'load_factor'
+  | 'skip_default_group_bind'
+  | 'confirm_mixed_channel_risk'
+> & {
+  schedulable?: boolean
+  codex_cli_only?: boolean
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: ContributionProbeFailurePolicy
+}
 
 export interface ApplyUserOAuthCredentialsRequest {
   type: 'oauth'
@@ -142,6 +161,34 @@ export async function exchangeOAuthCode(
   payload: UserOAuthExchangeCodeRequest
 ): Promise<UserOAuthTokenInfo> {
   const { data } = await apiClient.post<UserOAuthTokenInfo>('/accounts/oauth/exchange-code', payload)
+  return data
+}
+
+export async function refreshOpenAIToken(
+  refreshToken: string,
+  proxyId?: number | null,
+  clientId?: string,
+): Promise<UserOAuthTokenInfo> {
+  const payload: { refresh_token: string; proxy_id?: number; client_id?: string } = {
+    refresh_token: refreshToken,
+  }
+  if (proxyId) {
+    payload.proxy_id = proxyId
+  }
+  if (clientId) {
+    payload.client_id = clientId
+  }
+  const { data } = await apiClient.post<UserOAuthTokenInfo>('/accounts/oauth/refresh-token', payload)
+  return data
+}
+
+export async function importCodexSession(
+  payload: UserCodexSessionImportRequest,
+): Promise<CodexSessionImportResult> {
+  const { data } = await apiClient.post<CodexSessionImportResult>(
+    '/accounts/oauth/import/codex-session',
+    payload,
+  )
   return data
 }
 
@@ -255,6 +302,8 @@ export const accountsAPI = {
   createOAuth,
   generateOAuthAuthUrl,
   exchangeOAuthCode,
+  refreshOpenAIToken,
+  importCodexSession,
   setSchedulable,
   updateScope,
   deleteAccount,

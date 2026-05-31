@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -120,6 +123,31 @@ type applyUserOAuthCredentialsPayload struct {
 	Type        string         `json:"type" binding:"required,oneof=oauth"`
 	Credentials map[string]any `json:"credentials" binding:"required"`
 	Extra       map[string]any `json:"extra"`
+}
+
+type userOpenAIRefreshTokenPayload struct {
+	RefreshToken string `json:"refresh_token"`
+	RT           string `json:"rt"`
+	ClientID     string `json:"client_id"`
+	ProxyID      *int64 `json:"proxy_id"`
+}
+
+type userCodexSessionImportPayload struct {
+	Content                            string         `json:"content"`
+	Contents                           []string       `json:"contents"`
+	Name                               string         `json:"name"`
+	GroupIDs                           []int64        `json:"group_ids"`
+	ProxyID                            *int64         `json:"proxy_id"`
+	ExpiresAt                          *int64         `json:"expires_at"`
+	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
+	CredentialExtras                   map[string]any `json:"credential_extras"`
+	Extra                              map[string]any `json:"extra"`
+	UpdateExisting                     *bool          `json:"update_existing"`
+	Schedulable                        *bool          `json:"schedulable"`
+	CodexCLIOnly                       *bool          `json:"codex_cli_only"`
+	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
+	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
 }
 
 type createUserScheduledTestPlanPayload struct {
@@ -419,6 +447,311 @@ func (h *AccountPoolHandler) ExchangeOAuthCode(c *gin.Context) {
 	default:
 		response.BadRequest(c, "unsupported OAuth account platform")
 	}
+}
+
+func (h *AccountPoolHandler) userProxyURL(c *gin.Context, proxyID *int64) (string, bool) {
+	if proxyID == nil || *proxyID <= 0 {
+		return "", true
+	}
+	if h.proxyService == nil {
+		response.InternalError(c, "proxy service is not configured")
+		return "", false
+	}
+	proxy, err := h.proxyService.GetByID(c.Request.Context(), *proxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return "", false
+	}
+	if proxy == nil || !proxy.IsActive() {
+		response.ErrorFrom(c, infraerrors.New(http.StatusBadRequest, "ACCOUNT_PROXY_NOT_AVAILABLE", "proxy is not available"))
+		return "", false
+	}
+	return proxy.URL(), true
+}
+
+func (h *AccountPoolHandler) RefreshOpenAIToken(c *gin.Context) {
+	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.openaiOAuthService == nil {
+		response.InternalError(c, "OpenAI OAuth service is not configured")
+		return
+	}
+
+	var payload userOpenAIRefreshTokenPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	refreshToken := strings.TrimSpace(payload.RefreshToken)
+	if refreshToken == "" {
+		refreshToken = strings.TrimSpace(payload.RT)
+	}
+	if refreshToken == "" {
+		response.BadRequest(c, "refresh_token is required")
+		return
+	}
+
+	proxyURL, ok := h.userProxyURL(c, payload.ProxyID)
+	if !ok {
+		return
+	}
+	clientID := strings.TrimSpace(payload.ClientID)
+	if clientID == "" {
+		clientID, _ = openai.OAuthClientConfigByPlatform(service.PlatformOpenAI)
+	}
+
+	tokenInfo, err := h.openaiOAuthService.RefreshTokenWithClientID(c.Request.Context(), refreshToken, proxyURL, clientID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, tokenInfo)
+}
+
+func (h *AccountPoolHandler) ImportCodexSession(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var payload userCodexSessionImportPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformOpenAI, payload.GroupIDs)
+	if !ok {
+		return
+	}
+
+	importReq := admin.CodexSessionImportRequest{
+		Content:            payload.Content,
+		Contents:           payload.Contents,
+		Name:               payload.Name,
+		GroupIDs:           groupIDs,
+		ProxyID:            payload.ProxyID,
+		ExpiresAt:          payload.ExpiresAt,
+		AutoPauseOnExpired: payload.AutoPauseOnExpired,
+		CredentialExtras:   payload.CredentialExtras,
+		Extra:              payload.Extra,
+		UpdateExisting:     payload.UpdateExisting,
+	}
+	entries, err := admin.ParseCodexSessionImportEntries(importReq)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if len(entries) == 0 {
+		response.BadRequest(c, "请输入 accessToken 或 Codex session JSON")
+		return
+	}
+
+	result, err := h.importUserCodexSessions(c.Request.Context(), subject.UserID, payload, importReq, entries, groupIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AccountPoolHandler) importUserCodexSessions(
+	ctx context.Context,
+	userID int64,
+	payload userCodexSessionImportPayload,
+	importReq admin.CodexSessionImportRequest,
+	entries []admin.CodexImportEntry,
+	groupIDs []int64,
+) (admin.CodexSessionImportResult, error) {
+	result := admin.CodexSessionImportResult{
+		Total: len(entries),
+		Items: make([]admin.CodexSessionImportItem, 0, len(entries)),
+	}
+
+	existingAccounts, err := h.accountService.ListOwnedUserOAuthAccounts(ctx, userID, service.PlatformOpenAI)
+	if err != nil {
+		return result, err
+	}
+	index := admin.BuildCodexAccountIndex(existingAccounts)
+
+	updateExisting := true
+	if payload.UpdateExisting != nil {
+		updateExisting = *payload.UpdateExisting
+	}
+	credentialExtras := admin.SanitizeCodexImportCredentialExtras(payload.CredentialExtras)
+	seenIdentity := map[string]int{}
+
+	for _, entry := range entries {
+		item, err := admin.NormalizeCodexImportEntry(entry)
+		if err != nil {
+			appendUserCodexImportFailure(&result, entry.Index, "", err.Error())
+			continue
+		}
+
+		accountName := admin.BuildCodexCreateAccountName(payload.Name, item, entry.Index, len(entries))
+		effectiveExpiresAt, credentialExpiresAt, autoPauseOnExpired, expiryWarnings, expiryErr := admin.ResolveCodexImportExpiry(importReq, item)
+		if expiryErr != nil {
+			appendUserCodexImportFailure(&result, entry.Index, accountName, expiryErr.Error())
+			continue
+		}
+		item.WarningTexts = append(item.WarningTexts, expiryWarnings...)
+		if credentialExpiresAt != nil {
+			item.Credentials["expires_at"] = credentialExpiresAt.Format(time.RFC3339)
+		}
+		credentials := admin.MergeCodexImportMap(item.Credentials, credentialExtras)
+		extra := admin.MergeCodexImportMap(payload.Extra, item.Extra)
+		if payload.CodexCLIOnly != nil && *payload.CodexCLIOnly {
+			if extra == nil {
+				extra = map[string]any{}
+			}
+			extra["codex_cli_only"] = true
+		}
+		for _, warning := range item.WarningTexts {
+			result.Warnings = append(result.Warnings, admin.CodexSessionImportMessage{
+				Index:   entry.Index,
+				Name:    accountName,
+				Message: warning,
+			})
+		}
+
+		if duplicateIndex, ok := admin.FirstSeenCodexIdentity(seenIdentity, item.IdentityKeys); ok {
+			message := fmt.Sprintf("与第 %d 条导入项重复，已跳过", duplicateIndex)
+			result.Skipped++
+			result.Items = append(result.Items, admin.CodexSessionImportItem{
+				Index:   entry.Index,
+				Name:    accountName,
+				Action:  "skipped",
+				Message: message,
+			})
+			result.Warnings = append(result.Warnings, admin.CodexSessionImportMessage{
+				Index:   entry.Index,
+				Name:    accountName,
+				Message: message,
+			})
+			continue
+		}
+		admin.MarkCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index)
+
+		if existing := index.Find(item.IdentityKeys); existing != nil {
+			if !updateExisting {
+				message := "账号已存在，已跳过"
+				result.Skipped++
+				result.Items = append(result.Items, admin.CodexSessionImportItem{
+					Index:     entry.Index,
+					Name:      accountName,
+					Action:    "skipped",
+					AccountID: existing.ID,
+					Message:   message,
+				})
+				result.Warnings = append(result.Warnings, admin.CodexSessionImportMessage{
+					Index:   entry.Index,
+					Name:    accountName,
+					Message: message,
+				})
+				continue
+			}
+
+			mergedCredentials := admin.MergeCodexImportCredentials(existing.Credentials, credentials, item)
+			if strings.TrimSpace(item.RefreshToken) == "" {
+				mergedCredentials["refresh_token"] = ""
+				mergedCredentials["client_id"] = ""
+			}
+			if strings.TrimSpace(item.IDToken) == "" {
+				mergedCredentials["id_token"] = ""
+			}
+			mergedExtra := admin.MergeCodexImportMap(existing.Extra, extra)
+			_, updateErr := h.accountService.ApplyUserOAuthCredentials(ctx, userID, existing.ID, service.ApplyUserOAuthCredentialsRequest{
+				Type:        service.AccountTypeOAuth,
+				Credentials: mergedCredentials,
+				Extra:       mergedExtra,
+			})
+			if updateErr == nil {
+				_, updateErr = h.accountService.UpdateUserAccountScope(ctx, userID, existing.ID, service.UpdateUserAccountScopeRequest{
+					GroupIDs:                           &groupIDs,
+					ProxyID:                            payload.ProxyID,
+					ExpiresAt:                          effectiveExpiresAt,
+					AutoPauseOnExpired:                 autoPauseOnExpired,
+					CodexCLIOnly:                       payload.CodexCLIOnly,
+					ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+					ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+					ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+				})
+			}
+			if updateErr == nil && payload.Schedulable != nil {
+				_, updateErr = h.accountService.SetUserAccountSchedulable(ctx, userID, existing.ID, *payload.Schedulable)
+			}
+			if updateErr != nil {
+				appendUserCodexImportFailure(&result, entry.Index, accountName, updateErr.Error())
+				continue
+			}
+			if h.tokenCacheInvalidator != nil {
+				if account, getErr := h.accountService.GetOwnedUserOAuthAccount(ctx, userID, existing.ID); getErr == nil && account != nil {
+					_ = h.tokenCacheInvalidator.InvalidateToken(ctx, account)
+					index.Add(*account)
+				}
+			}
+			result.Updated++
+			accountID := existing.ID
+			result.Items = append(result.Items, admin.CodexSessionImportItem{
+				Index:     entry.Index,
+				Name:      accountName,
+				Action:    "updated",
+				AccountID: accountID,
+			})
+			continue
+		}
+
+		created, createErr := h.accountService.CreateUserOAuthAccount(ctx, userID, service.CreateUserOAuthAccountRequest{
+			Name:                               accountName,
+			Platform:                           service.PlatformOpenAI,
+			Type:                               service.AccountTypeOAuth,
+			Credentials:                        credentials,
+			Extra:                              extra,
+			ProxyID:                            payload.ProxyID,
+			Schedulable:                        payload.Schedulable,
+			GroupIDs:                           groupIDs,
+			ExpiresAt:                          effectiveExpiresAt,
+			AutoPauseOnExpired:                 autoPauseOnExpired,
+			ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+			ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+			ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+		})
+		if createErr != nil {
+			appendUserCodexImportFailure(&result, entry.Index, accountName, createErr.Error())
+			continue
+		}
+		if createdAccount, getErr := h.accountService.GetOwnedUserOAuthAccount(ctx, userID, created.ID); getErr == nil && createdAccount != nil {
+			index.Add(*createdAccount)
+		}
+		result.Created++
+		result.Items = append(result.Items, admin.CodexSessionImportItem{
+			Index:     entry.Index,
+			Name:      accountName,
+			Action:    "created",
+			AccountID: created.ID,
+		})
+	}
+
+	return result, nil
+}
+
+func appendUserCodexImportFailure(result *admin.CodexSessionImportResult, index int, name, message string) {
+	result.Failed++
+	result.Items = append(result.Items, admin.CodexSessionImportItem{
+		Index:   index,
+		Name:    name,
+		Action:  "failed",
+		Message: message,
+	})
+	result.Errors = append(result.Errors, admin.CodexSessionImportMessage{
+		Index:   index,
+		Name:    name,
+		Message: message,
+	})
 }
 
 func (h *AccountPoolHandler) SetSchedulable(c *gin.Context) {

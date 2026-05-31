@@ -445,6 +445,28 @@ func (s *AccountService) GetOwnedUserOAuthAccount(ctx context.Context, userID, a
 	return s.getOwnedUserOAuthAccount(ctx, userID, accountID)
 }
 
+func (s *AccountService) ListOwnedUserOAuthAccounts(ctx context.Context, userID int64, platform string) ([]Account, error) {
+	if userID <= 0 {
+		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
+	}
+
+	accounts, err := s.accountRepo.ListByPlatform(ctx, platform)
+	if err != nil {
+		return nil, fmt.Errorf("list user OAuth accounts: %w", err)
+	}
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Type != AccountTypeOAuth {
+			continue
+		}
+		if account.OwnerUserID == nil || *account.OwnerUserID != userID {
+			continue
+		}
+		out = append(out, account)
+	}
+	return out, nil
+}
+
 func (s *AccountService) ApplyUserOAuthCredentials(ctx context.Context, userID, accountID int64, req ApplyUserOAuthCredentialsRequest) (*UserAccountPoolItem, error) {
 	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
 	if err != nil {

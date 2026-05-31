@@ -109,6 +109,10 @@ type codexAccountIndex struct {
 	accountsByKey map[string]service.Account
 }
 
+type CodexImportEntry = codexImportEntry
+type CodexImportAccount = codexImportAccount
+type CodexAccountIndex = codexAccountIndex
+
 func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
 	var req CodexSessionImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -145,6 +149,46 @@ func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
 	executeAdminIdempotentJSON(c, "admin.accounts.import_codex_session", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		return h.importCodexSessions(ctx, req, entries)
 	})
+}
+
+func ParseCodexSessionImportEntries(req CodexSessionImportRequest) ([]CodexImportEntry, error) {
+	return parseCodexSessionImportEntries(req)
+}
+
+func NormalizeCodexImportEntry(entry CodexImportEntry) (*CodexImportAccount, error) {
+	return normalizeCodexImportEntry(entry)
+}
+
+func BuildCodexCreateAccountName(base string, item *CodexImportAccount, index, total int) string {
+	return buildCodexCreateAccountName(base, item, index, total)
+}
+
+func ResolveCodexImportExpiry(req CodexSessionImportRequest, item *CodexImportAccount) (*int64, *time.Time, *bool, []string, error) {
+	return resolveCodexImportExpiry(req, item)
+}
+
+func SanitizeCodexImportCredentialExtras(input map[string]any) map[string]any {
+	return sanitizeCodexImportCredentialExtras(input)
+}
+
+func MergeCodexImportMap(existing, incoming map[string]any) map[string]any {
+	return mergeCodexImportMap(existing, incoming)
+}
+
+func MergeCodexImportCredentials(existing, incoming map[string]any, item *CodexImportAccount) map[string]any {
+	return mergeCodexImportCredentials(existing, incoming, item)
+}
+
+func BuildCodexAccountIndex(accounts []service.Account) *CodexAccountIndex {
+	return buildCodexAccountIndex(accounts)
+}
+
+func FirstSeenCodexIdentity(seen map[string]int, keys []string) (int, bool) {
+	return firstSeenCodexIdentity(seen, keys)
+}
+
+func MarkCodexIdentitySeen(seen map[string]int, keys []string, index int) {
+	markCodexIdentitySeen(seen, keys, index)
 }
 
 func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessionImportRequest, entries []codexImportEntry) (CodexSessionImportResult, error) {
