@@ -10,6 +10,7 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveDocumentTitle } from './title'
 
@@ -714,14 +715,8 @@ const BACKEND_MODE_CALLBACK_PATHS = [
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
 const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = [
   '/subscriptions',
-  '/purchase',
-  '/orders',
   '/redeem',
   '/affiliate',
-  '/payment/qrcode',
-  '/payment/stripe',
-  '/payment/airwallex',
-  '/payment/stripe-popup',
   '/admin/subscriptions',
   '/admin/redeem',
   '/admin/promo-codes',
@@ -842,8 +837,7 @@ router.beforeEach(async (to, _from, next) => {
 
   // Check payment requirement (internal payment system only)
   if (to.meta.requiresPayment) {
-    const paymentEnabled = appStore.cachedPublicSettings?.payment_enabled
-    if (!paymentEnabled) {
+    if (!isFeatureFlagEnabled(FeatureFlags.payment)) {
       next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
       return
     }
