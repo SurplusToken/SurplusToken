@@ -425,6 +425,7 @@ func TestAccountServiceListUserAccountPoolPlanTypeFilterFallback(t *testing.T) {
 		{ID: 1, Name: "plus", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "plus"}},
 		{ID: 2, Name: "pro", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "chatgptpro"}},
 		{ID: 3, Name: "free", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "free"}},
+		{ID: 4, Name: "prolite", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"plan_type": "prolite"}},
 	}}
 	svc := &AccountService{accountRepo: repo}
 
@@ -433,6 +434,13 @@ func TestAccountServiceListUserAccountPoolPlanTypeFilterFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	require.Equal(t, int64(2), items[0].ID)
+	require.Equal(t, int64(1), page.Total)
+
+	items, page, err = svc.ListUserAccountPool(context.Background(), 42, pagination.PaginationParams{Page: 1, PageSize: 20}, UserAccountPoolListFilters{PlanType: "prolite"})
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, int64(4), items[0].ID)
 	require.Equal(t, int64(1), page.Total)
 }
 

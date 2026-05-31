@@ -107,6 +107,11 @@ const planLabel = computed(() => {
     case 'chatgptpro':
     case 'pro':
       return 'Pro'
+    case 'chatgptprolite':
+    case 'prolite':
+    case 'pro-lite':
+    case 'pro_lite':
+      return 'Pro Lite'
     case 'free':
       return 'Free'
     case 'abnormal':

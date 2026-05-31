@@ -741,6 +741,8 @@ func normalizeUserAccountPoolPlanType(planType string) string {
 		return "plus"
 	case "pro", "chatgptpro":
 		return "pro"
+	case "prolite", "chatgptprolite":
+		return "prolite"
 	default:
 		return ""
 	}

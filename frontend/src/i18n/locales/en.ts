@@ -1105,6 +1105,7 @@ export default {
       all: 'All types',
       plus: 'Plus',
       pro: 'Pro',
+      prolite: 'Pro Lite',
     },
     settings: {
       title: 'Account Availability',

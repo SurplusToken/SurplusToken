@@ -101,7 +101,7 @@ export async function listPool(
   pageSize = 50,
   filters?: {
     platform?: AccountPlatform | ''
-    plan_type?: '' | 'plus' | 'pro'
+    plan_type?: '' | 'plus' | 'pro' | 'prolite'
     search?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'

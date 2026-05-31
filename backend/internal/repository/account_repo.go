@@ -619,6 +619,14 @@ func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, 
 						WriteString(")")
 					return
 				}
+				if normalizedPlan == "prolite" {
+					b.WriteString(" IN (").
+						Arg("prolite").
+						WriteString(",").
+						Arg("chatgptprolite").
+						WriteString(")")
+					return
+				}
 				b.WriteString(" = ").Arg(normalizedPlan)
 			}))
 		}))
@@ -654,6 +662,8 @@ func normalizeUserAccountPoolPlanFilter(planType string) string {
 		return "plus"
 	case "pro", "chatgptpro":
 		return "pro"
+	case "prolite", "chatgptprolite":
+		return "prolite"
 	default:
 		return ""
 	}

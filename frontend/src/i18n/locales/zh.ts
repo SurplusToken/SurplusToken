@@ -1109,6 +1109,7 @@ export default {
       all: '全部类型',
       plus: 'Plus',
       pro: 'Pro',
+      prolite: 'Pro Lite',
     },
     settings: {
       title: '账号可用范围',

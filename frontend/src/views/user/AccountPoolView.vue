@@ -71,6 +71,7 @@
               <option value="">{{ t('accountPool.planTypes.all') }}</option>
               <option value="plus">{{ t('accountPool.planTypes.plus') }}</option>
               <option value="pro">{{ t('accountPool.planTypes.pro') }}</option>
+              <option value="prolite">{{ t('accountPool.planTypes.prolite') }}</option>
             </select>
           </div>
 
@@ -1031,7 +1032,7 @@ const showCreateForm = ref(false)
 const createStep = ref(1)
 const searchQuery = ref('')
 const platformFilter = ref<AccountPlatform | ''>('')
-const planTypeFilter = ref<'' | 'plus' | 'pro'>('')
+const planTypeFilter = ref<'' | 'plus' | 'pro' | 'prolite'>('')
 const savingIDs = ref(new Set<number>())
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 const showColumnsDropdown = ref(false)
