@@ -2484,7 +2484,7 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 
 func validateSurplusAIUpstreamAccountType(accountType string) error {
 	if !isSurplusAIUpstreamAccountTypeAllowed(accountType) {
-		return infraerrors.BadRequest("SURPLUSAI_OAUTH_ONLY", "SurplusAI only allows OAuth upstream accounts")
+		return infraerrors.BadRequest("SURPLUSAI_OAUTH_ONLY", "SurplusToken only allows OAuth upstream accounts")
 	}
 	return nil
 }

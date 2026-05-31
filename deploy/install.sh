@@ -669,7 +669,7 @@ install_service() {
     # Create service file with configured host and port
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
-Description=Sub2API - AI API Gateway Platform
+Description=SurplusToken - Shared AI Gateway Platform
 Documentation=https://github.com/Wei-Shaw/sub2api
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service

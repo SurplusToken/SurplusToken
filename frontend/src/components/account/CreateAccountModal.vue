@@ -4616,7 +4616,7 @@ const createAccountAndFinish = async (
   extra?: Record<string, unknown>
 ) => {
   if (surplusAIOAuthOnly && type !== 'oauth') {
-    appStore.showError('SurplusAI only allows OAuth upstream accounts')
+    appStore.showError('SurplusToken only allows OAuth upstream accounts')
     return
   }
   if (!applyTempUnschedConfig(credentials)) {

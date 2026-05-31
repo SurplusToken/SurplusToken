@@ -1,8 +1,8 @@
-# SurplusAI Configuration File
-# SurplusAI 配置文件
+# SurplusToken Configuration File
+# SurplusToken 配置文件
 #
-# Copy this file to /etc/surplusai/config.yaml and modify as needed
-# 复制此文件到 /etc/surplusai/config.yaml 并根据需要修改
+# Copy this file to /etc/surplustoken/config.yaml and modify as needed
+# 复制此文件到 /etc/surplustoken/config.yaml 并根据需要修改
 #
 # Documentation / 文档: https://github.com/Wei-Shaw/sub2api
 
@@ -464,7 +464,7 @@ log:
   format: "console"
   # Service name field written into each log line
   # 每条日志都会附带 service 字段
-  service_name: "surplusai"
+  service_name: "surplustoken"
   # Environment field written into each log line
   # 每条日志都会附带 env 字段
   env: "production"
@@ -482,11 +482,11 @@ log:
     # 启用文件输出（默认路径自动推导）
     to_file: true
     # Empty means:
-    # - DATA_DIR set: {{DATA_DIR}}/logs/surplusai.log
-    # - otherwise: /app/data/logs/surplusai.log
+    # - DATA_DIR set: {{DATA_DIR}}/logs/surplustoken.log
+    # - otherwise: /app/data/logs/surplustoken.log
     # 留空时：
-    # - 设置 DATA_DIR：{{DATA_DIR}}/logs/surplusai.log
-    # - 否则：/app/data/logs/surplusai.log
+    # - 设置 DATA_DIR：{{DATA_DIR}}/logs/surplustoken.log
+    # - 否则：/app/data/logs/surplustoken.log
     file_path: ""
   rotation:
     # Max file size before rotation (MB)
@@ -656,7 +656,7 @@ dashboard_cache:
   enabled: true
   # Redis key prefix for multi-environment isolation
   # Redis key 前缀，用于多环境隔离
-  key_prefix: "surplusai:"
+  key_prefix: "surplustoken:"
   # Fresh TTL (seconds); within this window cached stats are considered fresh
   # 新鲜阈值（秒）；命中后处于该窗口视为新鲜数据
   stats_fresh_ttl_seconds: 15
@@ -776,7 +776,7 @@ database:
   password: "your_secure_password_here"
   # Database name
   # 数据库名称
-  dbname: "surplusai"
+  dbname: "surplustoken"
   # SSL mode: disable, prefer, require, verify-ca, verify-full
   # SSL 模式：disable（禁用）, prefer（优先加密，默认）, require（要求）, verify-ca（验证CA）, verify-full（完全验证）
   # 默认值为 "prefer"，数据库支持 SSL 时自动使用加密连接，不支持时回退明文

@@ -269,7 +269,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		}
 		if !isSurplusAIUpstreamAccountTypeAllowed(targetType) {
 			item.Action = "skipped"
-			item.Error = "SurplusAI only syncs OAuth upstream accounts"
+			item.Error = "SurplusToken only syncs OAuth upstream accounts"
 			result.Skipped++
 			result.Items = append(result.Items, item)
 			continue
@@ -418,7 +418,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			Name:         src.Name,
 		}
 		item.Action = "skipped"
-		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		item.Error = "SurplusToken only syncs OAuth upstream accounts"
 		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
@@ -570,7 +570,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			Name:         src.Name,
 		}
 		item.Action = "skipped"
-		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		item.Error = "SurplusToken only syncs OAuth upstream accounts"
 		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
@@ -705,7 +705,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			Name:         src.Name,
 		}
 		item.Action = "skipped"
-		item.Error = "SurplusAI only syncs OAuth upstream accounts"
+		item.Error = "SurplusToken only syncs OAuth upstream accounts"
 		result.Skipped++
 		result.Items = append(result.Items, item)
 	}
