@@ -140,6 +140,10 @@ func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 	require.True(t, repo.created.Schedulable)
 	require.Equal(t, 20.0, repo.created.Extra["contribution_5h_reserve_percent"])
 	require.Equal(t, 30.0, repo.created.Extra["contribution_weekly_reserve_percent"])
+	require.Equal(t, 0.8, repo.created.Extra["auto_pause_5h_threshold"])
+	require.Equal(t, 0.7, repo.created.Extra["auto_pause_7d_threshold"])
+	require.Equal(t, false, repo.created.Extra["auto_pause_5h_disabled"])
+	require.Equal(t, false, repo.created.Extra["auto_pause_7d_disabled"])
 	require.Equal(t, ContributionProbeFailurePolicyPause, repo.created.Extra["contribution_probe_failure_policy"])
 	require.NotContains(t, repo.created.Extra, "window_cost_limit")
 	require.NotContains(t, repo.created.Extra, "quota_weekly_min_remaining")
@@ -356,6 +360,10 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	require.Equal(t, 50.0, repo.updated.Extra["window_cost_limit"])
 	require.Equal(t, 25.0, repo.updated.Extra["contribution_5h_reserve_percent"])
 	require.Equal(t, 35.0, repo.updated.Extra["contribution_weekly_reserve_percent"])
+	require.Equal(t, 0.75, repo.updated.Extra["auto_pause_5h_threshold"])
+	require.Equal(t, 0.65, repo.updated.Extra["auto_pause_7d_threshold"])
+	require.Equal(t, false, repo.updated.Extra["auto_pause_5h_disabled"])
+	require.Equal(t, false, repo.updated.Extra["auto_pause_7d_disabled"])
 	require.Equal(t, ContributionProbeFailurePolicyLocal, repo.updated.Extra["contribution_probe_failure_policy"])
 	require.Equal(t, 7, repo.updated.Concurrency)
 	require.NotNil(t, repo.updated.ExpiresAt)
@@ -363,6 +371,22 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	require.Equal(t, []int64{11, 12}, item.GroupIDs)
 	require.False(t, item.CodexCLIOnly)
 	require.Equal(t, 7, item.Concurrency)
+}
+
+func TestBuildUserContributionProtectionUpdatesMirrorsReserveToAutoPause(t *testing.T) {
+	updates, err := buildUserContributionProtectionUpdates(
+		accountPoolFloatPtr(0),
+		accountPoolFloatPtr(100),
+		accountPoolStringPtr(ContributionProbeFailurePolicyContinue),
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 0.0, updates["contribution_5h_reserve_percent"])
+	require.Equal(t, 100.0, updates["contribution_weekly_reserve_percent"])
+	require.Equal(t, 0.0, updates["auto_pause_5h_threshold"])
+	require.Equal(t, true, updates["auto_pause_5h_disabled"])
+	require.Equal(t, minContributionAutoPauseThreshold, updates["auto_pause_7d_threshold"])
+	require.Equal(t, false, updates["auto_pause_7d_disabled"])
 }
 
 func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {

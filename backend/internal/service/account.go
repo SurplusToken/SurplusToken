@@ -1802,7 +1802,7 @@ func (a *Account) IsSurplusAIContributionProtectionSchedulable() bool {
 	if a == nil {
 		return false
 	}
-	return !a.EvaluateContributionProtection().Blocked
+	return !a.EvaluateContributionProtection().Blocked && !a.IsWeeklyRemainingBelowThreshold()
 }
 
 // IsSurplusAIContributionQuotaSchedulable keeps the older method name as a

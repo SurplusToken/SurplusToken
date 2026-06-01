@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	maxUserAccountLimitUSD        = 1_000_000
-	defaultUserAccountConcurrency = 5
+	maxUserAccountLimitUSD            = 1_000_000
+	defaultUserAccountConcurrency     = 5
+	minContributionAutoPauseThreshold = 0.000001
 )
 
 var (
@@ -900,11 +901,23 @@ func isUserAccountPoolPlatformVisible(platform string) bool {
 }
 
 func buildUserContributionProtectionUpdates(fiveHourReserve, weeklyReserve *float64, probeFailurePolicy *string) (map[string]any, error) {
-	updates := make(map[string]any, 3)
-	if err := setUserLimitUpdate(updates, "contribution_5h_reserve_percent", fiveHourReserve); err != nil {
+	updates := make(map[string]any, 7)
+	if err := setUserContributionReserveUpdate(
+		updates,
+		"contribution_5h_reserve_percent",
+		"auto_pause_5h_threshold",
+		"auto_pause_5h_disabled",
+		fiveHourReserve,
+	); err != nil {
 		return nil, err
 	}
-	if err := setUserLimitUpdate(updates, "contribution_weekly_reserve_percent", weeklyReserve); err != nil {
+	if err := setUserContributionReserveUpdate(
+		updates,
+		"contribution_weekly_reserve_percent",
+		"auto_pause_7d_threshold",
+		"auto_pause_7d_disabled",
+		weeklyReserve,
+	); err != nil {
 		return nil, err
 	}
 	if probeFailurePolicy != nil {
@@ -949,6 +962,30 @@ func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLim
 			if !ok {
 				continue
 			}
+			if key == "contribution_5h_reserve_percent" {
+				if err := setUserContributionReserveUpdate(
+					updates,
+					"contribution_5h_reserve_percent",
+					"auto_pause_5h_threshold",
+					"auto_pause_5h_disabled",
+					&value,
+				); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if key == "contribution_weekly_reserve_percent" {
+				if err := setUserContributionReserveUpdate(
+					updates,
+					"contribution_weekly_reserve_percent",
+					"auto_pause_7d_threshold",
+					"auto_pause_7d_disabled",
+					&value,
+				); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			targetKey := key
 			if key == "weekly_remaining_threshold" {
 				targetKey = "quota_weekly_min_remaining"
@@ -957,10 +994,22 @@ func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLim
 		}
 	}
 
-	if err := setUserLimitUpdate(updates, "contribution_5h_reserve_percent", req.ContributionFiveHourReservePercent); err != nil {
+	if err := setUserContributionReserveUpdate(
+		updates,
+		"contribution_5h_reserve_percent",
+		"auto_pause_5h_threshold",
+		"auto_pause_5h_disabled",
+		req.ContributionFiveHourReservePercent,
+	); err != nil {
 		return nil, err
 	}
-	if err := setUserLimitUpdate(updates, "contribution_weekly_reserve_percent", req.ContributionWeeklyReservePercent); err != nil {
+	if err := setUserContributionReserveUpdate(
+		updates,
+		"contribution_weekly_reserve_percent",
+		"auto_pause_7d_threshold",
+		"auto_pause_7d_disabled",
+		req.ContributionWeeklyReservePercent,
+	); err != nil {
 		return nil, err
 	}
 	if req.ContributionProbeFailurePolicy != nil {
@@ -983,6 +1032,34 @@ func buildUserAccountLimitUpdates(extra map[string]any, req UpdateUserAccountLim
 		return nil, err
 	}
 	return updates, nil
+}
+
+func setUserContributionReserveUpdate(updates map[string]any, reserveKey, autoPauseThresholdKey, autoPauseDisabledKey string, value *float64) error {
+	if value == nil {
+		return nil
+	}
+	if err := validateUserAccountLimit(reserveKey, *value); err != nil {
+		return err
+	}
+	reservePercent := clampContributionReservePercent(*value)
+	updates[reserveKey] = reservePercent
+
+	threshold, disabled := contributionReserveAutoPauseConfig(reservePercent)
+	updates[autoPauseThresholdKey] = threshold
+	updates[autoPauseDisabledKey] = disabled
+	return nil
+}
+
+func contributionReserveAutoPauseConfig(reservePercent float64) (threshold float64, disabled bool) {
+	reservePercent = clampContributionReservePercent(reservePercent)
+	if reservePercent <= 0 {
+		return 0, true
+	}
+	threshold = (100 - reservePercent) / 100
+	if threshold <= 0 {
+		threshold = minContributionAutoPauseThreshold
+	}
+	return threshold, false
 }
 
 func setUserLimitUpdate(updates map[string]any, key string, value *float64) error {
