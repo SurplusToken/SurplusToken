@@ -207,6 +207,13 @@
               </span>
             </template>
 
+            <template #cell-concurrency="{ row: account }">
+              <span v-if="account.is_mine" class="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
+                {{ account.concurrency || DEFAULT_USER_ACCOUNT_CONCURRENCY }}
+              </span>
+              <span v-else class="text-sm text-gray-500 dark:text-dark-400">{{ t('accountPool.readonly') }}</span>
+            </template>
+
             <template #cell-five_hour="{ row: account }">
               <div class="min-w-36 space-y-1 text-sm">
                 <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_5h_usage_percent) }}</div>
@@ -513,7 +520,17 @@
               </button>
             </div>
 
-            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[1fr_auto] lg:items-start">
+            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[12rem_1fr_auto] lg:items-start">
+              <label class="block">
+                <span class="input-label">{{ t('admin.accounts.concurrency') }}</span>
+                <input
+                  v-model.number="createForm.concurrency"
+                  type="number"
+                  min="1"
+                  class="input"
+                  @input="createForm.concurrency = normalizeConcurrency(createForm.concurrency)"
+                />
+              </label>
               <label class="block">
                 <span class="input-label">{{ t('admin.accounts.expiresAt') }}</span>
                 <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -732,7 +749,17 @@
               </button>
             </div>
 
-            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[1fr_auto] lg:items-start">
+            <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-[12rem_1fr_auto] lg:items-start">
+              <label class="block">
+                <span class="input-label">{{ t('admin.accounts.concurrency') }}</span>
+                <input
+                  v-model.number="scopeForm.concurrency"
+                  type="number"
+                  min="1"
+                  class="input"
+                  @input="scopeForm.concurrency = normalizeConcurrency(scopeForm.concurrency)"
+                />
+              </label>
               <label class="block">
                 <span class="input-label">{{ t('admin.accounts.expiresAt') }}</span>
                 <input v-model="scopeExpiresAtInput" type="datetime-local" class="input" />
@@ -1040,6 +1067,7 @@ const columnsDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
 const HIDDEN_COLUMNS_KEY = 'account-pool-hidden-columns'
 const DEFAULT_HIDDEN_COLUMNS = ['owner', 'updated']
+const DEFAULT_USER_ACCOUNT_CONCURRENCY = 5
 const actionMenu = reactive<{
   show: boolean
   account: UserAccountPoolItem | null
@@ -1094,6 +1122,7 @@ const createForm = reactive({
   tierId: '',
   schedulable: true,
   proxyId: null as number | null,
+  concurrency: DEFAULT_USER_ACCOUNT_CONCURRENCY,
   groupIds: [] as number[],
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
@@ -1110,6 +1139,7 @@ const scopeAllowedModels = ref<string[]>([])
 const scopeForm = reactive({
   groupIds: [] as number[],
   proxyId: null as number | null,
+  concurrency: DEFAULT_USER_ACCOUNT_CONCURRENCY,
   expiresAt: null as number | null,
   autoPauseOnExpired: true,
   codexCLIOnly: false,
@@ -1172,6 +1202,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'owner', label: t('accountPool.columns.owner'), sortable: false },
   { key: 'status', label: t('accountPool.columns.status'), sortable: false },
   { key: 'scheduling', label: t('accountPool.columns.scheduling'), sortable: false },
+  { key: 'concurrency', label: t('accountPool.columns.concurrency'), sortable: false },
   { key: 'five_hour', label: t('accountPool.columns.fiveHour'), sortable: false },
   { key: 'weekly', label: t('accountPool.columns.weekly'), sortable: false },
   { key: 'protection', label: t('accountPool.columns.protection'), sortable: false },
@@ -1259,6 +1290,12 @@ function normalizeReservePercent(value: number | null | undefined): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(100, n))
+}
+
+function normalizeConcurrency(value: number | null | undefined): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 1
+  return Math.max(1, Math.floor(n))
 }
 
 function formatMoney(value: number | null | undefined): string {
@@ -1412,6 +1449,7 @@ function buildCreateOAuthPayload(
     model_mapping: buildUserModelWhitelist(allowedModels.value),
     extra: buildExtra(tokenInfo),
     proxy_id: createForm.proxyId,
+    concurrency: normalizeConcurrency(createForm.concurrency),
     schedulable: createForm.schedulable,
     group_ids: createForm.groupIds,
     expires_at: createForm.expiresAt,
@@ -1772,6 +1810,7 @@ async function handleImportCodexSession(content: string) {
       content: trimmed,
       name: createForm.name,
       proxy_id: createForm.proxyId,
+      concurrency: normalizeConcurrency(createForm.concurrency),
       group_ids: createForm.groupIds,
       expires_at: createForm.expiresAt,
       auto_pause_on_expired: createForm.autoPauseOnExpired,
@@ -1832,6 +1871,7 @@ function resetCreateForm() {
   createForm.tierId = ''
   createForm.schedulable = true
   createForm.proxyId = null
+  createForm.concurrency = DEFAULT_USER_ACCOUNT_CONCURRENCY
   createForm.groupIds = []
   createForm.expiresAt = null
   createForm.autoPauseOnExpired = true
@@ -1859,6 +1899,7 @@ function openScopeDialog(account: UserAccountPoolItem) {
   scopeAccount.value = account
   scopeForm.groupIds = [...(account.group_ids || [])]
   scopeForm.proxyId = account.proxy_id || null
+  scopeForm.concurrency = account.concurrency || DEFAULT_USER_ACCOUNT_CONCURRENCY
   scopeForm.expiresAt = account.expires_at ? Math.floor(new Date(account.expires_at).getTime() / 1000) : null
   scopeForm.autoPauseOnExpired = account.auto_pause_on_expired
   scopeForm.codexCLIOnly = account.codex_cli_only
@@ -1875,6 +1916,7 @@ function handleScopeClose() {
   resetScopeModelWhitelist()
   scopeForm.groupIds = []
   scopeForm.proxyId = null
+  scopeForm.concurrency = DEFAULT_USER_ACCOUNT_CONCURRENCY
   scopeForm.expiresAt = null
   scopeForm.autoPauseOnExpired = true
   scopeForm.codexCLIOnly = false
@@ -1891,6 +1933,7 @@ async function saveScope() {
     const updated = await accountsAPI.updateScope(account.id, {
       group_ids: scopeForm.groupIds,
       proxy_id: scopeForm.proxyId || 0,
+      concurrency: normalizeConcurrency(scopeForm.concurrency),
       expires_at: scopeForm.expiresAt ?? 0,
       auto_pause_on_expired: scopeForm.autoPauseOnExpired,
       model_mapping: buildUserModelWhitelist(scopeAllowedModels.value),

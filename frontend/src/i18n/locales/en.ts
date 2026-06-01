@@ -1167,6 +1167,7 @@ export default {
       owner: 'Owner',
       status: 'Status',
       scheduling: 'Scheduling',
+      concurrency: 'Concurrency',
       availability: 'Availability',
       expiresAt: 'Expires',
       actions: 'Actions',

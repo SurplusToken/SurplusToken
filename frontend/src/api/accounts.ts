@@ -24,6 +24,7 @@ export interface CreateUserOAuthAccountRequest {
   model_mapping?: Record<string, string>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  concurrency?: number
   schedulable?: boolean
   group_ids?: number[]
   expires_at?: number | null
@@ -36,6 +37,7 @@ export interface CreateUserOAuthAccountRequest {
 export interface UpdateUserAccountScopeRequest {
   group_ids?: number[]
   proxy_id?: number | null
+  concurrency?: number
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   model_mapping?: Record<string, string>
@@ -76,7 +78,6 @@ export type UserOAuthTokenInfo = Record<string, unknown>
 export type UserCodexSessionImportRequest = Omit<
   CodexSessionImportRequest,
   | 'notes'
-  | 'concurrency'
   | 'priority'
   | 'rate_multiplier'
   | 'load_factor'

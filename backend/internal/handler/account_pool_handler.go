@@ -78,6 +78,7 @@ type createUserOAuthAccountPayload struct {
 	ModelMapping                       *map[string]string `json:"model_mapping"`
 	Extra                              map[string]any     `json:"extra"`
 	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
 	Schedulable                        *bool              `json:"schedulable"`
 	GroupIDs                           []int64            `json:"group_ids"`
 	ExpiresAt                          *int64             `json:"expires_at"`
@@ -104,6 +105,7 @@ type updateUserAccountLimitsPayload struct {
 type updateUserAccountScopePayload struct {
 	GroupIDs                           *[]int64           `json:"group_ids"`
 	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
 	ExpiresAt                          *int64             `json:"expires_at"`
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
@@ -138,6 +140,7 @@ type userCodexSessionImportPayload struct {
 	Name                               string         `json:"name"`
 	GroupIDs                           []int64        `json:"group_ids"`
 	ProxyID                            *int64         `json:"proxy_id"`
+	Concurrency                        *int           `json:"concurrency"`
 	ExpiresAt                          *int64         `json:"expires_at"`
 	AutoPauseOnExpired                 *bool          `json:"auto_pause_on_expired"`
 	CredentialExtras                   map[string]any `json:"credential_extras"`
@@ -317,6 +320,7 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 		ModelMapping:                       payload.ModelMapping,
 		Extra:                              payload.Extra,
 		ProxyID:                            payload.ProxyID,
+		Concurrency:                        payload.Concurrency,
 		Schedulable:                        payload.Schedulable,
 		GroupIDs:                           groupIDs,
 		ExpiresAt:                          payload.ExpiresAt,
@@ -523,6 +527,10 @@ func (h *AccountPoolHandler) ImportCodexSession(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if payload.Concurrency != nil && *payload.Concurrency < 1 {
+		response.BadRequest(c, "concurrency must be >= 1")
+		return
+	}
 
 	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformOpenAI, payload.GroupIDs)
 	if !ok {
@@ -535,6 +543,7 @@ func (h *AccountPoolHandler) ImportCodexSession(c *gin.Context) {
 		Name:               payload.Name,
 		GroupIDs:           groupIDs,
 		ProxyID:            payload.ProxyID,
+		Concurrency:        payload.Concurrency,
 		ExpiresAt:          payload.ExpiresAt,
 		AutoPauseOnExpired: payload.AutoPauseOnExpired,
 		CredentialExtras:   payload.CredentialExtras,
@@ -673,6 +682,7 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 				_, updateErr = h.accountService.UpdateUserAccountScope(ctx, userID, existing.ID, service.UpdateUserAccountScopeRequest{
 					GroupIDs:                           &groupIDs,
 					ProxyID:                            payload.ProxyID,
+					Concurrency:                        payload.Concurrency,
 					ExpiresAt:                          effectiveExpiresAt,
 					AutoPauseOnExpired:                 autoPauseOnExpired,
 					CodexCLIOnly:                       payload.CodexCLIOnly,
@@ -712,6 +722,7 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 			Credentials:                        credentials,
 			Extra:                              extra,
 			ProxyID:                            payload.ProxyID,
+			Concurrency:                        payload.Concurrency,
 			Schedulable:                        payload.Schedulable,
 			GroupIDs:                           groupIDs,
 			ExpiresAt:                          effectiveExpiresAt,
@@ -826,6 +837,7 @@ func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
 	item, err := h.accountService.UpdateUserAccountScope(c.Request.Context(), subject.UserID, accountID, service.UpdateUserAccountScopeRequest{
 		GroupIDs:                           groupIDs,
 		ProxyID:                            payload.ProxyID,
+		Concurrency:                        payload.Concurrency,
 		ExpiresAt:                          payload.ExpiresAt,
 		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
 		ModelMapping:                       payload.ModelMapping,

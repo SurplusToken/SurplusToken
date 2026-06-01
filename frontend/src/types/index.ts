@@ -953,6 +953,7 @@ export interface UserAccountPoolItem {
   } & Record<string, unknown>
   is_mine: boolean
   is_user_contributed: boolean
+  concurrency?: number
   schedulable: boolean
   effective_schedulable: boolean
   group_ids?: number[]

@@ -136,6 +136,7 @@ func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 	require.Equal(t, int64(42), *repo.created.OwnerUserID)
 	require.Equal(t, AccountTypeOAuth, repo.created.Type)
 	require.Equal(t, "Team OpenAI", repo.created.Name)
+	require.Equal(t, defaultUserAccountConcurrency, repo.created.Concurrency)
 	require.True(t, repo.created.Schedulable)
 	require.Equal(t, 20.0, repo.created.Extra["contribution_5h_reserve_percent"])
 	require.Equal(t, 30.0, repo.created.Extra["contribution_weekly_reserve_percent"])
@@ -143,6 +144,24 @@ func TestAccountServiceCreateUserOAuthAccount(t *testing.T) {
 	require.NotContains(t, repo.created.Extra, "window_cost_limit")
 	require.NotContains(t, repo.created.Extra, "quota_weekly_min_remaining")
 	require.True(t, item.IsMine)
+	require.Equal(t, defaultUserAccountConcurrency, item.Concurrency)
+}
+
+func TestAccountServiceCreateUserOAuthAccountUsesRequestedConcurrency(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:        "Team OpenAI",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "secret"},
+		Concurrency: accountPoolIntPtr(8),
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 8, repo.created.Concurrency)
+	require.Equal(t, 8, item.Concurrency)
 }
 
 func TestAccountServiceCreateUserOAuthAccountRejectsNonOAuthType(t *testing.T) {
@@ -313,6 +332,7 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	svc := &AccountService{accountRepo: repo}
 	expiresAt := time.Now().Add(time.Hour).Unix()
 	codexOnly := false
+	concurrency := 7
 	modelMapping := map[string]string{"gpt-5.2": "gpt-5.2", " ": "ignored"}
 	groupIDs := []int64{11, 12}
 
@@ -320,6 +340,7 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 		GroupIDs:                           &groupIDs,
 		ExpiresAt:                          &expiresAt,
 		AutoPauseOnExpired:                 accountPoolBoolPtr(true),
+		Concurrency:                        &concurrency,
 		ModelMapping:                       &modelMapping,
 		CodexCLIOnly:                       &codexOnly,
 		ContributionFiveHourReservePercent: accountPoolFloatPtr(25),
@@ -336,10 +357,12 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	require.Equal(t, 25.0, repo.updated.Extra["contribution_5h_reserve_percent"])
 	require.Equal(t, 35.0, repo.updated.Extra["contribution_weekly_reserve_percent"])
 	require.Equal(t, ContributionProbeFailurePolicyLocal, repo.updated.Extra["contribution_probe_failure_policy"])
+	require.Equal(t, 7, repo.updated.Concurrency)
 	require.NotNil(t, repo.updated.ExpiresAt)
 	require.Equal(t, expiresAt, repo.updated.ExpiresAt.Unix())
 	require.Equal(t, []int64{11, 12}, item.GroupIDs)
 	require.False(t, item.CodexCLIOnly)
+	require.Equal(t, 7, item.Concurrency)
 }
 
 func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
@@ -493,6 +516,10 @@ func accountPoolFloatPtr(v float64) *float64 {
 }
 
 func accountPoolBoolPtr(v bool) *bool {
+	return &v
+}
+
+func accountPoolIntPtr(v int) *int {
 	return &v
 }
 

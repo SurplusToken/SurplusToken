@@ -13,7 +13,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
-const maxUserAccountLimitUSD = 1_000_000
+const (
+	maxUserAccountLimitUSD        = 1_000_000
+	defaultUserAccountConcurrency = 5
+)
 
 var (
 	ErrAccountOwnerRequired = infraerrors.Forbidden("ACCOUNT_OWNER_REQUIRED", "account is not owned by current user")
@@ -44,6 +47,7 @@ type UserAccountPoolItem struct {
 	Extra                              map[string]any         `json:"extra,omitempty"`
 	IsMine                             bool                   `json:"is_mine"`
 	IsUserContributed                  bool                   `json:"is_user_contributed"`
+	Concurrency                        int                    `json:"concurrency,omitempty"`
 	Schedulable                        bool                   `json:"schedulable"`
 	EffectiveSchedulable               bool                   `json:"effective_schedulable"`
 	GroupIDs                           []int64                `json:"group_ids,omitempty"`
@@ -90,6 +94,7 @@ type CreateUserOAuthAccountRequest struct {
 	ModelMapping                       *map[string]string `json:"model_mapping"`
 	Extra                              map[string]any     `json:"extra"`
 	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
 	Schedulable                        *bool              `json:"schedulable"`
 	GroupIDs                           []int64            `json:"group_ids"`
 	ExpiresAt                          *int64             `json:"expires_at"`
@@ -102,6 +107,7 @@ type CreateUserOAuthAccountRequest struct {
 type UpdateUserAccountScopeRequest struct {
 	GroupIDs                           *[]int64           `json:"group_ids"`
 	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
 	ExpiresAt                          *int64             `json:"expires_at"`
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ModelMapping                       *map[string]string `json:"model_mapping"`
@@ -199,6 +205,10 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if len(req.Credentials) == 0 {
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
+	concurrency, err := userAccountConcurrencyFromRequest(req.Concurrency)
+	if err != nil {
+		return nil, err
+	}
 
 	extra := buildUserOAuthAccountExtra(platform, req.Extra)
 	protectionUpdates, err := buildUserContributionProtectionUpdates(
@@ -247,7 +257,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		Extra:              extra,
 		ProxyID:            normalizeUserAccountProxyID(req.ProxyID),
 		OwnerUserID:        &ownerUserID,
-		Concurrency:        1,
+		Concurrency:        concurrency,
 		Priority:           100,
 		Status:             StatusActive,
 		Schedulable:        schedulable,
@@ -299,6 +309,23 @@ func safeUserOAuthExtraString(raw any) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+func userAccountConcurrencyFromRequest(value *int) (int, error) {
+	if value == nil {
+		return defaultUserAccountConcurrency, nil
+	}
+	if err := validateUserAccountConcurrency(*value); err != nil {
+		return 0, err
+	}
+	return *value, nil
+}
+
+func validateUserAccountConcurrency(value int) error {
+	if value < 1 {
+		return infraerrors.BadRequest("ACCOUNT_CONCURRENCY_INVALID", "concurrency must be >= 1")
+	}
+	return nil
 }
 
 func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, accountID int64, schedulable bool) (*UserAccountPoolItem, error) {
@@ -411,6 +438,12 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
+	if req.Concurrency != nil {
+		if err := validateUserAccountConcurrency(*req.Concurrency); err != nil {
+			return nil, err
+		}
+		account.Concurrency = *req.Concurrency
+	}
 	if req.ProxyID != nil {
 		account.ProxyID = normalizeUserAccountProxyID(req.ProxyID)
 		account.Proxy = nil
@@ -419,7 +452,7 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 		}
 	}
 
-	needsAccountUpdate := extraChanged || req.ProxyID != nil || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil
+	needsAccountUpdate := extraChanged || req.ProxyID != nil || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil || req.Concurrency != nil
 	if needsAccountUpdate {
 		if err := s.accountRepo.Update(ctx, account); err != nil {
 			return nil, fmt.Errorf("update user account scope: %w", err)
@@ -667,6 +700,7 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		UpdatedAt:                          account.UpdatedAt,
 	}
 	if isMine {
+		item.Concurrency = account.Concurrency
 		item.GroupIDs = append([]int64(nil), account.GroupIDs...)
 		item.Extra = userVisibleAccountExtra(account.Extra)
 		if account.Proxy != nil {

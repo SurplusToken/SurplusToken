@@ -1171,6 +1171,7 @@ export default {
       owner: '归属',
       status: '状态',
       scheduling: '调度',
+      concurrency: '并发数',
       availability: '可用范围',
       expiresAt: '过期时间',
       actions: '操作',
