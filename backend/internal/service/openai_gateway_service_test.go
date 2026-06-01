@@ -1774,7 +1774,7 @@ func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 
 	select {
 	case updates := <-repo.updateExtraCalls:
-		require.Equal(t, 12.0, updates["codex_5h_used_percent"])
+		require.Equal(t, 88.0, updates["codex_5h_used_percent"])
 		require.Equal(t, 34.0, updates["codex_7d_used_percent"])
 		require.Equal(t, 600, updates["codex_5h_reset_after_seconds"])
 		require.Equal(t, 86400, updates["codex_7d_reset_after_seconds"])
@@ -2266,6 +2266,12 @@ func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 	require.Equal(t, 13, usage.InputTokens)
 	require.Equal(t, 15, usage.OutputTokens)
 	require.Equal(t, 4, usage.CacheReadInputTokens)
+
+	// failed 事件在部分上游路径也会携带已消耗 usage，应与 WS/passthrough 保持一致
+	svc.parseSSEUsage(`{"type":"response.failed","response":{"usage":{"input_tokens":17,"output_tokens":19,"input_tokens_details":{"cached_tokens":6}}}}`, usage)
+	require.Equal(t, 17, usage.InputTokens)
+	require.Equal(t, 19, usage.OutputTokens)
+	require.Equal(t, 6, usage.CacheReadInputTokens)
 
 	svc.parseSSEUsage(`{"type":"response.completed","response":{"usage":{"prompt_tokens":21,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":6}}}}`, usage)
 	require.Equal(t, 21, usage.InputTokens)
