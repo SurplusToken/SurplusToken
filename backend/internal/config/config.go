@@ -719,6 +719,8 @@ type GatewayConfig struct {
 	OpenAIPassthroughAllowTimeoutHeaders bool `mapstructure:"openai_passthrough_allow_timeout_headers"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
+	// OpenAIScheduler: OpenAI 高级调度器粘性逃逸配置
+	OpenAIScheduler GatewayOpenAISchedulerConfig `mapstructure:"openai_scheduler"`
 	// OpenAIHTTP2: OpenAI HTTP 上游协议策略（默认启用 HTTP/2，可按代理能力回退 HTTP/1.1）
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
@@ -955,6 +957,19 @@ type GatewayOpenAIWSSchedulerScoreWeights struct {
 	Queue     float64 `mapstructure:"queue"`
 	ErrorRate float64 `mapstructure:"error_rate"`
 	TTFT      float64 `mapstructure:"ttft"`
+	// Reset 倾向「会话窗口最早重置」的账号（use-it-or-lose-it）。
+	// >0 时，剩余重置时间越短的账号得分越高，从而被优先用尽。默认 0（关闭，不改变原有行为）。
+	Reset float64 `mapstructure:"reset"`
+}
+
+// GatewayOpenAISchedulerConfig OpenAI 高级调度器配置。
+type GatewayOpenAISchedulerConfig struct {
+	// StickyEscapeEnabled: 是否允许 session_hash sticky 在账号健康度劣化时临时逃逸
+	StickyEscapeEnabled bool `mapstructure:"sticky_escape_enabled"`
+	// StickyEscapeTTFTMs: TTFT EWMA 超过该阈值时跳过 sticky
+	StickyEscapeTTFTMs int `mapstructure:"sticky_escape_ttft_ms"`
+	// StickyEscapeErrorRate: 错误率 EWMA 超过该阈值时跳过 sticky
+	StickyEscapeErrorRate float64 `mapstructure:"sticky_escape_error_rate"`
 }
 
 // GatewayUsageRecordConfig 使用量记录异步队列配置
@@ -1042,6 +1057,11 @@ type GatewaySchedulingConfig struct {
 
 	// 兜底层账户选择策略: "last_used"(按最后使用时间排序，默认) 或 "random"(随机)
 	FallbackSelectionMode string `mapstructure:"fallback_selection_mode"`
+
+	// PreferSoonestReset 开启后，负载感知选择会优先选用「会话窗口最早重置」的账号
+	// （use-it-or-lose-it：先用尽即将重置的账号，保留重置时间还很久的账号）。
+	// 默认 false，保持原有「优先级 → 负载率 → LRU」行为不变。
+	PreferSoonestReset bool `mapstructure:"prefer_soonest_reset"`
 
 	// 负载计算
 	LoadBatchEnabled    bool `mapstructure:"load_batch_enabled"`
@@ -1384,6 +1404,15 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config error: %w", err)
+	}
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs == 0 {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+	}
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate == 0 {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+	}
+	if !cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled && !viper.IsSet("gateway.openai_scheduler.sticky_escape_enabled") {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
 	}
 
 	cfg.RunMode = NormalizeRunMode(cfg.RunMode)
@@ -1849,6 +1878,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.queue", 0.7)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.error_rate", 0.8)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 0.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.0)
 	// OpenAI HTTP upstream protocol strategy
 	viper.SetDefault("gateway.openai_http2.enabled", true)
 	viper.SetDefault("gateway.openai_http2.allow_proxy_fallback_to_http1", true)
@@ -1885,6 +1915,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
+	viper.SetDefault("gateway.scheduling.prefer_soonest_reset", false)
 	viper.SetDefault("gateway.scheduling.load_batch_enabled", true)
 	viper.SetDefault("gateway.scheduling.load_batch_cache_ttl_ms", 200)
 	viper.SetDefault("gateway.scheduling.snapshot_mget_chunk_size", 128)
@@ -2634,6 +2665,12 @@ func (c *Config) Validate() error {
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT
 	if weightSum <= 0 {
 		return fmt.Errorf("gateway.openai_ws.scheduler_score_weights must not all be zero")
+	}
+	if c.Gateway.OpenAIScheduler.StickyEscapeTTFTMs <= 0 {
+		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_ttft_ms must be positive")
+	}
+	if c.Gateway.OpenAIScheduler.StickyEscapeErrorRate < 0 || c.Gateway.OpenAIScheduler.StickyEscapeErrorRate > 1 {
+		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_error_rate must be between 0 and 1")
 	}
 	if c.Gateway.MaxLineSize < 0 {
 		return fmt.Errorf("gateway.max_line_size must be non-negative")

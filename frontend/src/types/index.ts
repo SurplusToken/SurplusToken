@@ -252,7 +252,9 @@ export interface PublicSettings {
   channel_monitor_enabled: boolean
   channel_monitor_default_interval_seconds: number
   available_channels_enabled: boolean
+  service_quota_enabled: boolean
   affiliate_enabled: boolean
+  allow_user_view_error_requests?: boolean
 }
 
 export interface AuthResponse {
@@ -728,7 +730,7 @@ export interface Proxy {
   port: number
   username: string | null
   password?: string | null
-  status: 'active' | 'inactive'
+  status: 'active' | 'inactive' | 'expired'
   account_count?: number // Number of accounts using this proxy
   latency_ms?: number
   latency_status?: 'success' | 'failed'
@@ -743,6 +745,10 @@ export interface Proxy {
   quality_grade?: string
   quality_summary?: string
   quality_checked?: number
+  expires_at: string | null
+  fallback_mode: 'none' | 'proxy' | 'direct'
+  backup_proxy_id?: number | null
+  expiry_warn_days: number
   created_at: string
   updated_at: string
 }
@@ -848,6 +854,8 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
   } & Record<string, unknown>)
   proxy_id: number | null
+  proxy_fallback_origin_id?: number | null
+  proxy_fallback_origin_name?: string | null
   owner_user_id?: number | null
   concurrency: number
   load_factor?: number | null
@@ -1147,6 +1155,10 @@ export interface CreateProxyRequest {
   port: number
   username?: string | null
   password?: string | null
+  expires_at?: number | null   // unix 秒；null/0 = 永不过期
+  fallback_mode?: 'none' | 'proxy' | 'direct'
+  backup_proxy_id?: number | null
+  expiry_warn_days?: number
 }
 
 export interface UpdateProxyRequest {
@@ -1157,6 +1169,10 @@ export interface UpdateProxyRequest {
   username?: string | null
   password?: string | null
   status?: 'active' | 'inactive'
+  expires_at?: number | null   // unix 秒；null/0 = 永不过期
+  fallback_mode?: 'none' | 'proxy' | 'direct'
+  backup_proxy_id?: number | null
+  expiry_warn_days?: number
 }
 
 export interface AdminDataPayload {
@@ -1257,7 +1273,7 @@ export interface CodexSessionImportResult {
 // ==================== Usage & Redeem Types ====================
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
-export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2'
+export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
@@ -1295,7 +1311,7 @@ export interface UsageLog {
   request_type?: UsageRequestType
   stream: boolean
   openai_ws_mode?: boolean
-  duration_ms: number
+  duration_ms: number | null
   first_token_ms: number | null
 
   // 图片生成字段
@@ -1305,6 +1321,8 @@ export interface UsageLog {
   image_output_size: string | null
   image_size_source: ImageSizeSource | null
   image_size_breakdown: ImageSizeBreakdown | null
+  image_output_tokens: number
+  image_output_cost: number
 
   // User-Agent
   user_agent: string | null
@@ -1479,6 +1497,8 @@ export interface UsageStatsResponse {
   total_input_tokens: number
   total_output_tokens: number
   total_cache_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
   total_tokens: number
   total_cost: number // 标准计费
   total_actual_cost: number // 实际扣除
@@ -1663,6 +1683,36 @@ export interface ExtendSubscriptionRequest {
 }
 
 // ==================== Query Parameters ====================
+
+export interface UserErrorRequest {
+  id: number
+  created_at: string
+  model: string
+  inbound_endpoint: string
+  status_code: number
+  category: string
+  platform: string
+  message: string
+  key_name: string
+  key_deleted: boolean
+}
+
+export interface UserErrorRequestDetail extends UserErrorRequest {
+  error_body: string
+  upstream_status_code?: number
+}
+
+export interface UserErrorListParams {
+  page?: number
+  page_size?: number
+  start_date?: string
+  end_date?: string
+  timezone?: string
+  model?: string
+  status_code?: number
+  category?: string
+  api_key_id?: number
+}
 
 export interface UsageQueryParams {
   page?: number

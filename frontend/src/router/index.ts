@@ -7,12 +7,13 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
-import { resolveDocumentTitle } from './title'
+import { resolveRouteDocumentTitle } from './title'
 
 /**
  * Route definitions with lazy loading
@@ -46,7 +47,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Login',
-      titleKey: 'common.login'
+      titleKey: 'home.login'
     }
   },
   {
@@ -754,22 +755,12 @@ router.beforeEach(async (to, _from, next) => {
 
   // Set page title
   const appStore = useAppStore()
-  // For custom pages, use menu item label as document title
-  if (to.name === 'CustomPage') {
-    const id = to.params.id as string
-    const publicItems = appStore.cachedPublicSettings?.custom_menu_items ?? []
-    const adminSettingsStore = useAdminSettingsStore()
-    const menuItem = publicItems.find((item) => item.id === id)
-      ?? (authStore.isAdmin ? adminSettingsStore.customMenuItems.find((item) => item.id === id) : undefined)
-    if (menuItem?.label) {
-      const siteName = appStore.siteName || 'SurplusToken'
-      document.title = `${menuItem.label} - ${siteName}`
-    } else {
-      document.title = resolveDocumentTitle(to.meta.title, appStore.siteName, to.meta.titleKey as string)
-    }
-  } else {
-    document.title = resolveDocumentTitle(to.meta.title, appStore.siteName, to.meta.titleKey as string)
-  }
+  const adminSettingsStore = useAdminSettingsStore()
+  const customMenuItems = [
+    ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
+    ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
+  ]
+  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
 
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
@@ -834,6 +825,21 @@ router.beforeEach(async (to, _from, next) => {
     next('/dashboard')
     return
   }
+
+  if (requiresAdmin && authStore.isAdmin) {
+    const adminComplianceStore = useAdminComplianceStore()
+    if (!adminComplianceStore.initialized) {
+      try {
+        await adminComplianceStore.fetchStatus()
+      } catch (error) {
+        const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
+        if (err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
+          adminComplianceStore.requireAcknowledgement(err.metadata)
+        }
+      }
+    }
+  }
+
 
   // Check payment requirement (internal payment system only)
   if (to.meta.requiresPayment) {

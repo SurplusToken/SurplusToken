@@ -210,6 +210,9 @@
           <template #cell-select="{ row }">
             <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </template>
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+          </template>
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -288,13 +291,25 @@
             />
           </template>
           <template #cell-proxy="{ row }">
-            <div v-if="row.proxy" class="flex items-center gap-2">
-              <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
-              <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
-                ({{ row.proxy.country_code }})
-              </span>
+            <div class="flex flex-col gap-1">
+              <div v-if="row.proxy" class="flex items-center gap-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
+                <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
+                  ({{ row.proxy.country_code }})
+                </span>
+              </div>
+              <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+              <div v-if="row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
+                <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.proxy.expires_at) }}</span>
+                <span :class="proxyExpiryBadge(row.proxy)">{{ proxyExpiryText(row.proxy) }}</span>
+              </div>
+              <div v-if="row.proxy_fallback_origin_id" class="flex items-center gap-1">
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
+                  {{ t('admin.accounts.fallbackActive') }}
+                </span>
+                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
+              </div>
             </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-rate_multiplier="{ row }">
             <span class="text-sm font-mono text-gray-700 dark:text-gray-300">
@@ -421,6 +436,7 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -513,6 +529,7 @@ type AccountSortState = {
   sort_order: AccountSortOrder
 }
 const ACCOUNT_SORTABLE_KEYS = new Set([
+  'id',
   'name',
   'status',
   'schedulable',
@@ -1123,6 +1140,7 @@ const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
@@ -1597,6 +1615,16 @@ const handleSetPrivacy = async (a: Account) => {
     appStore.showError(error?.response?.data?.message || t('admin.accounts.privacyFailed'))
   }
 }
+const onRevertFallback = async (a: Account) => {
+  try {
+    await adminAPI.accounts.revertProxyFallback(a.id)
+    appStore.showSuccess(t('admin.accounts.revertProxySuccess'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to revert proxy fallback:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
+  }
+}
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
 const confirmDelete = async () => { if(!deletingAcc.value) return; try { await adminAPI.accounts.delete(deletingAcc.value.id); showDeleteDialog.value = false; deletingAcc.value = null; reload() } catch (error) { console.error('Failed to delete account:', error) } }
 const handleToggleSchedulable = async (a: Account) => {
@@ -1638,6 +1666,12 @@ const formatExpiresAt = (value: number | null) => {
 const isExpired = (value: number | null) => {
   if (!value) return false
   return value * 1000 <= Date.now()
+}
+// 所绑定代理的有效期(逻辑同 /admin/proxies,见 utils/proxyExpiry)
+const proxyExpiryBadge = (p: AccountProxy): string => proxyExpiryBadgeClass(p.expires_at, p.status)
+const proxyExpiryText = (p: AccountProxy): string => {
+  const { key, params } = proxyExpiryLabelKey(p.expires_at, p.status)
+  return params ? t(key, params) : t(key)
 }
 
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）

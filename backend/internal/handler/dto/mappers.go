@@ -212,6 +212,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		CredentialsStatus:       credsStatus,
 		Extra:                   a.Extra,
 		ProxyID:                 a.ProxyID,
+		ProxyFallbackOriginID:   a.ProxyFallbackOriginID,
+		ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		OwnerUserID:             a.OwnerUserID,
 		Concurrency:             a.Concurrency,
 		LoadFactor:              a.LoadFactor,
@@ -414,15 +416,19 @@ func ProxyFromService(p *service.Proxy) *Proxy {
 		return nil
 	}
 	return &Proxy{
-		ID:        p.ID,
-		Name:      p.Name,
-		Protocol:  p.Protocol,
-		Host:      p.Host,
-		Port:      p.Port,
-		Username:  p.Username,
-		Status:    p.Status,
-		CreatedAt: p.CreatedAt,
-		UpdatedAt: p.UpdatedAt,
+		ID:             p.ID,
+		Name:           p.Name,
+		Protocol:       p.Protocol,
+		Host:           p.Host,
+		Port:           p.Port,
+		Username:       p.Username,
+		Status:         p.Status,
+		CreatedAt:      p.CreatedAt,
+		UpdatedAt:      p.UpdatedAt,
+		ExpiresAt:      p.ExpiresAt,
+		FallbackMode:   p.FallbackMode,
+		BackupProxyID:  p.BackupProxyID,
+		ExpiryWarnDays: p.ExpiryWarnDays,
 	}
 }
 
@@ -612,6 +618,8 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		ImageSize:             l.ImageSize,
 		ImageInputSize:        l.ImageInputSize,
 		ImageOutputSize:       l.ImageOutputSize,
+		ImageOutputTokens:     l.ImageOutputTokens,
+		ImageOutputCost:       l.ImageOutputCost,
 		ImageSizeSource:       l.ImageSizeSource,
 		ImageSizeBreakdown:    l.ImageSizeBreakdown,
 		MediaType:             l.MediaType,

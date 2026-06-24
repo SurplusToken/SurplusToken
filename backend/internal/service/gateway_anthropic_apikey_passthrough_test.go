@@ -818,13 +818,16 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			require.True(t, system.Exists())
 			require.True(t, system.IsArray(), "system should be an array")
 			arr := system.Array()
-			require.Len(t, arr, 2, "system array should have billing block + cc prompt block")
+			require.Len(t, arr, 3, "system array should have billing block + cc prompt block + expansion block")
 
 			require.Contains(t, arr[0].Get("text").String(), "x-anthropic-billing-header:")
 			require.Contains(t, arr[0].Get("text").String(), "cc_version=")
 
 			require.Equal(t, claudeCodeSystemPrompt, arr[1].Get("text").String())
-			require.Equal(t, "ephemeral", arr[1].Get("cache_control.type").String())
+			require.False(t, arr[1].Get("cache_control").Exists(), "身份前缀 block 不应带 cache_control")
+
+			require.Equal(t, claudeCodeSystemPromptExpansion, arr[2].Get("text").String())
+			require.Equal(t, "ephemeral", arr[2].Get("cache_control.type").String())
 
 			// 原始 system prompt 应迁移至 messages 中
 			messages := gjson.GetBytes(upstream.lastBody, "messages")
@@ -834,6 +837,70 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			require.Contains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
 		})
 	}
+}
+
+func TestGatewayService_AnthropicOAuth_SystemPromptInjectionCanBeDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetGatewayForwardingSettingsCacheForTest(t)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-3-5-sonnet-latest","system":"Original system prompt","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-oauth-no-system-injection"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet-20241022","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":12,"output_tokens":7}}`)),
+		},
+	}
+
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	settingService := NewSettingService(&gatewayTTLSettingRepo{data: map[string]string{
+		SettingKeyEnableClaudeOAuthSystemPromptInjection: "false",
+	}}, cfg)
+	svc := &GatewayService{
+		cfg:                  cfg,
+		responseHeaderFilter: compileResponseHeaderFilter(cfg),
+		httpUpstream:         upstream,
+		rateLimitService:     &RateLimitService{},
+		deferredService:      &DeferredService{},
+		settingService:       settingService,
+	}
+
+	account := &Account{
+		ID:          302,
+		Name:        "anthropic-oauth-no-system-injection",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	system := gjson.GetBytes(upstream.lastBody, "system")
+	require.True(t, system.Exists())
+	require.Equal(t, "Original system prompt", system.String())
+	require.NotContains(t, string(upstream.lastBody), "x-anthropic-billing-header:")
+	require.NotContains(t, string(upstream.lastBody), "[System Instructions]")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAfterClientDisconnect(t *testing.T) {

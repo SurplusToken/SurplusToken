@@ -4,6 +4,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -235,6 +236,57 @@ func TestAPIKeyAuthSetsGroupContext(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestAPIKeyAuthRejectsExclusiveGroupWhenUserNoLongerAllowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	group := &service.Group{
+		ID:          202,
+		Name:        "exclusive",
+		Status:      service.StatusActive,
+		IsExclusive: true,
+		Hydrated:    true,
+	}
+	user := &service.User{
+		ID:            7,
+		Role:          service.RoleUser,
+		Status:        service.StatusActive,
+		Balance:       10,
+		Concurrency:   3,
+		AllowedGroups: []int64{},
+	}
+	apiKey := &service.APIKey{
+		ID:     100,
+		UserID: user.ID,
+		Key:    "test-key",
+		Status: service.StatusActive,
+		User:   user,
+		Group:  group,
+	}
+	apiKey.GroupID = &group.ID
+
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+	router := newAuthTestRouter(apiKeyService, nil, cfg)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), "GROUP_NOT_ALLOWED")
+}
+
 func TestAPIKeyAuthOverwritesInvalidContextGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -419,6 +471,138 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuthSetsOpsFallbackKeyOnEarlyAbort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(101)
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:      100,
+		UserID:  user.ID,
+		GroupID: &groupID,
+		Key:     "test-key",
+		Status:  service.StatusActive,
+		User:    user,
+		Group: &service.Group{
+			ID:       groupID,
+			Name:     "disabled",
+			Status:   service.StatusDisabled,
+			Platform: service.PlatformAnthropic,
+			Hydrated: true,
+		},
+	}
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+
+	router := gin.New()
+	var fallback *service.APIKey
+	var fallbackOK bool
+	router.Use(func(c *gin.Context) {
+		c.Next()
+		fallback, fallbackOK = GetOpsFallbackAPIKey(c)
+	})
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+	router.GET("/t", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	// 分组停用 → 早退中断，但 ops fallback key 仍应写入，含 user/group/platform。
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), "GROUP_DISABLED")
+	require.True(t, fallbackOK, "鉴权早退时也应写入 ops fallback api key")
+	require.NotNil(t, fallback)
+	require.Equal(t, apiKey.ID, fallback.ID)
+	require.NotNil(t, fallback.User)
+	require.Equal(t, user.ID, fallback.User.ID)
+	require.NotNil(t, fallback.GroupID)
+	require.Equal(t, groupID, *fallback.GroupID)
+	require.NotNil(t, fallback.Group)
+	require.Equal(t, service.PlatformAnthropic, fallback.Group.Platform)
+}
+
+func TestAPIKeyAuthGoogleSetsOpsFallbackKeyOnEarlyAbort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(202)
+	user := &service.User{
+		ID:          9,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:      200,
+		UserID:  user.ID,
+		GroupID: &groupID,
+		Key:     "g-key",
+		Status:  service.StatusActive,
+		User:    user,
+		Group: &service.Group{
+			ID:       groupID,
+			Name:     "disabled",
+			Status:   service.StatusDisabled,
+			Platform: service.PlatformGemini,
+			Hydrated: true,
+		},
+	}
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+
+	router := gin.New()
+	var fallback *service.APIKey
+	var fallbackOK bool
+	router.Use(func(c *gin.Context) {
+		c.Next()
+		fallback, fallbackOK = GetOpsFallbackAPIKey(c)
+	})
+	router.Use(gin.HandlerFunc(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, cfg)))
+	router.GET("/t", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.True(t, fallbackOK, "Google 鉴权早退时也应写入 ops fallback api key")
+	require.NotNil(t, fallback)
+	require.Equal(t, apiKey.ID, fallback.ID)
+	require.NotNil(t, fallback.User)
+	require.Equal(t, user.ID, fallback.User.ID)
+}
+
 func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -519,9 +703,57 @@ func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPByDefault(t *testin
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusForbidden, w.Code)
-	require.Contains(t, w.Body.String(), "ACCESS_DENIED")
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 9.9.9.9")
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonIPRestriction, businessLimitedReason)
+}
+
+func TestAPIKeyAuthIPRestrictionIncludesClientIPForBlacklistDenial(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:          100,
+		UserID:      user.ID,
+		Key:         "test-key",
+		Status:      service.StatusActive,
+		User:        user,
+		IPBlacklist: []string{"9.9.9.9"},
+	}
+
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+	router.GET("/t", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.RemoteAddr = "9.9.9.9:12345"
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 9.9.9.9")
 }
 
 func TestAPIKeyAuthIPRestrictionCanTrustForwardedClientIPForReverseProxy(t *testing.T) {
@@ -573,6 +805,58 @@ func TestAPIKeyAuthIPRestrictionCanTrustForwardedClientIPForReverseProxy(t *test
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAPIKeyAuthIPRestrictionUsesForwardedClientIPInDenialWhenTrusted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:          100,
+		UserID:      user.ID,
+		Key:         "test-key",
+		Status:      service.StatusActive,
+		User:        user,
+		IPWhitelist: []string{"9.9.9.9"},
+	}
+
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.SetTrustForwardedIPForAPIKeyACL(true)
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+	router.GET("/t", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.RemoteAddr = "9.9.9.9:12345"
+	req.Header.Set("x-api-key", apiKey.Key)
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+	req.Header.Set("CF-Connecting-IP", "1.2.3.4")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 1.2.3.4")
 }
 
 func TestAPIKeyAuthTouchesLastUsedOnSuccess(t *testing.T) {
@@ -725,6 +1009,15 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 	return router
 }
 
+func requireAPIKeyAuthError(t *testing.T, w *httptest.ResponseRecorder, code, message string) {
+	t.Helper()
+
+	var resp ErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, code, resp.Code)
+	require.Equal(t, message, resp.Message)
+}
+
 type stubApiKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
 	updateLastUsed func(ctx context.Context, id int64, usedAt time.Time) error
@@ -758,6 +1051,10 @@ func (r *stubApiKeyRepo) Update(ctx context.Context, key *service.APIKey) error 
 }
 
 func (r *stubApiKeyRepo) Delete(ctx context.Context, id int64) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubApiKeyRepo) DeleteWithAudit(ctx context.Context, id int64) error {
 	return errors.New("not implemented")
 }
 

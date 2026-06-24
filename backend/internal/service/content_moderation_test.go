@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,12 +94,15 @@ func (r *contentModerationTestRepo) ListLogs(ctx context.Context, filter Content
 	return nil, nil, nil
 }
 
-func (r *contentModerationTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time) (int, error) {
+func (r *contentModerationTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	count := 0
 	for _, log := range r.logs {
 		if log.UserID == nil || *log.UserID != userID || !log.Flagged || log.Action == ContentModerationActionHashBlock {
+			continue
+		}
+		if excludeCyberPolicy && log.Action == ContentModerationActionCyberPolicy {
 			continue
 		}
 		if log.CreatedAt.IsZero() || log.CreatedAt.Before(since) {
@@ -110,6 +115,10 @@ func (r *contentModerationTestRepo) CountFlaggedByUserSince(ctx context.Context,
 
 func (r *contentModerationTestRepo) CleanupExpiredLogs(ctx context.Context, hitBefore time.Time, nonHitBefore time.Time) (*ContentModerationCleanupResult, error) {
 	return &ContentModerationCleanupResult{}, nil
+}
+
+func (r *contentModerationTestRepo) UpdateLogEmailSent(ctx context.Context, id int64, sent bool) error {
+	return nil
 }
 
 func (r *contentModerationTestRepo) snapshotLogs() []ContentModerationLog {
@@ -1496,6 +1505,94 @@ func TestContentModerationCheck_HashBlockLogsDoNotIncreaseNextViolationCount(t *
 	require.Equal(t, 1, logs[1].ViolationCount)
 }
 
+func TestContentModerationAutoBanSkipsAdminAccount(t *testing.T) {
+	var slogOutput bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&slogOutput, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previousLogger)
+	})
+
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	repo := &contentModerationTestRepo{}
+	require.NoError(t, repo.CreateLog(context.Background(), newContentModerationFlaggedLog(userID)))
+	userRepo := &contentModerationTestUserRepo{user: &User{ID: userID, Role: RoleAdmin, Status: StatusActive}}
+	invalidator := &contentModerationTestAuthCacheInvalidator{}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLog(userID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 2)
+	require.Equal(t, 2, logs[1].ViolationCount)
+	require.False(t, logs[1].AutoBanned)
+	require.Equal(t, StatusActive, userRepo.user.Status)
+	require.Empty(t, userRepo.updated)
+	require.Empty(t, invalidator.userIDs)
+	require.Contains(t, slogOutput.String(), "content_moderation.autoban_skipped_admin")
+	require.Contains(t, slogOutput.String(), "user_id=1001")
+	require.Contains(t, slogOutput.String(), "role=admin")
+	require.Contains(t, slogOutput.String(), "count=2")
+	require.Contains(t, slogOutput.String(), "threshold=2")
+}
+
+func TestContentModerationAutoBanDisablesRegularUserAtThreshold(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	repo := &contentModerationTestRepo{}
+	require.NoError(t, repo.CreateLog(context.Background(), newContentModerationFlaggedLog(userID)))
+	userRepo := &contentModerationTestUserRepo{user: &User{ID: userID, Role: RoleUser, Status: StatusActive}}
+	invalidator := &contentModerationTestAuthCacheInvalidator{}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLog(userID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 2)
+	require.Equal(t, 2, logs[1].ViolationCount)
+	require.True(t, logs[1].AutoBanned)
+	require.Len(t, userRepo.updated, 1)
+	require.Equal(t, StatusDisabled, userRepo.user.Status)
+	require.Equal(t, []int64{userID}, invalidator.userIDs)
+}
+
+func TestContentModerationAdminBelowBanThresholdRecordsViolationOnly(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	repo := &contentModerationTestRepo{}
+	userRepo := &contentModerationTestUserRepo{user: &User{ID: userID, Role: RoleAdmin, Status: StatusActive}}
+	invalidator := &contentModerationTestAuthCacheInvalidator{}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLog(userID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 1)
+	require.Equal(t, 1, logs[0].ViolationCount)
+	require.False(t, logs[0].AutoBanned)
+	require.Equal(t, StatusActive, userRepo.user.Status)
+	require.Empty(t, userRepo.updated)
+	require.Empty(t, invalidator.userIDs)
+}
+
+func newContentModerationFlaggedLog(userID int64) *ContentModerationLog {
+	return &ContentModerationLog{
+		UserID:          &userID,
+		Action:          ContentModerationActionBlock,
+		Flagged:         true,
+		HighestCategory: "sexual",
+		HighestScore:    0.9,
+		CreatedAt:       time.Now(),
+	}
+}
+
 func TestContentModerationCheck_PreBlockFlaggedWritesRedisHashCache(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1710,4 +1807,45 @@ func TestContentModerationUnbanUser_ActiveUserOnlyInvalidatesAuthCache(t *testin
 
 func contentModerationIntPtr(v int) *int {
 	return &v
+}
+
+func TestContentModerationUpdateConfig_CyberPolicyExcludeFromBanCount(t *testing.T) {
+	settingRepo := &contentModerationTestSettingRepo{values: map[string]string{}}
+	svc := NewContentModerationService(settingRepo, nil, nil, nil, nil, nil, nil)
+
+	// 默认值必须是 false（计入，保持现状）
+	view, err := svc.GetConfig(context.Background())
+	require.NoError(t, err)
+	require.False(t, view.CyberPolicyExcludeFromBanCount, "默认必须计入封号计数")
+
+	// 指针式部分更新为 true
+	exclude := true
+	view, err = svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{
+		CyberPolicyExcludeFromBanCount: &exclude,
+	})
+	require.NoError(t, err)
+	require.True(t, view.CyberPolicyExcludeFromBanCount)
+
+	// 持久化 JSON 含字段
+	var saved ContentModerationConfig
+	require.NoError(t, json.Unmarshal([]byte(settingRepo.values[SettingKeyContentModerationConfig]), &saved))
+	require.True(t, saved.CyberPolicyExcludeFromBanCount)
+
+	// 二次读取（从持久化 JSON 反序列化）roundtrip
+	view, err = svc.GetConfig(context.Background())
+	require.NoError(t, err)
+	require.True(t, view.CyberPolicyExcludeFromBanCount)
+
+	// 不传该字段的更新不得改动它（指针 nil = 保留）
+	view, err = svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{})
+	require.NoError(t, err)
+	require.True(t, view.CyberPolicyExcludeFromBanCount)
+
+	// 主动回拨 false 必须生效（防止未来误加 if val 保护逻辑）
+	revert := false
+	view, err = svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{
+		CyberPolicyExcludeFromBanCount: &revert,
+	})
+	require.NoError(t, err)
+	require.False(t, view.CyberPolicyExcludeFromBanCount)
 }

@@ -135,6 +135,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
+	requestCtx := service.WithOpenAIImageGenerationIntent(c.Request.Context())
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -145,7 +146,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
-			c.Request.Context(),
+			requestCtx,
 			apiKey.GroupID,
 			sessionHash,
 			requestModel,
@@ -196,13 +197,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardImages(c.Request.Context(), c, account, body, parsed, channelMapping.MappedModel)
+			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
@@ -224,8 +226,13 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			} else {
 				var imageUpstreamErr *service.OpenAIImagesUpstreamError
 				if errors.As(err, &imageUpstreamErr) {
-					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
-					reqLog.Warn("openai.images.upstream_user_error",
+					retryableServerError := service.IsOpenAIImagesRetryableUpstreamError(imageUpstreamErr)
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, !retryableServerError, nil)
+					logEvent := "openai.images.upstream_user_error"
+					if retryableServerError {
+						logEvent = "openai.images.upstream_server_error_after_flush"
+					}
+					reqLog.Warn(logEvent,
 						zap.Int64("account_id", account.ID),
 						zap.Int("status_code", imageUpstreamErr.StatusCode),
 						zap.String("error_type", imageUpstreamErr.ErrorType),
@@ -237,6 +244,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+					if c.Writer.Size() != writerSizeBeforeForward {
+						reqLog.Warn("openai.images.upstream_failover_skipped_after_flush",
+							zap.Int64("account_id", account.ID),
+							zap.Int("upstream_status", failoverErr.StatusCode),
+						)
+						h.handleFailoverExhausted(c, failoverErr, true)
+						return
+					}
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := account.GetPoolModeRetryCount()
 						if sameAccountRetryCount[account.ID] < retryLimit {
@@ -248,7 +263,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 							)
 							select {
-							case <-c.Request.Context().Done():
+							case <-requestCtx.Done():
 								return
 							case <-time.After(sameAccountRetryDelay):
 							}
@@ -276,10 +291,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					continue
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
+				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				wroteFallback := false
+				if !upstreamErrorAlreadyCommunicated {
+					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+				}
 				fields := []zap.Field{
 					zap.Int64("account_id", account.ID),
 					zap.Bool("fallback_error_response_written", wroteFallback),
+					zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 					zap.Error(err),
 				}
 				if shouldLogOpenAIForwardFailureAsWarn(c, wroteFallback) {

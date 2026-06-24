@@ -151,6 +151,33 @@ func (_u *AccountUpdate) ClearProxyID() *AccountUpdate {
 	return _u
 }
 
+// SetProxyFallbackOriginID sets the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdate) SetProxyFallbackOriginID(v int64) *AccountUpdate {
+	_u.mutation.ResetProxyFallbackOriginID()
+	_u.mutation.SetProxyFallbackOriginID(v)
+	return _u
+}
+
+// SetNillableProxyFallbackOriginID sets the "proxy_fallback_origin_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableProxyFallbackOriginID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetProxyFallbackOriginID(*v)
+	}
+	return _u
+}
+
+// AddProxyFallbackOriginID adds value to the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdate) AddProxyFallbackOriginID(v int64) *AccountUpdate {
+	_u.mutation.AddProxyFallbackOriginID(v)
+	return _u
+}
+
+// ClearProxyFallbackOriginID clears the value of the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdate) ClearProxyFallbackOriginID() *AccountUpdate {
+	_u.mutation.ClearProxyFallbackOriginID()
+	return _u
+}
+
 // SetOwnerUserID sets the "owner_user_id" field.
 func (_u *AccountUpdate) SetOwnerUserID(v int64) *AccountUpdate {
 	_u.mutation.ResetOwnerUserID()
@@ -732,6 +759,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(account.FieldExtra, field.TypeJSON, value)
 	}
+	if value, ok := _u.mutation.ProxyFallbackOriginID(); ok {
+		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyFallbackOriginID(); ok {
+		_spec.AddField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyFallbackOriginIDCleared() {
+		_spec.ClearField(account.FieldProxyFallbackOriginID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.OwnerUserID(); ok {
 		_spec.SetField(account.FieldOwnerUserID, field.TypeInt64, value)
 	}
@@ -1111,6 +1147,33 @@ func (_u *AccountUpdateOne) SetNillableProxyID(v *int64) *AccountUpdateOne {
 // ClearProxyID clears the value of the "proxy_id" field.
 func (_u *AccountUpdateOne) ClearProxyID() *AccountUpdateOne {
 	_u.mutation.ClearProxyID()
+	return _u
+}
+
+// SetProxyFallbackOriginID sets the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdateOne) SetProxyFallbackOriginID(v int64) *AccountUpdateOne {
+	_u.mutation.ResetProxyFallbackOriginID()
+	_u.mutation.SetProxyFallbackOriginID(v)
+	return _u
+}
+
+// SetNillableProxyFallbackOriginID sets the "proxy_fallback_origin_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableProxyFallbackOriginID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetProxyFallbackOriginID(*v)
+	}
+	return _u
+}
+
+// AddProxyFallbackOriginID adds value to the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdateOne) AddProxyFallbackOriginID(v int64) *AccountUpdateOne {
+	_u.mutation.AddProxyFallbackOriginID(v)
+	return _u
+}
+
+// ClearProxyFallbackOriginID clears the value of the "proxy_fallback_origin_id" field.
+func (_u *AccountUpdateOne) ClearProxyFallbackOriginID() *AccountUpdateOne {
+	_u.mutation.ClearProxyFallbackOriginID()
 	return _u
 }
 
@@ -1724,6 +1787,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(account.FieldExtra, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ProxyFallbackOriginID(); ok {
+		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyFallbackOriginID(); ok {
+		_spec.AddField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyFallbackOriginIDCleared() {
+		_spec.ClearField(account.FieldProxyFallbackOriginID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.OwnerUserID(); ok {
 		_spec.SetField(account.FieldOwnerUserID, field.TypeInt64, value)
