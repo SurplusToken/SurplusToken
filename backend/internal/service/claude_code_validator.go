@@ -47,6 +47,18 @@ var claudeCodeSystemPrompts = []string{
 	"You are an interactive CLI tool that helps users",
 }
 
+const (
+	// claudeCodeBillingHeaderPrefix 是 Claude Code 在 system 数组首块注入的计费归因块前缀。
+	// 该块存在于所有真实 Claude Code CLI 请求中（含安全监视器等无身份 prose 的子请求），
+	// 格式固定、不随提示词改版漂移，是比身份 prose 更稳定的客户端标识。
+	// 生成见 gateway_billing_block.go；同类识别见 pkg/apicompat/anthropic_to_responses.go。
+	claudeCodeBillingHeaderPrefix = "x-anthropic-billing-header"
+	// claudeCodeEntrypointMarker 标识计费块携带入口归因字段。不绑定具体入口值
+	// （cli / claude-vscode / jetbrains / sdk 等都是真实入口）：入口值会随新增 IDE 漂移，
+	// 且伪造者同样可填任意值、不构成防伪边界，故仅要求该字段存在即可。
+	claudeCodeEntrypointMarker = "cc_entrypoint="
+)
+
 // NewClaudeCodeValidator 创建验证器实例
 func NewClaudeCodeValidator() *ClaudeCodeValidator {
 	return &ClaudeCodeValidator{}
@@ -165,6 +177,13 @@ func (v *ClaudeCodeValidator) hasClaudeCodeSystemPrompt(body map[string]any) boo
 		text, ok := entryMap["text"].(string)
 		if !ok || text == "" {
 			continue
+		}
+
+		// 计费归因块识别（WHY 见 claudeCodeBillingHeaderPrefix 注释）。先于 Dice 检查，
+		// 大小写敏感：该块由 gateway_billing_block.go 固定小写生成。
+		if strings.HasPrefix(text, claudeCodeBillingHeaderPrefix) &&
+			strings.Contains(text, claudeCodeEntrypointMarker) {
+			return true
 		}
 
 		// 计算与所有模板的最佳相似度

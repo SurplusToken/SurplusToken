@@ -91,6 +91,9 @@ func (Account) Fields() []ent.Field {
 		field.Int64("proxy_id").
 			Optional().
 			Nillable(),
+		field.Int64("proxy_fallback_origin_id").
+			Optional().Nillable().
+			Comment("Original proxy id replaced by expiry-fallback; for manual revert. NULL = not in fallback."),
 
 		field.Int64("owner_user_id").
 			Optional().
