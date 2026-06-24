@@ -131,6 +131,18 @@ func (s *stubUserRepo) Create(ctx context.Context, user *service.User) error {
 	panic("unexpected Create call")
 }
 
+func (s *stubUserRepo) GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error) {
+	return nil, nil
+}
+
+func (s *stubUserRepo) BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (s *stubUserRepo) SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error {
+	return nil
+}
+
 func (s *stubUserRepo) GetByID(ctx context.Context, id int64) (*service.User, error) {
 	if s.getByID == nil {
 		panic("GetByID not stubbed")

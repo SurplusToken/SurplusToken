@@ -157,18 +157,43 @@ func (a *Account) IsOAuth() bool {
 	return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken
 }
 
-// IsSurplusAISchedulableType is the SurplusAI upstream account policy.
-// Only full OAuth accounts may enter the shared internal account pool.
+// IsSurplusAISchedulableType is the SurplusAI upstream account policy: which
+// account TYPES the scheduler may serve. User-contributed OAuth accounts (the
+// shared pool) plus admin-managed upstreams — api-key / passthrough accounts
+// such as Chinese domestic OpenAI-compatible models (GLM, DeepSeek, Qwen, Kimi)
+// — are all servable. This governs serving only; user contribution is still
+// restricted to OpenAI OAuth at creation time (see isUserOAuthPlatformAllowed),
+// and contribution reserve/reward still apply only to owner-tied OAuth accounts.
 func (a *Account) IsSurplusAISchedulableType() bool {
-	return a != nil && a.Type == AccountTypeOAuth
+	if a == nil {
+		return false
+	}
+	switch a.Type {
+	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey,
+		AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *Account) IsUserContributed() bool {
 	return a != nil && a.OwnerUserID != nil && *a.OwnerUserID > 0
 }
 
+// isSurplusAIUpstreamAccountTypeAllowed governs which account TYPES admins may
+// create/manage on the platform. Admins may add any standard upstream type —
+// including api-key / passthrough accounts for Chinese domestic OpenAI-compatible
+// models (GLM, DeepSeek, Qwen, Kimi). End users remain restricted to OpenAI OAuth
+// via the separate user-contribution path (isUserOAuthPlatformAllowed).
 func isSurplusAIUpstreamAccountTypeAllowed(accountType string) bool {
-	return strings.TrimSpace(accountType) == AccountTypeOAuth
+	switch strings.TrimSpace(accountType) {
+	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey,
+		AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
+		return true
+	default:
+		return false
+	}
 }
 
 func filterSurplusAISchedulableAccounts(accounts []Account) []Account {

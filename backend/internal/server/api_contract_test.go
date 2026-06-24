@@ -1512,6 +1512,18 @@ func (r *stubUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*se
 	panic("unexpected GetByIDIncludeDeleted call")
 }
 
+func (r *stubUserRepo) BatchGetContributionRewardRateOverrides(ctx context.Context, userIDs []int64) (map[int64]*float64, error) {
+	return map[int64]*float64{}, nil
+}
+
+func (r *stubUserRepo) GetContributionRewardRateOverride(ctx context.Context, userID int64) (*float64, error) {
+	return nil, nil
+}
+
+func (r *stubUserRepo) SetContributionRewardRateOverride(ctx context.Context, userID int64, ratePercent *float64) error {
+	return nil
+}
+
 type stubApiKeyCache struct{}
 
 func (stubApiKeyCache) GetCreateAttemptCount(ctx context.Context, userID int64) (int, error) {

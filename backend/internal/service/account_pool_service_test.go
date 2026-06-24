@@ -531,8 +531,15 @@ func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {
 
 	filtered := filterSurplusAISchedulableAccounts(accounts)
 
-	require.Len(t, filtered, 1)
-	require.Equal(t, int64(2), filtered[0].ID)
+	// Account 1 (OAuth) is filtered out by the weekly-reserve gate: weekly
+	// remaining (100-90=10) is below quota_weekly_min_remaining (20).
+	// Account 2 (OAuth) has weekly remaining 30 >= 20, so it survives.
+	// Account 3 (APIKey) now passes the type gate (admins may manage non-OAuth
+	// upstreams); with no quota/contribution extra it is schedulable and not
+	// below any weekly-reserve threshold, so it survives too.
+	require.Len(t, filtered, 2)
+	filteredIDs := []int64{filtered[0].ID, filtered[1].ID}
+	require.ElementsMatch(t, []int64{2, 3}, filteredIDs)
 }
 
 func accountPoolFloatPtr(v float64) *float64 {

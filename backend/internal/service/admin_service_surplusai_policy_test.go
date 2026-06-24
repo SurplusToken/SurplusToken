@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +39,7 @@ func (r *surplusAIPolicyAccountRepoStub) SetSchedulable(context.Context, int64, 
 	return nil
 }
 
-func TestAdminServiceCreateAccountRejectsNonOAuthUpstreamAccount(t *testing.T) {
+func TestAdminServiceCreateAccountAllowsNonOAuthUpstreamAccount(t *testing.T) {
 	repo := &surplusAIPolicyAccountRepoStub{}
 	svc := &adminServiceImpl{accountRepo: repo}
 
@@ -48,14 +47,17 @@ func TestAdminServiceCreateAccountRejectsNonOAuthUpstreamAccount(t *testing.T) {
 		Name:     "static key",
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
+		// Skip default-group auto-bind so the stub doesn't need a groupRepo.
+		SkipDefaultGroupBind: true,
 	})
 
-	require.Nil(t, account)
-	require.Equal(t, "SURPLUSAI_OAUTH_ONLY", infraerrors.Reason(err))
-	require.Zero(t, repo.createCalls)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, AccountTypeAPIKey, account.Type)
+	require.Equal(t, 1, repo.createCalls)
 }
 
-func TestAdminServiceUpdateAccountRejectsChangingOAuthToNonOAuth(t *testing.T) {
+func TestAdminServiceUpdateAccountAllowsChangingOAuthToNonOAuth(t *testing.T) {
 	repo := &surplusAIPolicyAccountRepoStub{
 		account: &Account{
 			ID:       10,
@@ -69,12 +71,13 @@ func TestAdminServiceUpdateAccountRejectsChangingOAuthToNonOAuth(t *testing.T) {
 		Type: AccountTypeAPIKey,
 	})
 
-	require.Nil(t, account)
-	require.Equal(t, "SURPLUSAI_OAUTH_ONLY", infraerrors.Reason(err))
-	require.Zero(t, repo.updateCalls)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, AccountTypeAPIKey, account.Type)
+	require.Equal(t, 1, repo.updateCalls)
 }
 
-func TestAdminServiceSetAccountSchedulableRejectsNonOAuthAccount(t *testing.T) {
+func TestAdminServiceSetAccountSchedulableAllowsNonOAuthAccount(t *testing.T) {
 	repo := &surplusAIPolicyAccountRepoStub{
 		account: &Account{
 			ID:       20,
@@ -86,7 +89,8 @@ func TestAdminServiceSetAccountSchedulableRejectsNonOAuthAccount(t *testing.T) {
 
 	account, err := svc.SetAccountSchedulable(context.Background(), 20, true)
 
-	require.Nil(t, account)
-	require.Equal(t, "SURPLUSAI_OAUTH_ONLY", infraerrors.Reason(err))
-	require.Zero(t, repo.setSchedulableCalls)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, AccountTypeAPIKey, account.Type)
+	require.Equal(t, 1, repo.setSchedulableCalls)
 }
