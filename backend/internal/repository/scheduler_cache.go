@@ -453,6 +453,11 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		GroupIDs:                filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:             filterSchedulerCredentials(account.Credentials),
 		Extra:                   filterSchedulerExtra(account.Extra),
+		// OwnerUserID is required at scheduling time so account owners bypass
+		// contribution reserve protection (and quota auto-pause) on their own
+		// accounts. Without it the scheduler can evaluate the reserve (Extra is
+		// present) but cannot identify the owner, so owner-bypass never fires.
+		OwnerUserID: account.OwnerUserID,
 	}
 }
 
