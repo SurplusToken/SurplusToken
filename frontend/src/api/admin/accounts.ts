@@ -775,6 +775,37 @@ export async function resetOpenAIQuota(id: number): Promise<OpenAIQuotaResetResu
   return data
 }
 
+/**
+ * Account owners (primary owner + admin-assigned co-owners)
+ */
+export interface AccountOwners {
+  primary_owner_user_id: number | null
+  co_owner_user_ids: number[]
+}
+
+/**
+ * Get the owners of an account
+ * @param id - Account ID
+ * @returns Primary owner user ID and the co-owner user IDs
+ */
+export async function getAccountOwners(id: number): Promise<AccountOwners> {
+  const { data } = await apiClient.get<AccountOwners>(`/admin/accounts/${id}/owners`)
+  return data
+}
+
+/**
+ * Replace the co-owner set of an account (does not change the primary owner)
+ * @param id - Account ID
+ * @param userIds - The co-owner user IDs to assign
+ * @returns Success confirmation
+ */
+export async function setAccountOwners(id: number, userIds: number[]): Promise<{ message: string }> {
+  const { data } = await apiClient.put<{ message: string }>(`/admin/accounts/${id}/owners`, {
+    user_ids: userIds
+  })
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -818,7 +849,9 @@ export const accountsAPI = {
   setPrivacy,
   revertProxyFallback,
   queryOpenAIQuota,
-  resetOpenAIQuota
+  resetOpenAIQuota,
+  getAccountOwners,
+  setAccountOwners
 }
 
 export default accountsAPI

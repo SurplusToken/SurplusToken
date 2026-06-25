@@ -3267,6 +3267,22 @@ export default {
     accounts: {
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
+      owners: {
+        title: '管理所有者',
+        primaryOwner: '主要所有者（贡献者）',
+        userIdLabel: '用户 ID {id}',
+        noPrimaryOwner: '无主要所有者',
+        coOwners: '协同所有者用户 ID',
+        coOwnersPlaceholder: '例如：12, 34, 56',
+        coOwnersHint: '输入用户 ID，以逗号、空格或换行分隔。保存将替换整个协同所有者列表。',
+        currentCoOwners: '当前协同所有者',
+        noCoOwners: '未分配协同所有者',
+        save: '保存',
+        cancel: '取消',
+        saved: '所有者更新成功',
+        loadFailed: '加载账号所有者失败',
+        saveFailed: '更新账号所有者失败'
+      },
       createAccount: '添加账号',
       autoRefresh: '自动刷新',
       enableAutoRefresh: '启用自动刷新',

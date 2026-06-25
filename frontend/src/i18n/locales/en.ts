@@ -3191,6 +3191,22 @@ export default {
     accounts: {
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
+      owners: {
+        title: 'Manage Owners',
+        primaryOwner: 'Primary Owner (Contributor)',
+        userIdLabel: 'User ID {id}',
+        noPrimaryOwner: 'No primary owner',
+        coOwners: 'Co-owner User IDs',
+        coOwnersPlaceholder: 'e.g. 12, 34, 56',
+        coOwnersHint: 'Enter user IDs separated by commas, spaces, or new lines. Saving replaces the co-owner set.',
+        currentCoOwners: 'Current co-owners',
+        noCoOwners: 'No co-owners assigned',
+        save: 'Save',
+        cancel: 'Cancel',
+        saved: 'Owners updated successfully',
+        loadFailed: 'Failed to load account owners',
+        saveFailed: 'Failed to update account owners'
+      },
       createAccount: 'Create Account',
       autoRefresh: 'Auto Refresh',
       enableAutoRefresh: 'Enable auto refresh',
