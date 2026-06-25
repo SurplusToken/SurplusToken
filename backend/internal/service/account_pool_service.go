@@ -62,6 +62,9 @@ type UserAccountPoolItem struct {
 	ContributionProbeFailurePolicy     string                 `json:"contribution_probe_failure_policy"`
 	ContributionFiveHourUsagePercent   *float64               `json:"contribution_5h_usage_percent,omitempty"`
 	ContributionWeeklyUsagePercent     *float64               `json:"contribution_weekly_usage_percent,omitempty"`
+	// Codex rolling-window reset timestamps (ISO8601), for the usage-bar countdown.
+	FiveHourResetsAt                   *string                `json:"five_hour_resets_at,omitempty"`
+	WeeklyResetsAt                     *string                `json:"weekly_resets_at,omitempty"`
 	ContributionProtectionBlocked      bool                   `json:"contribution_protection_blocked"`
 	ContributionProtectionReason       string                 `json:"contribution_protection_reason,omitempty"`
 	WindowCostLimit                    float64                `json:"window_cost_limit"`
@@ -699,6 +702,12 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		WeeklyRemainingBelowPolicy:         account.IsWeeklyRemainingBelowThreshold(),
 		CreatedAt:                          account.CreatedAt,
 		UpdatedAt:                          account.UpdatedAt,
+	}
+	if v := account.getExtraString("codex_5h_reset_at"); v != "" {
+		item.FiveHourResetsAt = &v
+	}
+	if v := account.getExtraString("codex_7d_reset_at"); v != "" {
+		item.WeeklyResetsAt = &v
 	}
 	if isMine {
 		item.Concurrency = account.Concurrency

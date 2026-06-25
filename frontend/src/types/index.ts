@@ -976,6 +976,8 @@ export interface UserAccountPoolItem {
   contribution_probe_failure_policy: 'continue' | 'pause' | 'local'
   contribution_5h_usage_percent?: number | null
   contribution_weekly_usage_percent?: number | null
+  five_hour_resets_at?: string | null
+  weekly_resets_at?: string | null
   contribution_protection_blocked: boolean
   contribution_protection_reason?: string | null
   window_cost_limit: number

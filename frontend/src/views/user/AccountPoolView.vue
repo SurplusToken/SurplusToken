@@ -219,6 +219,7 @@
                 <UsageProgressBar
                   label="5h"
                   :utilization="account.contribution_5h_usage_percent || 0"
+                  :resets-at="account.five_hour_resets_at"
                   color="indigo"
                 />
                 <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
@@ -235,6 +236,7 @@
                 <UsageProgressBar
                   label="7d"
                   :utilization="account.contribution_weekly_usage_percent || 0"
+                  :resets-at="account.weekly_resets_at"
                   color="emerald"
                 />
                 <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
