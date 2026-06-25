@@ -1099,7 +1099,6 @@ export default {
       tokens: 'Token',
       credits: '消耗额度'
     },
-    podium: '前三名',
     yourRank: '你的排名',
     noUsage: '本期暂无用量',
     loading: '加载中...',

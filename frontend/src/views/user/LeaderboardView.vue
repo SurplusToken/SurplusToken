@@ -87,50 +87,8 @@
         </div>
 
         <template v-else>
-          <!-- Top-3 -->
-          <section v-if="topThree.length">
-            <h2 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t('leaderboard.podium') }}
-            </h2>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div
-                v-for="entry in topThree"
-                :key="entry.user_id"
-                class="relative flex flex-col gap-1 rounded-lg border bg-white p-4 shadow-sm dark:bg-dark-800"
-                :class="
-                  isMe(entry)
-                    ? 'border-blue-500 dark:border-blue-500'
-                    : 'border-gray-200 dark:border-dark-700'
-                "
-              >
-                <div class="font-mono text-xl font-bold text-gray-900 dark:text-white">#{{ entry.rank }}</div>
-                <div
-                  class="mt-1 truncate text-base font-semibold text-gray-900 dark:text-white"
-                  :title="displayName(entry.display_name)"
-                >
-                  {{ displayName(entry.display_name) }}
-                </div>
-                <div class="mt-2 flex items-baseline justify-between">
-                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('leaderboard.columns.tokens') }}</span>
-                  <span class="font-mono text-sm font-semibold text-gray-900 dark:text-white">{{ formatTokens(entry.total_tokens) }}</span>
-                </div>
-                <div class="flex items-baseline justify-between">
-                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('leaderboard.columns.credits') }}</span>
-                  <span class="font-mono text-sm text-gray-600 dark:text-gray-300">{{ formatCredits(entry.total_cost) }}</span>
-                </div>
-                <span
-                  v-if="isMe(entry)"
-                  class="absolute right-3 top-3 inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                >
-                  {{ t('leaderboard.yourRank') }}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <!-- Ranked list (rank 4..) -->
+          <!-- Ranked list (all entries, starting from #1) -->
           <section
-            v-if="restEntries.length"
             class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
           >
             <div
@@ -143,7 +101,7 @@
             </div>
             <ul class="divide-y divide-gray-100 dark:divide-dark-700">
               <li
-                v-for="entry in restEntries"
+                v-for="entry in entries"
                 :key="entry.user_id"
                 class="grid grid-cols-[3rem_1fr_6rem_6rem] items-center gap-2 px-4 py-3 text-sm sm:grid-cols-[4rem_1fr_8rem_8rem]"
                 :class="
@@ -246,9 +204,6 @@ const me = ref<LeaderboardMe | null>(null)
 // Per-user token usage trend (one line per user)
 const trendLoading = ref(false)
 const userTrend = ref<LeaderboardTrendPoint[]>([])
-
-const topThree = computed(() => entries.value.filter((e) => e.rank <= 3))
-const restEntries = computed(() => entries.value.filter((e) => e.rank > 3))
 
 const currentUserId = computed(() => authStore.user?.id)
 function isMe(entry: LeaderboardEntry): boolean {

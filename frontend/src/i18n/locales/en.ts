@@ -1095,7 +1095,6 @@ export default {
       tokens: 'Tokens',
       credits: 'Credits Used'
     },
-    podium: 'Top 3',
     yourRank: 'Your Rank',
     noUsage: 'No usage this period',
     loading: 'Loading...',
