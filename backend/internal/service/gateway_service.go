@@ -9126,20 +9126,23 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
 	// Contribution reward: the account's owner set is its primary owner_user_id
-	// unioned with admin-assigned co-owners. The consumer is excluded from the
-	// owner set (no self-reward); if the consumer is the only owner there is no
-	// reward. When eligible owners remain, the reward is split evenly across them.
-	if eligibleOwners := excludeUserID(p.Account.SurplusAIOwnerUserIDs(), p.User.ID); len(eligibleOwners) > 0 {
+	// unioned with admin-assigned co-owners. Owners using their own (co-owned)
+	// account generate NO contribution reward — reward flows only when a NON-owner
+	// consumes the account, split evenly across ALL owners. (Single owner is the
+	// size-1 case: owner self-use → no reward.) The consumer is a non-owner iff
+	// removing them from the owner set does not shrink it.
+	ownerSet := p.Account.SurplusAIOwnerUserIDs()
+	if len(ownerSet) > 0 && len(excludeUserID(ownerSet, p.User.ID)) == len(ownerSet) {
 		if usageLog != nil && usageLog.AccountStatsCost != nil {
 			cmd.ContributionAccountStatsCost = usageLog.AccountStatsCost
 		}
 		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
 		rewardAmount := roundTo(p.Cost.ActualCost*(rewardRate/100), 8)
 		if rewardAmount > 0 {
-			perOwner := roundTo(rewardAmount/float64(len(eligibleOwners)), 8)
+			perOwner := roundTo(rewardAmount/float64(len(ownerSet)), 8)
 			if perOwner > 0 {
-				shares := make([]ContributionRewardShare, 0, len(eligibleOwners))
-				for _, ownerID := range eligibleOwners {
+				shares := make([]ContributionRewardShare, 0, len(ownerSet))
+				for _, ownerID := range ownerSet {
 					shares = append(shares, ContributionRewardShare{UserID: ownerID, Amount: perOwner})
 				}
 				cmd.ContributionRewardShares = shares
