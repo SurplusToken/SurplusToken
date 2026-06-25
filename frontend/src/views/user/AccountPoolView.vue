@@ -341,6 +341,47 @@
             </template>
 
             <template #cell-actions="{ row: account }">
+              <!-- Remote browser (Kasm) actions for Pro contributed accounts. -->
+              <div v-if="isProAccount(account)" class="mb-1 flex flex-wrap items-center gap-1">
+                <button
+                  v-if="account.is_mine && !isRemoteSeedReady(account)"
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  :disabled="remoteState(account.id).busy"
+                  @click="setupRemoteLogin(account)"
+                >
+                  {{ t('accountPool.remote.setup') }}
+                </button>
+                <template v-else-if="isRemoteSeedReady(account)">
+                  <template v-if="remoteState(account.id).queued">
+                    <span class="text-xs text-amber-600 dark:text-amber-400">
+                      {{ t('accountPool.remote.queued', { position: remoteState(account.id).position ?? '—' }) }}
+                    </span>
+                    <button type="button" class="btn btn-secondary btn-xs" @click="cancelRemoteQueue(account)">
+                      {{ t('accountPool.remote.cancelQueue') }}
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-xs"
+                      :disabled="remoteState(account.id).busy"
+                      @click="connectRemoteSession(account)"
+                    >
+                      {{ remoteState(account.id).busy ? t('accountPool.remote.connecting') : t('accountPool.remote.connect') }}
+                    </button>
+                    <button
+                      v-if="remoteState(account.id).kasmId"
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      :disabled="remoteState(account.id).busy"
+                      @click="disconnectRemoteSession(account)"
+                    >
+                      {{ t('accountPool.remote.disconnect') }}
+                    </button>
+                  </template>
+                </template>
+              </div>
               <div v-if="account.is_mine" class="flex items-center gap-1">
                 <button
                   type="button"
@@ -1205,6 +1246,138 @@ const pagination = reactive({
   page_size: 50,
   total: 0,
 })
+
+// --- Remote browser session (Kasm) state, keyed by account id ----------------
+interface RemoteSessionState {
+  busy: boolean // setup / connect request in flight
+  queued: boolean
+  position: number | null
+  kasmId: string | null // set once a session is running, enables "断开"
+  timer: number | null // polling timer for queued sessions
+}
+const remoteSessions = reactive<Map<number, RemoteSessionState>>(new Map())
+
+function remoteState(id: number): RemoteSessionState {
+  let state = remoteSessions.get(id)
+  if (!state) {
+    state = { busy: false, queued: false, position: null, kasmId: null, timer: null }
+    remoteSessions.set(id, state)
+  }
+  return state
+}
+
+function clearRemoteTimer(state: RemoteSessionState) {
+  if (state.timer !== null) {
+    window.clearTimeout(state.timer)
+    state.timer = null
+  }
+}
+
+function isProAccount(account: UserAccountPoolItem): boolean {
+  const plan = (account.plan_type || '').toLowerCase()
+  return plan === 'pro' || plan === 'chatgptpro'
+}
+
+function isRemoteSeedReady(account: UserAccountPoolItem): boolean {
+  return account.extra?.remote_seed_ready === true
+}
+
+async function setupRemoteLogin(account: UserAccountPoolItem) {
+  const state = remoteState(account.id)
+  if (state.busy) return
+  state.busy = true
+  try {
+    const res = await accountsAPI.setupRemoteSession(account.id)
+    if (res.connect_url) {
+      window.open(res.connect_url, '_blank')
+    }
+    appStore.showSuccess(t('accountPool.remote.setupHint'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.setupFailed')))
+  } finally {
+    state.busy = false
+  }
+}
+
+function applyRemoteResult(state: RemoteSessionState, res: {
+  status: 'ready' | 'queued'
+  connect_url?: string
+  kasm_id?: string
+  position?: number
+}) {
+  if (res.status === 'ready') {
+    clearRemoteTimer(state)
+    state.queued = false
+    state.position = null
+    state.kasmId = res.kasm_id ?? null
+    if (res.connect_url) {
+      window.open(res.connect_url, '_blank')
+    } else {
+      appStore.showError(t('accountPool.remote.openFailed'))
+    }
+  } else {
+    state.queued = true
+    state.position = res.position ?? null
+  }
+}
+
+function pollRemoteSession(account: UserAccountPoolItem) {
+  const state = remoteState(account.id)
+  state.timer = window.setTimeout(async () => {
+    if (!state.queued) return
+    try {
+      const res = await accountsAPI.getRemoteSessionStatus(account.id)
+      applyRemoteResult(state, res)
+      if (state.queued) {
+        pollRemoteSession(account)
+      }
+    } catch (err: unknown) {
+      clearRemoteTimer(state)
+      state.queued = false
+      state.position = null
+      appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.openFailed')))
+    }
+  }, 3000)
+}
+
+async function connectRemoteSession(account: UserAccountPoolItem) {
+  const state = remoteState(account.id)
+  if (state.busy || state.queued) return
+  state.busy = true
+  try {
+    const res = await accountsAPI.startRemoteSession(account.id)
+    applyRemoteResult(state, res)
+    if (state.queued) {
+      pollRemoteSession(account)
+    }
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.openFailed')))
+  } finally {
+    state.busy = false
+  }
+}
+
+function cancelRemoteQueue(account: UserAccountPoolItem) {
+  const state = remoteState(account.id)
+  clearRemoteTimer(state)
+  state.queued = false
+  state.position = null
+}
+
+async function disconnectRemoteSession(account: UserAccountPoolItem) {
+  const state = remoteState(account.id)
+  if (!state.kasmId || state.busy) return
+  state.busy = true
+  try {
+    await accountsAPI.disconnectRemoteSession(account.id, state.kasmId)
+    state.kasmId = null
+    appStore.showSuccess(t('accountPool.remote.disconnectSuccess'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.disconnectFailed')))
+  } finally {
+    state.busy = false
+  }
+}
 
 const contributionSummary = reactive({
   contribution_quota: 0,
@@ -2373,5 +2546,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
+  remoteSessions.forEach((state) => clearRemoteTimer(state))
 })
 </script>
