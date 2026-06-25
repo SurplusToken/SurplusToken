@@ -176,6 +176,20 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
+// ProvideKasmClient builds the Kasm client from config. Returns nil (feature
+// disabled) when kasm.api_base is empty.
+func ProvideKasmClient(cfg *config.Config) *KasmClient {
+	return NewKasmClient(cfg)
+}
+
+// ProvideRemoteSessionService creates and starts the remote-browser ("远程连接")
+// service, including its ~30s reconciler goroutine.
+func ProvideRemoteSessionService(repo RemoteSessionRepository, accountSvc *AccountService, kasm *KasmClient) *RemoteSessionService {
+	svc := NewRemoteSessionService(repo, accountSvc, kasm, 30*time.Second)
+	svc.Start()
+	return svc
+}
+
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
 func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
@@ -591,6 +605,8 @@ var ProviderSet = wire.NewSet(
 	ProvideTokenRefreshService,
 	ProvideAccountExpiryService,
 	ProvideProxyExpiryService,
+	ProvideKasmClient,
+	ProvideRemoteSessionService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,

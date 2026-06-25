@@ -102,6 +102,12 @@ func RegisterUserRoutes(
 			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
 			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
 			accounts.DELETE("/:id", h.AccountPool.Delete)
+
+			// 远程连接（远程浏览器 / Kasm）— 仅 Pro 账号 + owner/co-owner。
+			accounts.POST("/pool/:id/remote-session/setup", h.AccountPool.RemoteSessionSetup)
+			accounts.POST("/pool/:id/remote-session", h.AccountPool.RemoteSessionConnect)
+			accounts.GET("/pool/:id/remote-session/status", h.AccountPool.RemoteSessionStatus)
+			accounts.POST("/pool/:id/remote-session/disconnect", h.AccountPool.RemoteSessionDisconnect)
 		}
 
 		scheduledTests := authenticated.Group("/scheduled-test-plans")

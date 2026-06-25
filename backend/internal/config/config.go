@@ -93,6 +93,19 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	Kasm                    KasmConfig                    `mapstructure:"kasm"`
+}
+
+// KasmConfig holds settings for the Kasm Workspaces "远程连接" (remote browser)
+// feature. Secrets (api_key/api_secret) come from env: KASM_API_KEY / KASM_API_SECRET.
+// The HTTP client for api_base skips TLS verification (Tailscale IP base whose cert
+// CN does not match). public_host is the host the end-user's browser connects to.
+type KasmConfig struct {
+	APIBase    string `mapstructure:"api_base"`    // e.g. https://100.111.145.57 (Tailscale)
+	APIKey     string `mapstructure:"api_key"`     // from env KASM_API_KEY
+	APISecret  string `mapstructure:"api_secret"`  // from env KASM_API_SECRET
+	ImageID    string `mapstructure:"image_id"`    // remote-browser Kasm image id
+	PublicHost string `mapstructure:"public_host"` // e.g. kasm.surplustoken.com
 }
 
 type LogConfig struct {
@@ -1976,6 +1989,14 @@ func setDefaults() {
 	// Subscription Maintenance (bounded queue + worker pool)
 	viper.SetDefault("subscription_maintenance.worker_count", 2)
 	viper.SetDefault("subscription_maintenance.queue_size", 1024)
+
+	// Kasm remote-browser ("远程连接") — secrets via env KASM_API_KEY / KASM_API_SECRET.
+	// Empty api_base disables the feature (NewKasmClient returns nil).
+	viper.SetDefault("kasm.api_base", "")
+	viper.SetDefault("kasm.api_key", "")
+	viper.SetDefault("kasm.api_secret", "")
+	viper.SetDefault("kasm.image_id", "")
+	viper.SetDefault("kasm.public_host", "")
 
 }
 

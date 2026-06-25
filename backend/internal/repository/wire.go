@@ -96,6 +96,7 @@ var ProviderSet = wire.NewSet(
 	NewContributionRepository,
 	NewUserPlatformQuotaRepository,     // T14: user × platform quota
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
+	NewRemoteSessionRepository,         // 远程连接（Kasm）会话仓储
 
 	// Cache implementations
 	NewGatewayCache,

@@ -38,6 +38,7 @@ type AccountPoolHandler struct {
 	rateLimitService        *service.RateLimitService
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	privacyClientFactory    service.PrivacyClientFactory
+	remoteSessionService    *service.RemoteSessionService
 }
 
 func NewAccountPoolHandler(
@@ -53,6 +54,7 @@ func NewAccountPoolHandler(
 	rateLimitService *service.RateLimitService,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	privacyClientFactory service.PrivacyClientFactory,
+	remoteSessionService *service.RemoteSessionService,
 ) *AccountPoolHandler {
 	return &AccountPoolHandler{
 		accountService:          accountService,
@@ -67,6 +69,7 @@ func NewAccountPoolHandler(
 		rateLimitService:        rateLimitService,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 		privacyClientFactory:    privacyClientFactory,
+		remoteSessionService:    remoteSessionService,
 	}
 }
 
