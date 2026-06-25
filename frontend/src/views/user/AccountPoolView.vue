@@ -216,7 +216,11 @@
 
             <template #cell-five_hour="{ row: account }">
               <div class="min-w-36 space-y-1 text-sm">
-                <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_5h_usage_percent) }}</div>
+                <UsageProgressBar
+                  label="5h"
+                  :utilization="account.contribution_5h_usage_percent || 0"
+                  color="indigo"
+                />
                 <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
                   {{ formatMoney(account.current_window_cost || 0) }} / {{ formatMoney(account.window_cost_limit) }}
                 </div>
@@ -228,7 +232,11 @@
 
             <template #cell-weekly="{ row: account }">
               <div class="min-w-44 space-y-1 text-sm">
-                <div>{{ t('accountPool.fields.used') }} {{ formatPercent(account.contribution_weekly_usage_percent) }}</div>
+                <UsageProgressBar
+                  label="7d"
+                  :utilization="account.contribution_weekly_usage_percent || 0"
+                  color="emerald"
+                />
                 <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
                   {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
                 </div>
@@ -238,7 +246,7 @@
                     · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
                   </span>
                 </div>
-                <div v-else class="text-xs text-gray-500 dark:text-dark-400">
+                <div class="text-xs text-gray-500 dark:text-dark-400">
                   {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
                 </div>
               </div>
@@ -1004,6 +1012,7 @@ import type { Column } from '@/components/common/types'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
