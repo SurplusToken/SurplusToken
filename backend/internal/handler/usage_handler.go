@@ -406,6 +406,25 @@ func (h *UsageHandler) Leaderboard(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// LeaderboardTrend handles the user-facing usage leaderboard trend (top-N users' token series).
+// GET /api/v1/usage/leaderboard/trend?period=today|week|month
+func (h *UsageHandler) LeaderboardTrend(c *gin.Context) {
+	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	period := c.DefaultQuery("period", "today")
+
+	result, err := h.usageService.GetUsageLeaderboardTrend(c.Request.Context(), period)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
 // parseUserTimeRange parses start_date, end_date query parameters for user dashboard
 // Uses user's timezone if provided, otherwise falls back to server timezone
 func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {

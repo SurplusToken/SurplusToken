@@ -91,6 +91,63 @@ func maskLeaderboardEmail(email string) string {
 	return local[:2] + "***" + domain
 }
 
+// LeaderboardTrendPoint 是排行榜趋势接口对外返回的单条记录（每个用户一条/每个时间点）。
+type LeaderboardTrendPoint struct {
+	UserID      int64  `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	Date        string `json:"date"`
+	Tokens      int64  `json:"tokens"`
+}
+
+// LeaderboardTrendResponse 是排行榜趋势接口的响应体。
+type LeaderboardTrendResponse struct {
+	Period      string                  `json:"period"`
+	Granularity string                  `json:"granularity"`
+	UsersTrend  []LeaderboardTrendPoint `json:"users_trend"`
+}
+
+const usageLeaderboardTrendLimit = 12
+
+// leaderboardTrendGranularity 将归一化后的 period 映射为聚合粒度：
+//   - today => "hour"
+//   - week  => "day"
+//   - month => "day"
+func leaderboardTrendGranularity(period string) string {
+	if period == "today" {
+		return "hour"
+	}
+	return "day"
+}
+
+// GetUsageLeaderboardTrend 返回指定周期内 TOP 用户的逐时段 token 序列（每个用户一条线）。
+// 任何已认证的普通用户均可调用；展示名按排行榜口径掩码，不泄露原始邮箱。
+func (s *UsageService) GetUsageLeaderboardTrend(ctx context.Context, period string) (*LeaderboardTrendResponse, error) {
+	normalizedPeriod, since := leaderboardSince(period)
+	granularity := leaderboardTrendGranularity(normalizedPeriod)
+	end := timezone.Now()
+
+	points, err := s.usageRepo.GetUserUsageTrend(ctx, since, end, granularity, usageLeaderboardTrendLimit)
+	if err != nil {
+		return nil, fmt.Errorf("get usage leaderboard trend: %w", err)
+	}
+
+	items := make([]LeaderboardTrendPoint, 0, len(points))
+	for _, p := range points {
+		items = append(items, LeaderboardTrendPoint{
+			UserID:      p.UserID,
+			DisplayName: leaderboardDisplayName(p.Username, p.Email, p.UserID),
+			Date:        p.Date,
+			Tokens:      p.Tokens,
+		})
+	}
+
+	return &LeaderboardTrendResponse{
+		Period:      normalizedPeriod,
+		Granularity: granularity,
+		UsersTrend:  items,
+	}, nil
+}
+
 // GetUsageLeaderboard 返回指定周期的用量排行榜（按消耗额度降序）以及当前用户自身的排名。
 // 任何已认证的普通用户均可调用。
 func (s *UsageService) GetUsageLeaderboard(ctx context.Context, period string, currentUserID int64) (*UsageLeaderboardResponse, error) {

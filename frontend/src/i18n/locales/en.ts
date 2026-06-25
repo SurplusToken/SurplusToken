@@ -379,7 +379,7 @@ export default {
     apiKeys: 'API Keys',
     accountPool: 'Account Pool',
     usage: 'Usage',
-    leaderboard: 'Usage Leaderboard',
+    leaderboard: 'Usage Statistics',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
     affiliateManagement: 'Affiliate Rebates',
@@ -1079,11 +1079,11 @@ export default {
     }
   },
 
-  // Usage Leaderboard (user-facing)
+  // Usage Statistics (user-facing)
   leaderboard: {
-    title: 'Usage Leaderboard',
-    description: 'See the usage ranking for this period and where you stand',
-    trendTitle: 'Token Usage Trend (your last 30 days)',
+    title: 'Usage Statistics',
+    description: 'View usage for the selected period',
+    trendTitle: 'Token Usage Trend',
     periods: {
       today: 'Today',
       week: 'This Week',
@@ -1098,10 +1098,10 @@ export default {
     podium: 'Top 3',
     yourRank: 'Your Rank',
     noUsage: 'No usage this period',
-    loading: 'Loading leaderboard...',
-    loadError: 'Failed to load leaderboard',
+    loading: 'Loading...',
+    loadError: 'Failed to load',
     retry: 'Retry',
-    empty: 'No ranking data for this period'
+    empty: 'No data for this period'
   },
 
   // Available Channels (user-facing)

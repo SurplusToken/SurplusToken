@@ -27,12 +27,25 @@
         </div>
       </div>
 
-      <!-- Personal token usage trend (privacy-safe: current user only) -->
-      <section>
-        <h2 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+      <!-- Per-user token usage trend (one line per user; display_name masked by backend) -->
+      <section
+        class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-800"
+      >
+        <h2 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
           {{ t('leaderboard.trendTitle') }}
         </h2>
-        <TokenUsageTrend :trend-data="trendData" :loading="trendLoading" />
+        <div class="h-64">
+          <div v-if="trendLoading" class="flex h-full items-center justify-center">
+            <LoadingSpinner />
+          </div>
+          <Line v-else-if="trendChartData" :data="trendChartData" :options="lineOptions" />
+          <div
+            v-else
+            class="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+          >
+            {{ t('leaderboard.empty') }}
+          </div>
+        </div>
       </section>
 
       <!-- Loading skeleton -->
@@ -90,10 +103,7 @@
                     : 'border-gray-200 dark:border-dark-700'
                 "
               >
-                <div class="flex items-center justify-between">
-                  <span class="text-2xl leading-none">{{ medal(entry.rank) }}</span>
-                  <span class="font-mono text-xs text-gray-400 dark:text-gray-500">#{{ entry.rank }}</span>
-                </div>
+                <div class="font-mono text-xl font-bold text-gray-900 dark:text-white">#{{ entry.rank }}</div>
                 <div
                   class="mt-1 truncate text-base font-semibold text-gray-900 dark:text-white"
                   :title="displayName(entry.display_name)"
@@ -187,19 +197,40 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from 'chart.js'
+import { Line } from 'vue-chartjs'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import { useAuthStore } from '@/stores/auth'
-import { usageAPI } from '@/api/usage'
 import {
   leaderboardAPI,
   type LeaderboardEntry,
   type LeaderboardMe,
   type LeaderboardPeriod,
+  type LeaderboardTrendPoint,
 } from '@/api/leaderboard'
-import type { TrendDataPoint } from '@/types'
 import { formatCompactNumber, formatCostFixed } from '@/utils/format'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+)
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -212,9 +243,9 @@ const error = ref(false)
 const entries = ref<LeaderboardEntry[]>([])
 const me = ref<LeaderboardMe | null>(null)
 
-// Personal token usage trend (current user only)
+// Per-user token usage trend (one line per user)
 const trendLoading = ref(false)
-const trendData = ref<TrendDataPoint[]>([])
+const userTrend = ref<LeaderboardTrendPoint[]>([])
 
 const topThree = computed(() => entries.value.filter((e) => e.rank <= 3))
 const restEntries = computed(() => entries.value.filter((e) => e.rank > 3))
@@ -238,18 +269,115 @@ function formatTokens(tokens: number): string {
   return formatCompactNumber(tokens)
 }
 
-// Credits (cost): same convention the dashboard uses for consumed/actual cost (4 decimals).
+// Credits (cost): "$" prefix, 4 decimals (e.g. $33.4738).
 function formatCredits(cost: number): string {
-  return formatCostFixed(cost, 4)
+  return `$${formatCostFixed(cost, 4)}`
 }
 
-function medal(rank: number): string {
-  return rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`
+// Compact token formatting for chart axis/tooltip (mirrors admin dashboard).
+function formatChartTokens(value: number | undefined): string {
+  if (value === undefined || value === null) return '0'
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(2)}K`
+  return value.toLocaleString()
 }
 
-function formatLocalDate(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
+// ---- Multi-user trend chart (mirrors admin DashboardView) ----
+const isDarkMode = computed(() => document.documentElement.classList.contains('dark'))
+
+const chartColors = computed(() => ({
+  text: isDarkMode.value ? '#e5e7eb' : '#374151',
+  grid: isDarkMode.value ? '#374151' : '#e5e7eb',
+}))
+
+const lineOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    intersect: false,
+    mode: 'index' as const,
+  },
+  plugins: {
+    legend: {
+      position: 'top' as const,
+      labels: {
+        color: chartColors.value.text,
+        usePointStyle: true,
+        pointStyle: 'circle',
+        padding: 15,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      itemSort: (a: any, b: any) => {
+        const aValue = typeof a?.raw === 'number' ? a.raw : Number(a?.parsed?.y ?? 0)
+        const bValue = typeof b?.raw === 'number' ? b.raw : Number(b?.parsed?.y ?? 0)
+        return bValue - aValue
+      },
+      callbacks: {
+        label: (context: any) => `${context.dataset.label}: ${formatChartTokens(context.raw)}`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { color: chartColors.value.grid },
+      ticks: { color: chartColors.value.text, font: { size: 10 } },
+    },
+    y: {
+      grid: { color: chartColors.value.grid },
+      ticks: {
+        color: chartColors.value.text,
+        font: { size: 10 },
+        callback: (value: string | number) => formatChartTokens(Number(value)),
+      },
+    },
+  },
+}))
+
+const trendChartData = computed(() => {
+  if (!userTrend.value?.length) return null
+
+  // Group by user_id to avoid merging different users with the same display name.
+  const userGroups = new Map<number, { name: string; data: Map<string, number> }>()
+  const allDates = new Set<string>()
+
+  userTrend.value.forEach((point) => {
+    allDates.add(point.date)
+    if (!userGroups.has(point.user_id)) {
+      userGroups.set(point.user_id, { name: displayName(point.display_name), data: new Map() })
+    }
+    userGroups.get(point.user_id)!.data.set(point.date, point.tokens)
+  })
+
+  const sortedDates = Array.from(allDates).sort()
+  const colors = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#ec4899',
+    '#14b8a6',
+    '#f97316',
+    '#6366f1',
+    '#84cc16',
+    '#06b6d4',
+    '#a855f7',
+  ]
+
+  const datasets = Array.from(userGroups.values()).map((group, idx) => ({
+    label: group.name,
+    data: sortedDates.map((date) => group.data.get(date) || 0),
+    borderColor: colors[idx % colors.length],
+    backgroundColor: `${colors[idx % colors.length]}20`,
+    fill: false,
+    tension: 0.3,
+  }))
+
+  return { labels: sortedDates, datasets }
+})
 
 async function load() {
   loading.value = true
@@ -259,7 +387,7 @@ async function load() {
     entries.value = data.entries ?? []
     me.value = data.me ?? null
   } catch (err) {
-    console.error('Failed to load usage leaderboard:', err)
+    console.error('Failed to load usage statistics:', err)
     error.value = true
   } finally {
     loading.value = false
@@ -269,28 +397,26 @@ async function load() {
 async function loadTrend() {
   trendLoading.value = true
   try {
-    const res = await usageAPI.getDashboardTrend({
-      start_date: formatLocalDate(new Date(Date.now() - 29 * 86400000)),
-      end_date: formatLocalDate(new Date()),
-      granularity: 'day',
-    })
-    trendData.value = res.trend ?? []
+    const res = await leaderboardAPI.getUsageLeaderboardTrend(period.value)
+    userTrend.value = res.users_trend ?? []
   } catch (err) {
-    console.error('Failed to load token usage trend:', err)
-    trendData.value = []
+    console.error('Failed to load usage trend:', err)
+    userTrend.value = []
   } finally {
     trendLoading.value = false
   }
 }
 
+function reload() {
+  load()
+  loadTrend()
+}
+
 function setPeriod(p: LeaderboardPeriod) {
   if (period.value === p) return
   period.value = p
-  load()
+  reload()
 }
 
-onMounted(() => {
-  load()
-  loadTrend()
-})
+onMounted(reload)
 </script>

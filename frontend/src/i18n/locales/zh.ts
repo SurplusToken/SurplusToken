@@ -379,7 +379,7 @@ export default {
     apiKeys: 'API 密钥',
     accountPool: '账号池',
     usage: '使用记录',
-    leaderboard: '用量排行榜',
+    leaderboard: '用量统计',
     redeem: '兑换',
     affiliate: '邀请返利',
     affiliateManagement: '邀请返利',
@@ -1083,11 +1083,11 @@ export default {
     }
   },
 
-  // Usage Leaderboard (user-facing)
+  // Usage Statistics (user-facing)
   leaderboard: {
-    title: '用量排行榜',
-    description: '查看本期间的用量排名，看看你排在第几',
-    trendTitle: 'Token 使用趋势（你的近 30 天）',
+    title: '用量统计',
+    description: '查看本期间的用量',
+    trendTitle: 'Token 使用趋势',
     periods: {
       today: '今日',
       week: '本周',
@@ -1102,10 +1102,10 @@ export default {
     podium: '前三名',
     yourRank: '你的排名',
     noUsage: '本期暂无用量',
-    loading: '加载排行榜中...',
-    loadError: '加载排行榜失败',
+    loading: '加载中...',
+    loadError: '加载失败',
     retry: '重试',
-    empty: '本期暂无排行数据'
+    empty: '本期暂无数据'
   },
 
   // Available Channels (user-facing)
