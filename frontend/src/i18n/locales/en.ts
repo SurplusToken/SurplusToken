@@ -1083,6 +1083,7 @@ export default {
   leaderboard: {
     title: 'Usage Leaderboard',
     description: 'See the usage ranking for this period and where you stand',
+    trendTitle: 'Token Usage Trend (your last 30 days)',
     periods: {
       today: 'Today',
       week: 'This Week',

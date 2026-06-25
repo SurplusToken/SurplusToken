@@ -1087,6 +1087,7 @@ export default {
   leaderboard: {
     title: '用量排行榜',
     description: '查看本期间的用量排名，看看你排在第几',
+    trendTitle: 'Token 使用趋势（你的近 30 天）',
     periods: {
       today: '今日',
       week: '本周',
