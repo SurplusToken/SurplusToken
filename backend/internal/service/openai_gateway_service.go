@@ -2258,6 +2258,10 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if err != nil || latest == nil {
 		return nil
 	}
+	// GetByID does not load co-owners (separate table); carry over the co-owner
+	// set already hydrated on the candidate so owner-bypass (contribution reserve
+	// + auto-pause) also works for co-owners on this DB-recheck path.
+	latest.CoOwnerUserIDs = account.CoOwnerUserIDs
 	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
