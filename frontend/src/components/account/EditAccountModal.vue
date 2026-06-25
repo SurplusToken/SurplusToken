@@ -2947,8 +2947,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	const extra = newAccount.extra as Record<string, unknown> | undefined
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
-	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
-	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
+	// Round the fraction→percent conversion to 4 decimals: the stored threshold can
+	// be the tiny sentinel 0.000001 (reserve=100%) or carry float artifacts, which
+	// otherwise render as a long decimal string in the percent input.
+	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? Math.round(extra.auto_pause_5h_threshold * 100 * 10000) / 10000 : null
+	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? Math.round(extra.auto_pause_7d_threshold * 100 * 10000) / 10000 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
 
