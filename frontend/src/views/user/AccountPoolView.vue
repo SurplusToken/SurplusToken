@@ -239,18 +239,34 @@
                   :resets-at="account.weekly_resets_at"
                   color="emerald"
                 />
-                <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
-                  {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
-                </div>
-                <div v-if="account.quota_weekly_limit > 0" :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
-                  {{ t('accountPool.fields.remaining') }} {{ formatMoney(account.quota_weekly_remaining) }}
-                  <span v-if="account.quota_weekly_min_remaining > 0">
-                    · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
+                <!-- Budget mode: show others' weekly spend against the shared budget -->
+                <template v-if="account.contribution_share_mode === 'budget'">
+                  <div
+                    class="text-xs"
+                    :class="isShareBudgetExhausted(account) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-dark-400'"
+                  >
+                    {{ t('accountPool.policy.othersUsed') }} {{ formatMoney(account.others_weekly_spend ?? 0) }}
+                    / {{ t('accountPool.policy.budget') }} {{ formatMoney(account.contribution_weekly_share_budget) }}
+                  </div>
+                  <span v-if="isShareBudgetExhausted(account)" class="badge badge-warning">
+                    {{ t('accountPool.policy.budgetExhausted') }}
                   </span>
-                </div>
-                <div class="text-xs text-gray-500 dark:text-dark-400">
-                  {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
-                </div>
+                </template>
+                <!-- Percent mode: existing cost/remaining lines + reserve % note -->
+                <template v-else>
+                  <div v-if="account.quota_weekly_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
+                    {{ formatMoney(account.quota_weekly_used) }} / {{ formatMoney(account.quota_weekly_limit) }}
+                  </div>
+                  <div v-if="account.quota_weekly_limit > 0" :class="account.weekly_remaining_below_policy ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-gray-500 dark:text-dark-400'">
+                    {{ t('accountPool.fields.remaining') }} {{ formatMoney(account.quota_weekly_remaining) }}
+                    <span v-if="account.quota_weekly_min_remaining > 0">
+                      · {{ t('accountPool.fields.reserve') }} {{ formatMoney(account.quota_weekly_min_remaining) }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-dark-400">
+                    {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
+                  </div>
+                </template>
               </div>
             </template>
 
@@ -596,7 +612,27 @@
             </div>
           </div>
 
-          <div class="grid gap-4 md:grid-cols-2">
+          <div class="mb-4">
+            <label class="input-label">{{ t('accountPool.policy.shareModeLabel') }}</label>
+            <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+              <button
+                v-for="mode in shareModeOptions"
+                :key="`create-${mode.value}`"
+                type="button"
+                class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                :class="
+                  createForm.shareMode === mode.value
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                "
+                @click="createForm.shareMode = mode.value"
+              >
+                {{ mode.label }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="createForm.shareMode === 'percent'" class="grid gap-4 md:grid-cols-2">
             <label class="block">
               <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
               <input
@@ -622,6 +658,21 @@
               <span class="input-hint">{{ t('accountPool.policy.weeklyReservePercentHint') }}</span>
             </label>
           </div>
+
+          <label v-else class="block">
+            <span class="input-label">{{ t('accountPool.policy.weeklyShareBudgetLabel') }}</span>
+            <div class="relative">
+              <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-400">$</span>
+              <input
+                v-model.number="createForm.weeklyShareBudget"
+                type="number"
+                min="0"
+                step="0.01"
+                class="input pl-7"
+              />
+            </div>
+            <span class="input-hint">{{ t('accountPool.policy.weeklyShareBudgetHint') }}</span>
+          </label>
 
           <div class="mt-4">
             <label class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</label>
@@ -826,7 +877,27 @@
             </div>
           </div>
 
-          <div class="grid gap-4 md:grid-cols-2">
+          <div class="mb-4">
+            <label class="input-label">{{ t('accountPool.policy.shareModeLabel') }}</label>
+            <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+              <button
+                v-for="mode in shareModeOptions"
+                :key="`scope-${mode.value}`"
+                type="button"
+                class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                :class="
+                  scopeForm.shareMode === mode.value
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                "
+                @click="scopeForm.shareMode = mode.value"
+              >
+                {{ mode.label }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="scopeForm.shareMode === 'percent'" class="grid gap-4 md:grid-cols-2">
             <label class="block">
               <span class="input-label">{{ t('accountPool.policy.fiveHourReserveLabel') }}</span>
               <input
@@ -852,6 +923,21 @@
               <span class="input-hint">{{ t('accountPool.policy.weeklyReservePercentHint') }}</span>
             </label>
           </div>
+
+          <label v-else class="block">
+            <span class="input-label">{{ t('accountPool.policy.weeklyShareBudgetLabel') }}</span>
+            <div class="relative">
+              <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-400">$</span>
+              <input
+                v-model.number="scopeForm.weeklyShareBudget"
+                type="number"
+                min="0"
+                step="0.01"
+                class="input pl-7"
+              />
+            </div>
+            <span class="input-hint">{{ t('accountPool.policy.weeklyShareBudgetHint') }}</span>
+          </label>
 
           <div class="mt-4">
             <label class="input-label">{{ t('accountPool.policy.probeFailureLabel') }}</label>
@@ -1024,6 +1110,7 @@ import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.
 import UserAccountActionMenu from '@/components/user/UserAccountActionMenu.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
+  type ContributionShareMode,
   type UserOAuthAuthUrlRequest,
   type UserOAuthTokenInfo,
 } from '@/api/accounts'
@@ -1140,6 +1227,8 @@ const createForm = reactive({
   codexCLIOnly: false,
   fiveHourReservePercent: 0,
   weeklyReservePercent: 0,
+  shareMode: 'percent' as ContributionShareMode,
+  weeklyShareBudget: 0,
   probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
 })
 
@@ -1156,6 +1245,8 @@ const scopeForm = reactive({
   codexCLIOnly: false,
   fiveHourReservePercent: 0,
   weeklyReservePercent: 0,
+  shareMode: 'percent' as ContributionShareMode,
+  weeklyShareBudget: 0,
   probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
 })
 
@@ -1187,6 +1278,11 @@ const probeFailurePolicyOptions = computed(() => [
   { value: 'continue', label: t('accountPool.policy.probeFailureContinue') },
   { value: 'pause', label: t('accountPool.policy.probeFailurePause') },
   { value: 'local', label: t('accountPool.policy.probeFailureLocal') },
+])
+
+const shareModeOptions = computed<{ value: ContributionShareMode; label: string }[]>(() => [
+  { value: 'percent', label: t('accountPool.policy.shareModePercent') },
+  { value: 'budget', label: t('accountPool.policy.shareModeBudget') },
 ])
 
 const isManualInputMethod = computed(() => oauthFlowRef.value?.inputMethod === 'manual')
@@ -1307,6 +1403,38 @@ function normalizeConcurrency(value: number | null | undefined): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return 1
   return Math.max(1, Math.floor(n))
+}
+
+function normalizeShareBudget(value: number | null | undefined): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, n)
+}
+
+// Build the contribution sharing payload fields for a given form. share_mode is
+// always sent; the weekly budget is sent in budget mode, the reserve percents in
+// percent mode (kept in sync with how the backend stores the active mode).
+function buildContributionPayload(form: {
+  shareMode: ContributionShareMode
+  weeklyShareBudget: number
+  fiveHourReservePercent: number
+  weeklyReservePercent: number
+}) {
+  return {
+    contribution_share_mode: form.shareMode,
+    contribution_weekly_share_budget:
+      form.shareMode === 'budget' ? normalizeShareBudget(form.weeklyShareBudget) : undefined,
+    contribution_5h_reserve_percent: normalizeReservePercent(form.fiveHourReservePercent),
+    contribution_weekly_reserve_percent: normalizeReservePercent(form.weeklyReservePercent),
+  }
+}
+
+// Whether others have exhausted the weekly share budget (budget mode only).
+function isShareBudgetExhausted(account: UserAccountPoolItem): boolean {
+  if (account.contribution_share_mode !== 'budget') return false
+  const budget = Number(account.contribution_weekly_share_budget) || 0
+  if (budget <= 0) return false
+  return (account.others_weekly_spend ?? 0) >= budget
 }
 
 function formatMoney(value: number | null | undefined): string {
@@ -1465,8 +1593,7 @@ function buildCreateOAuthPayload(
     group_ids: createForm.groupIds,
     expires_at: createForm.expiresAt,
     auto_pause_on_expired: createForm.autoPauseOnExpired,
-    contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
-    contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
+    ...buildContributionPayload(createForm),
     contribution_probe_failure_policy: createForm.probeFailurePolicy,
   }
 }
@@ -1830,8 +1957,7 @@ async function handleImportCodexSession(content: string) {
       update_existing: true,
       schedulable: createForm.schedulable,
       codex_cli_only: createForm.codexCLIOnly,
-      contribution_5h_reserve_percent: normalizeReservePercent(createForm.fiveHourReservePercent),
-      contribution_weekly_reserve_percent: normalizeReservePercent(createForm.weeklyReservePercent),
+      ...buildContributionPayload(createForm),
       contribution_probe_failure_policy: createForm.probeFailurePolicy,
     })
 
@@ -1889,6 +2015,8 @@ function resetCreateForm() {
   createForm.codexCLIOnly = false
   createForm.fiveHourReservePercent = 0
   createForm.weeklyReservePercent = 0
+  createForm.shareMode = 'percent'
+  createForm.weeklyShareBudget = 0
   createForm.probeFailurePolicy = 'continue'
   resetModelWhitelist()
 }
@@ -1916,6 +2044,8 @@ function openScopeDialog(account: UserAccountPoolItem) {
   scopeForm.codexCLIOnly = account.codex_cli_only
   scopeForm.fiveHourReservePercent = account.contribution_5h_reserve_percent
   scopeForm.weeklyReservePercent = account.contribution_weekly_reserve_percent
+  scopeForm.shareMode = account.contribution_share_mode || 'percent'
+  scopeForm.weeklyShareBudget = account.contribution_weekly_share_budget || 0
   scopeForm.probeFailurePolicy = account.contribution_probe_failure_policy
   scopeAllowedModels.value = parseUserModelWhitelist(account.model_mapping)
   showScopeForm.value = true
@@ -1933,6 +2063,8 @@ function handleScopeClose() {
   scopeForm.codexCLIOnly = false
   scopeForm.fiveHourReservePercent = 0
   scopeForm.weeklyReservePercent = 0
+  scopeForm.shareMode = 'percent'
+  scopeForm.weeklyShareBudget = 0
   scopeForm.probeFailurePolicy = 'continue'
 }
 
@@ -1949,8 +2081,7 @@ async function saveScope() {
       auto_pause_on_expired: scopeForm.autoPauseOnExpired,
       model_mapping: buildUserModelWhitelist(scopeAllowedModels.value),
       codex_cli_only: account.platform === 'openai' ? scopeForm.codexCLIOnly : false,
-      contribution_5h_reserve_percent: normalizeReservePercent(scopeForm.fiveHourReservePercent),
-      contribution_weekly_reserve_percent: normalizeReservePercent(scopeForm.weeklyReservePercent),
+      ...buildContributionPayload(scopeForm),
       contribution_probe_failure_policy: scopeForm.probeFailurePolicy,
     })
     replaceAccount(updated)

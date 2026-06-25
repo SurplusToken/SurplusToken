@@ -16,6 +16,8 @@ import type {
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
+export type ContributionShareMode = 'percent' | 'budget'
+
 export interface CreateUserOAuthAccountRequest {
   name: string
   platform: AccountPlatform
@@ -32,6 +34,8 @@ export interface CreateUserOAuthAccountRequest {
   contribution_5h_reserve_percent?: number
   contribution_weekly_reserve_percent?: number
   contribution_probe_failure_policy?: ContributionProbeFailurePolicy
+  contribution_share_mode?: ContributionShareMode
+  contribution_weekly_share_budget?: number
 }
 
 export interface UpdateUserAccountScopeRequest {
@@ -45,6 +49,8 @@ export interface UpdateUserAccountScopeRequest {
   contribution_5h_reserve_percent?: number
   contribution_weekly_reserve_percent?: number
   contribution_probe_failure_policy?: ContributionProbeFailurePolicy
+  contribution_share_mode?: ContributionShareMode
+  contribution_weekly_share_budget?: number
 }
 
 export interface UserOAuthAuthUrlRequest {
@@ -89,6 +95,8 @@ export type UserCodexSessionImportRequest = Omit<
   contribution_5h_reserve_percent?: number
   contribution_weekly_reserve_percent?: number
   contribution_probe_failure_policy?: ContributionProbeFailurePolicy
+  contribution_share_mode?: ContributionShareMode
+  contribution_weekly_share_budget?: number
 }
 
 export interface ApplyUserOAuthCredentialsRequest {

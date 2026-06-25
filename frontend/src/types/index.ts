@@ -978,6 +978,9 @@ export interface UserAccountPoolItem {
   contribution_weekly_usage_percent?: number | null
   five_hour_resets_at?: string | null
   weekly_resets_at?: string | null
+  contribution_share_mode: 'percent' | 'budget'
+  contribution_weekly_share_budget: number
+  others_weekly_spend?: number | null
   contribution_protection_blocked: boolean
   contribution_protection_reason?: string | null
   window_cost_limit: number
