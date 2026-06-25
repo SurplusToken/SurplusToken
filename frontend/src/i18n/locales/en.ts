@@ -379,6 +379,7 @@ export default {
     apiKeys: 'API Keys',
     accountPool: 'Account Pool',
     usage: 'Usage',
+    leaderboard: 'Usage Leaderboard',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
     affiliateManagement: 'Affiliate Rebates',
@@ -1076,6 +1077,30 @@ export default {
       title: 'No channels available',
       description: 'No monitored channels have been configured yet.'
     }
+  },
+
+  // Usage Leaderboard (user-facing)
+  leaderboard: {
+    title: 'Usage Leaderboard',
+    description: 'See the usage ranking for this period and where you stand',
+    periods: {
+      today: 'Today',
+      week: 'This Week',
+      month: 'This Month'
+    },
+    columns: {
+      rank: 'Rank',
+      user: 'User',
+      tokens: 'Tokens',
+      credits: 'Credits Used'
+    },
+    podium: 'Top 3',
+    yourRank: 'Your Rank',
+    noUsage: 'No usage this period',
+    loading: 'Loading leaderboard...',
+    loadError: 'Failed to load leaderboard',
+    retry: 'Retry',
+    empty: 'No ranking data for this period'
   },
 
   // Available Channels (user-facing)

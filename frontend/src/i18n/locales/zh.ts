@@ -379,6 +379,7 @@ export default {
     apiKeys: 'API 密钥',
     accountPool: '账号池',
     usage: '使用记录',
+    leaderboard: '用量排行榜',
     redeem: '兑换',
     affiliate: '邀请返利',
     affiliateManagement: '邀请返利',
@@ -1080,6 +1081,30 @@ export default {
       title: '暂无可显示的渠道',
       description: '管理员尚未配置可监控的渠道。'
     }
+  },
+
+  // Usage Leaderboard (user-facing)
+  leaderboard: {
+    title: '用量排行榜',
+    description: '查看本期间的用量排名，看看你排在第几',
+    periods: {
+      today: '今日',
+      week: '本周',
+      month: '本月'
+    },
+    columns: {
+      rank: '排名',
+      user: '用户',
+      tokens: 'Token',
+      credits: '消耗额度'
+    },
+    podium: '前三名',
+    yourRank: '你的排名',
+    noUsage: '本期暂无用量',
+    loading: '加载排行榜中...',
+    loadError: '加载排行榜失败',
+    retry: '重试',
+    empty: '本期暂无排行数据'
   },
 
   // Available Channels (user-facing)

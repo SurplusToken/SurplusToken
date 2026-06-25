@@ -2422,6 +2422,14 @@ func (r *stubUsageLogRepo) GetUserSpendingRanking(ctx context.Context, startTime
 	return nil, errors.New("not implemented")
 }
 
+func (r *stubUsageLogRepo) UsageLeaderboard(ctx context.Context, since time.Time, limit int) ([]service.LeaderboardEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) UserUsageTotals(ctx context.Context, userID int64, since time.Time) (int64, float64, int64, bool, error) {
+	return 0, 0, 0, false, errors.New("not implemented")
+}
+
 func (r *stubUsageLogRepo) GetUserStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
 	logs := r.userLogs[userID]
 	if len(logs) == 0 {

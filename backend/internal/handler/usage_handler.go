@@ -386,6 +386,26 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
+// Leaderboard handles the user-facing usage leaderboard.
+// GET /api/v1/usage/leaderboard?period=today|week|month
+func (h *UsageHandler) Leaderboard(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	period := c.DefaultQuery("period", "today")
+
+	result, err := h.usageService.GetUsageLeaderboard(c.Request.Context(), period, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
 // parseUserTimeRange parses start_date, end_date query parameters for user dashboard
 // Uses user's timezone if provided, otherwise falls back to server timezone
 func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {
