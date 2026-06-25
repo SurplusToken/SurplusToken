@@ -2152,7 +2152,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformOpenAI, false)
-		return filterSurplusAISchedulableAccounts(ctx, s.hydrateCoOwners(ctx, accounts)), err
+		return filterSurplusAISchedulableAccounts(ctx, s.hydrateOthersWeeklySpend(ctx, s.hydrateCoOwners(ctx, accounts))), err
 	}
 	var accounts []Account
 	var err error
@@ -2166,7 +2166,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
-	return filterSurplusAISchedulableAccounts(ctx, s.hydrateCoOwners(ctx, accounts)), nil
+	return filterSurplusAISchedulableAccounts(ctx, s.hydrateOthersWeeklySpend(ctx, s.hydrateCoOwners(ctx, accounts))), nil
 }
 
 // hydrateCoOwners populates each account's CoOwnerUserIDs from the
@@ -2211,6 +2211,77 @@ func (s *OpenAIGatewayService) hydrateCoOwners(ctx context.Context, accounts []A
 		accounts[i].CoOwnerUserIDs = coOwners[accounts[i].ID]
 	}
 	return accounts
+}
+
+// hydrateOthersWeeklySpend populates OthersWeeklySpend (rolling-7-day NON-owner
+// SUM(actual_cost)) for accounts in "budget" contribution share mode, so the
+// budget gate in EvaluateContributionProtection can fire. Percent-mode accounts
+// are skipped entirely (ZERO extra SQL/cache work on the hot path).
+//
+// Best-effort: a lookup error or panic must never break scheduling — on failure
+// the account's OthersWeeklySpend stays nil and the budget gate FAILS OPEN
+// (account remains schedulable for non-owners). Must run AFTER hydrateCoOwners so
+// SurplusAIOwnerUserIDs() reflects the full owner set.
+//
+// NOTE: hydrateCoOwners must already have populated CoOwnerUserIDs at this point
+// so the owner exclusion set is complete.
+func (s *OpenAIGatewayService) hydrateOthersWeeklySpend(ctx context.Context, accounts []Account) []Account {
+	if len(accounts) == 0 || s.accountRepo == nil {
+		return accounts
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	for i := range accounts {
+		if accounts[i].GetContributionShareMode() != ContributionShareModeBudget {
+			continue
+		}
+		acc := &accounts[i]
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("hydrate others-weekly-spend panicked; budget gate fails open",
+						"panic", r, "account_id", acc.ID)
+				}
+			}()
+			spend, err := s.accountRepo.GetOthersWeeklySpendCached(ctx, acc.ID, acc.SurplusAIOwnerUserIDs(), since)
+			if err != nil {
+				slog.Warn("hydrate others-weekly-spend failed; budget gate fails open",
+					"error", err, "account_id", acc.ID)
+				return
+			}
+			acc.OthersWeeklySpend = &spend
+		}()
+	}
+	return accounts
+}
+
+// hydrateOthersWeeklySpendSingle hydrates OthersWeeklySpend for a single
+// budget-mode account (best-effort, fails open). No-op for percent-mode accounts
+// or when the value is already hydrated. Requires CoOwnerUserIDs to be populated
+// already so the owner exclusion set is complete.
+func (s *OpenAIGatewayService) hydrateOthersWeeklySpendSingle(ctx context.Context, account *Account) {
+	if account == nil || s.accountRepo == nil {
+		return
+	}
+	if account.GetContributionShareMode() != ContributionShareModeBudget {
+		return
+	}
+	if account.OthersWeeklySpend != nil {
+		return
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("hydrate others-weekly-spend (single) panicked; budget gate fails open",
+				"panic", r, "account_id", account.ID)
+		}
+	}()
+	spend, err := s.accountRepo.GetOthersWeeklySpendCached(ctx, account.ID, account.SurplusAIOwnerUserIDs(), since)
+	if err != nil {
+		slog.Warn("hydrate others-weekly-spend (single) failed; budget gate fails open",
+			"error", err, "account_id", account.ID)
+		return
+	}
+	account.OthersWeeklySpend = &spend
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
@@ -2262,6 +2333,11 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	// set already hydrated on the candidate so owner-bypass (contribution reserve
 	// + auto-pause) also works for co-owners on this DB-recheck path.
 	latest.CoOwnerUserIDs = account.CoOwnerUserIDs
+	// Carry over the hydrated NON-owner weekly spend (GetByID does not compute it),
+	// then (re-)hydrate for budget-mode accounts if still missing so the budget gate
+	// has fresh data on this DB-recheck path. Best-effort / fails open.
+	latest.OthersWeeklySpend = account.OthersWeeklySpend
+	s.hydrateOthersWeeklySpendSingle(ctx, latest)
 	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
@@ -2304,6 +2380,9 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 			account.CoOwnerUserIDs = coOwnerIDs
 		}()
 	}
+	// Budget-mode: hydrate NON-owner weekly spend so the budget gate can fire.
+	// Runs after co-owner hydration so the owner exclusion set is complete.
+	s.hydrateOthersWeeklySpendSingle(ctx, account)
 	return account, nil
 }
 

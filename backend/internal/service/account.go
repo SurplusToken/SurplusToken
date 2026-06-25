@@ -66,6 +66,13 @@ type Account struct {
 	// The full owner set of an account is its primary OwnerUserID ∪ CoOwnerUserIDs.
 	CoOwnerUserIDs []int64
 
+	// OthersWeeklySpend holds the rolling-7-day SUM(actual_cost) consumed by
+	// NON-owners (owner + co-owners excluded) of this account, in USD.
+	// Non-persisted: hydrated on demand (scheduler + pool-display paths) only for
+	// accounts in "budget" contribution share mode. nil means "not hydrated" —
+	// callers must FAIL OPEN (never block) when it is nil.
+	OthersWeeklySpend *float64
+
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
 	modelMappingCacheReady          bool
@@ -1948,6 +1955,41 @@ func (a *Account) GetContributionWeeklyReservePercent() float64 {
 	return clampContributionReservePercent(a.getExtraFloat64("contribution_weekly_reserve_percent"))
 }
 
+// ContributionShareModePercent / ContributionShareModeBudget enumerate the two
+// owner-selectable sharing-gate modes for a contributed account.
+//   - percent (default): gate by rolling-window usage % reserve (existing logic).
+//   - budget: gate by an absolute weekly USD budget for NON-owner consumption.
+const (
+	ContributionShareModePercent = "percent"
+	ContributionShareModeBudget  = "budget"
+)
+
+// GetContributionShareMode returns the owner-selected sharing-gate mode for this
+// account: "budget" only when the stored value trims to exactly "budget",
+// otherwise the default "percent" (covers empty/unset/unknown values).
+func (a *Account) GetContributionShareMode() string {
+	if a == nil {
+		return ContributionShareModePercent
+	}
+	if strings.TrimSpace(a.getExtraString("contribution_share_mode")) == ContributionShareModeBudget {
+		return ContributionShareModeBudget
+	}
+	return ContributionShareModePercent
+}
+
+// GetContributionWeeklyShareBudget returns the owner-set absolute weekly USD
+// budget for NON-owner consumption (>= 0). Only meaningful in "budget" mode.
+func (a *Account) GetContributionWeeklyShareBudget() float64 {
+	if a == nil {
+		return 0
+	}
+	v := a.getExtraFloat64("contribution_weekly_share_budget")
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 func clampContributionReservePercent(value float64) float64 {
 	if value < 0 {
 		return 0
@@ -1976,6 +2018,18 @@ func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluat
 	if a == nil {
 		out.Blocked = true
 		out.Reason = "missing_account"
+		return out
+	}
+
+	// Budget mode: gate NON-owner sharing by an absolute weekly USD budget instead
+	// of the percent-reserve checks below. Percent-mode logic is skipped entirely.
+	if a.GetContributionShareMode() == ContributionShareModeBudget {
+		budget := a.GetContributionWeeklyShareBudget()
+		// Fail OPEN if not hydrated (OthersWeeklySpend == nil) — never wrongly block.
+		if budget > 0 && a.OthersWeeklySpend != nil && *a.OthersWeeklySpend >= budget {
+			out.Blocked = true
+			out.Reason = "weekly_budget_exhausted"
+		}
 		return out
 	}
 

@@ -59,6 +59,9 @@ type UserAccountPoolItem struct {
 	CodexCLIOnly                       bool                   `json:"codex_cli_only"`
 	ContributionFiveHourReservePercent float64                `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   float64                `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              string                 `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      float64                `json:"contribution_weekly_share_budget"`
+	OthersWeeklySpend                  *float64               `json:"others_weekly_spend,omitempty"`
 	ContributionProbeFailurePolicy     string                 `json:"contribution_probe_failure_policy"`
 	ContributionFiveHourUsagePercent   *float64               `json:"contribution_5h_usage_percent,omitempty"`
 	ContributionWeeklyUsagePercent     *float64               `json:"contribution_weekly_usage_percent,omitempty"`
@@ -105,6 +108,8 @@ type CreateUserOAuthAccountRequest struct {
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
@@ -118,6 +123,8 @@ type UpdateUserAccountScopeRequest struct {
 	CodexCLIOnly                       *bool              `json:"codex_cli_only"`
 	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
@@ -183,6 +190,10 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 
 	items := make([]UserAccountPoolItem, 0, len(accounts))
 	for i := range accounts {
+		// Budget-mode accounts: hydrate NON-owner weekly spend (30s cached) before
+		// building the item so EffectiveSchedulable / ContributionProtectionBlocked
+		// reflect the budget gate. No-op for percent-mode accounts.
+		s.hydrateOthersWeeklySpend(ctx, &accounts[i])
 		items = append(items, accountToUserPoolItem(&accounts[i], userID))
 	}
 	return items, result, nil
@@ -219,6 +230,8 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		req.ContributionFiveHourReservePercent,
 		req.ContributionWeeklyReservePercent,
 		req.ContributionProbeFailurePolicy,
+		req.ContributionShareMode,
+		req.ContributionWeeklyShareBudget,
 	)
 	if err != nil {
 		return nil, err
@@ -281,6 +294,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		}
 		account.GroupIDs = append([]int64(nil), req.GroupIDs...)
 	}
+	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -342,6 +356,7 @@ func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, 
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, fmt.Errorf("update user account schedulable: %w", err)
 	}
+	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -378,6 +393,7 @@ func (s *AccountService) UpdateUserAccountLimits(ctx context.Context, userID, ac
 		}
 	}
 
+	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -417,6 +433,8 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 		req.ContributionFiveHourReservePercent,
 		req.ContributionWeeklyReservePercent,
 		req.ContributionProbeFailurePolicy,
+		req.ContributionShareMode,
+		req.ContributionWeeklyShareBudget,
 	)
 	if err != nil {
 		return nil, err
@@ -474,6 +492,7 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 	if err == nil && refreshed != nil {
 		account = refreshed
 	}
+	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -556,6 +575,7 @@ func (s *AccountService) ApplyUserOAuthCredentials(ctx context.Context, userID, 
 		account = refreshed
 	}
 
+	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
 }
@@ -653,6 +673,30 @@ func UserAccountPoolItemFromAccount(account *Account, currentUserID int64) UserA
 	return accountToUserPoolItem(account, currentUserID)
 }
 
+// hydrateOthersWeeklySpend populates account.OthersWeeklySpend for budget-mode
+// accounts so EvaluateContributionProtection (and thus EffectiveSchedulable /
+// ContributionProtectionBlocked) reflect the correct budget-gate state in the
+// pool display. No-op for percent-mode accounts (ZERO extra work) or when already
+// hydrated. Best-effort: on any error the value stays nil and the budget gate
+// fails open. since = now - 7d; owners excluded via SurplusAIOwnerUserIDs().
+func (s *AccountService) hydrateOthersWeeklySpend(ctx context.Context, account *Account) {
+	if account == nil || s.accountRepo == nil {
+		return
+	}
+	if account.GetContributionShareMode() != ContributionShareModeBudget {
+		return
+	}
+	if account.OthersWeeklySpend != nil {
+		return
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	spend, err := s.accountRepo.GetOthersWeeklySpendCached(ctx, account.ID, account.SurplusAIOwnerUserIDs(), since)
+	if err != nil {
+		return
+	}
+	account.OthersWeeklySpend = &spend
+}
+
 func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoolItem {
 	if account == nil {
 		return UserAccountPoolItem{}
@@ -688,6 +732,9 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		CodexCLIOnly:                       isMine && account.IsCodexCLIOnlyEnabled(),
 		ContributionFiveHourReservePercent: account.GetContributionFiveHourReservePercent(),
 		ContributionWeeklyReservePercent:   account.GetContributionWeeklyReservePercent(),
+		ContributionShareMode:              account.GetContributionShareMode(),
+		ContributionWeeklyShareBudget:      account.GetContributionWeeklyShareBudget(),
+		OthersWeeklySpend:                  account.OthersWeeklySpend,
 		ContributionProbeFailurePolicy:     account.GetContributionProbeFailurePolicy(),
 		ContributionFiveHourUsagePercent:   protection.FiveHourUsagePercent,
 		ContributionWeeklyUsagePercent:     protection.WeeklyUsagePercent,
@@ -909,8 +956,35 @@ func isUserAccountPoolPlatformVisible(platform string) bool {
 	}
 }
 
-func buildUserContributionProtectionUpdates(fiveHourReserve, weeklyReserve *float64, probeFailurePolicy *string) (map[string]any, error) {
-	updates := make(map[string]any, 7)
+// normalizeContributionShareMode validates an owner-supplied sharing mode.
+// Empty/whitespace defaults to "percent". Only "percent"/"budget" are accepted.
+func normalizeContributionShareMode(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", ContributionShareModePercent:
+		return ContributionShareModePercent, nil
+	case ContributionShareModeBudget:
+		return ContributionShareModeBudget, nil
+	default:
+		return "", infraerrors.BadRequest("ACCOUNT_SHARE_MODE_INVALID", "contribution_share_mode must be \"percent\" or \"budget\"")
+	}
+}
+
+func buildUserContributionProtectionUpdates(fiveHourReserve, weeklyReserve *float64, probeFailurePolicy *string, shareMode *string, weeklyShareBudget *float64) (map[string]any, error) {
+	updates := make(map[string]any, 9)
+	if shareMode != nil {
+		mode, err := normalizeContributionShareMode(*shareMode)
+		if err != nil {
+			return nil, err
+		}
+		updates["contribution_share_mode"] = mode
+	}
+	if weeklyShareBudget != nil {
+		budget := *weeklyShareBudget
+		if math.IsNaN(budget) || math.IsInf(budget, 0) || budget < 0 || budget > maxUserAccountLimitUSD {
+			return nil, infraerrors.BadRequest("ACCOUNT_LIMIT_OUT_OF_RANGE", fmt.Sprintf("contribution_weekly_share_budget must be between 0 and %.0f", float64(maxUserAccountLimitUSD)))
+		}
+		updates["contribution_weekly_share_budget"] = budget
+	}
 	if err := setUserContributionReserveUpdate(
 		updates,
 		"contribution_5h_reserve_percent",

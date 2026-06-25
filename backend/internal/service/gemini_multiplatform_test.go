@@ -209,6 +209,14 @@ func (m *mockAccountRepoForGemini) SetAccountCoOwners(ctx context.Context, accou
 	return nil
 }
 
+func (m *mockAccountRepoForGemini) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockAccountRepoForGemini) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForGemini)(nil)
 

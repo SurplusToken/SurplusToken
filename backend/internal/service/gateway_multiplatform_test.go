@@ -219,6 +219,14 @@ func (m *mockAccountRepoForPlatform) SetAccountCoOwners(ctx context.Context, acc
 	return nil
 }
 
+func (m *mockAccountRepoForPlatform) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockAccountRepoForPlatform) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForPlatform)(nil)
 

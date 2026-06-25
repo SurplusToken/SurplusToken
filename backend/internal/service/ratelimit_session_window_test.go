@@ -179,6 +179,14 @@ func (m *sessionWindowMockRepo) SetAccountCoOwners(context.Context, int64, []int
 	panic("unexpected")
 }
 
+func (m *sessionWindowMockRepo) SumOthersWeeklySpend(context.Context, int64, []int64, time.Time) (float64, error) {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) GetOthersWeeklySpendCached(context.Context, int64, []int64, time.Time) (float64, error) {
+	panic("unexpected")
+}
+
 // newRateLimitServiceForTest creates a RateLimitService with the given mock repo.
 func newRateLimitServiceForTest(repo AccountRepository) *RateLimitService {
 	return &RateLimitService{accountRepo: repo}

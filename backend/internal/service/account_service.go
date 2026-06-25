@@ -91,6 +91,13 @@ type AccountRepository interface {
 	ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error)
 	// SetAccountCoOwners 以替换语义设置账号的 co-owner 集合（去重、跳过非正整数）。createdBy 为分配该 co-owner 的管理员用户 ID，可为 nil。
 	SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error
+
+	// SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner 之外）
+	// 产生的 SUM(actual_cost)（美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。
+	SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error)
+	// GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”，缓存未命中时调用 SumOthersWeeklySpend。
+	// 缓存错误优雅降级为直接计算。
+	GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error)
 }
 
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.

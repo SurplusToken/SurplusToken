@@ -85,6 +85,8 @@ type createUserOAuthAccountPayload struct {
 	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
 	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
@@ -112,6 +114,8 @@ type updateUserAccountScopePayload struct {
 	CodexCLIOnly                       *bool              `json:"codex_cli_only"`
 	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
@@ -150,6 +154,8 @@ type userCodexSessionImportPayload struct {
 	CodexCLIOnly                       *bool          `json:"codex_cli_only"`
 	ContributionFiveHourReservePercent *float64       `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64       `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string        `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64       `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string        `json:"contribution_probe_failure_policy"`
 }
 
@@ -327,6 +333,8 @@ func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
 		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
 		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionShareMode:              payload.ContributionShareMode,
+		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
 		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
 	}
 
@@ -688,6 +696,8 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 					CodexCLIOnly:                       payload.CodexCLIOnly,
 					ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
 					ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+					ContributionShareMode:              payload.ContributionShareMode,
+					ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
 					ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
 				})
 			}
@@ -729,6 +739,8 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 			AutoPauseOnExpired:                 autoPauseOnExpired,
 			ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
 			ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+			ContributionShareMode:              payload.ContributionShareMode,
+			ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
 			ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
 		})
 		if createErr != nil {
@@ -844,6 +856,8 @@ func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
 		CodexCLIOnly:                       payload.CodexCLIOnly,
 		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
 		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionShareMode:              payload.ContributionShareMode,
+		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
 		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
 	})
 	if err != nil {

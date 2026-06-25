@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -29,9 +30,20 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 
 	entsql "entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
+)
+
+const (
+	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。
+	// 格式: others_weekly_spend:account:{accountID}
+	// 镜像 session_limit_cache.go 中 window_cost 缓存的 rdb 用法与 30s TTL。
+	othersWeeklySpendKeyPrefix = "others_weekly_spend:account:"
+
+	// othersWeeklySpendCacheTTL 是“他人周消费”缓存 TTL（30 秒），与窗口费用缓存一致。
+	othersWeeklySpendCacheTTL = 30 * time.Second
 )
 
 // accountRepository 实现 service.AccountRepository 接口。
@@ -49,6 +61,9 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
+	// rdb 用于“他人周消费”(others-weekly-spend) 的 30s 缓存。可为 nil：
+	// nil 时 GetOthersWeeklySpendCached 直接走 DB，不缓存（优雅降级）。
+	rdb *redis.Client
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -68,8 +83,11 @@ const postgresParameterBatchSize = 50000
 
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
-func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AccountRepository {
-	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
+// rdb 用于“他人周消费”缓存，可为 nil（此时直接查询 DB，不缓存）。
+func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache, rdb *redis.Client) service.AccountRepository {
+	repo := newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
+	repo.rdb = rdb
+	return repo
 }
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
@@ -2312,6 +2330,64 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 }
 
 // ListCoOwnerUserIDsByAccount 返回指定账号的全部 co-owner 用户 ID。
+// SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner
+// 之外的用户）产生的 SUM(actual_cost)（美元）。ownerUserIDs 为账号 owner 集合
+// （主 owner ∪ co-owner）；为空时不排除任何用户（即统计全部消费）。
+// 使用 idx_usage_logs_account_created_at 命中 (account_id, created_at) 索引。
+func (r *accountRepository) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	// (user_id <> ALL($3)) 在数组为空时对所有行成立 -> 不排除任何用户。
+	const query = `
+		SELECT COALESCE(SUM(actual_cost), 0) FROM usage_logs
+		WHERE account_id = $1 AND created_at >= $2 AND (user_id <> ALL($3))
+	`
+	owners := ownerUserIDs
+	if owners == nil {
+		owners = []int64{}
+	}
+	var total float64
+	if err := scanSingleRow(
+		ctx,
+		r.sql,
+		query,
+		[]any{accountID, since, pq.Array(owners)},
+		&total,
+	); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// othersWeeklySpendKey 生成“他人周消费”缓存的 Redis 键。
+func othersWeeklySpendKey(accountID int64) string {
+	return fmt.Sprintf("%s%d", othersWeeklySpendKeyPrefix, accountID)
+}
+
+// GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”。
+// 缓存键 others_weekly_spend:account:<id>，TTL 30s，镜像 session_limit_cache.go
+// 中 window_cost 的 rdb 用法。缓存错误优雅降级：直接计算，不影响业务。
+func (r *accountRepository) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	// rdb 缺失时直接查询 DB（不缓存）。
+	if r.rdb == nil {
+		return r.SumOthersWeeklySpend(ctx, accountID, ownerUserIDs, since)
+	}
+	key := othersWeeklySpendKey(accountID)
+	if val, err := r.rdb.Get(ctx, key).Float64(); err == nil {
+		return val, nil
+	} else if err != redis.Nil {
+		// 缓存读错误：降级为直接计算，不缓存本次结果。
+		slog.Warn("others-weekly-spend cache get failed; computing from DB",
+			"account_id", accountID, "error", err)
+		return r.SumOthersWeeklySpend(ctx, accountID, ownerUserIDs, since)
+	}
+	// 缓存未命中：计算并回填（忽略写缓存错误）。
+	total, err := r.SumOthersWeeklySpend(ctx, accountID, ownerUserIDs, since)
+	if err != nil {
+		return 0, err
+	}
+	_ = r.rdb.Set(ctx, key, total, othersWeeklySpendCacheTTL).Err()
+	return total, nil
+}
+
 func (r *accountRepository) ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT user_id

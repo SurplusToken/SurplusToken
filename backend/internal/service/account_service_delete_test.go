@@ -231,6 +231,14 @@ func (s *accountRepoStub) SetAccountCoOwners(ctx context.Context, accountID int6
 	panic("unexpected SetAccountCoOwners call")
 }
 
+func (s *accountRepoStub) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (s *accountRepoStub) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
 // TestAccountService_Delete_NotFound 测试删除不存在的账号时返回正确的错误。
 // 预期行为：
 //   - ExistsByID 返回 false（账号不存在）

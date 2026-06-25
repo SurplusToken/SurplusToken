@@ -542,6 +542,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"mixed_scheduling",
 		"contribution_5h_reserve_percent",
 		"contribution_weekly_reserve_percent",
+		"contribution_share_mode",
+		"contribution_weekly_share_budget",
 		"contribution_probe_failure_policy",
 		"codex_usage_updated_at",
 		"codex_5h_used_percent",

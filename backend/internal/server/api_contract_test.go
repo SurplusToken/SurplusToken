@@ -1846,6 +1846,14 @@ func (s *stubAccountRepo) SetAccountCoOwners(ctx context.Context, accountID int6
 	return nil
 }
 
+func (s *stubAccountRepo) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (s *stubAccountRepo) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
 type stubProxyRepo struct{}
 
 func (stubProxyRepo) Create(ctx context.Context, proxy *service.Proxy) error {

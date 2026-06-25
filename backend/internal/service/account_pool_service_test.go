@@ -378,6 +378,8 @@ func TestBuildUserContributionProtectionUpdatesMirrorsReserveToAutoPause(t *test
 		accountPoolFloatPtr(0),
 		accountPoolFloatPtr(100),
 		accountPoolStringPtr(ContributionProbeFailurePolicyContinue),
+		nil,
+		nil,
 	)
 
 	require.NoError(t, err)
