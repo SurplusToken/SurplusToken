@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent/account"
+	"github.com/Wei-Shaw/sub2api/ent/accountcoowner"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
@@ -252,6 +253,12 @@ func init() {
 	accountDescSessionWindowStatus := accountFields[26].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
+	accountcoownerFields := schema.AccountCoOwner{}.Fields()
+	_ = accountcoownerFields
+	// accountcoownerDescCreatedAt is the schema descriptor for created_at field.
+	accountcoownerDescCreatedAt := accountcoownerFields[3].Descriptor()
+	// accountcoowner.DefaultCreatedAt holds the default value on creation for the created_at field.
+	accountcoowner.DefaultCreatedAt = accountcoownerDescCreatedAt.Default.(func() time.Time)
 	accountgroupFields := schema.AccountGroup{}.Fields()
 	_ = accountgroupFields
 	// accountgroupDescPriority is the schema descriptor for priority field.

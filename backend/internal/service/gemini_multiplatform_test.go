@@ -193,6 +193,22 @@ func (m *mockAccountRepoForGemini) RevertProxyFallback(ctx context.Context, acco
 	return nil
 }
 
+func (m *mockAccountRepoForGemini) ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (m *mockAccountRepoForGemini) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	return map[int64][]int64{}, nil
+}
+
+func (m *mockAccountRepoForGemini) ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (m *mockAccountRepoForGemini) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
+	return nil
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForGemini)(nil)
 

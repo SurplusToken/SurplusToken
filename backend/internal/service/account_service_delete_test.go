@@ -215,6 +215,22 @@ func (s *accountRepoStub) RevertProxyFallback(ctx context.Context, accountID int
 	panic("unexpected RevertProxyFallback call")
 }
 
+func (s *accountRepoStub) ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error) {
+	panic("unexpected ListCoOwnerUserIDsByAccount call")
+}
+
+func (s *accountRepoStub) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	panic("unexpected ListCoOwnersByAccountIDs call")
+}
+
+func (s *accountRepoStub) ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error) {
+	panic("unexpected ListCoOwnedAccountIDsByUser call")
+}
+
+func (s *accountRepoStub) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
+	panic("unexpected SetAccountCoOwners call")
+}
+
 // TestAccountService_Delete_NotFound 测试删除不存在的账号时返回正确的错误。
 // 预期行为：
 //   - ExistsByID 返回 false（账号不存在）

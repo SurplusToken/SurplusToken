@@ -213,6 +213,32 @@ var (
 			},
 		},
 	}
+	// AccountCoOwnersColumns holds the columns for the "account_co_owners" table.
+	AccountCoOwnersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "account_id", Type: field.TypeInt64},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "created_by", Type: field.TypeInt64, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// AccountCoOwnersTable holds the schema information for the "account_co_owners" table.
+	AccountCoOwnersTable = &schema.Table{
+		Name:       "account_co_owners",
+		Columns:    AccountCoOwnersColumns,
+		PrimaryKey: []*schema.Column{AccountCoOwnersColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "accountcoowner_account_id_user_id",
+				Unique:  true,
+				Columns: []*schema.Column{AccountCoOwnersColumns[1], AccountCoOwnersColumns[2]},
+			},
+			{
+				Name:    "accountcoowner_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountCoOwnersColumns[2]},
+			},
+		},
+	}
 	// AccountGroupsColumns holds the columns for the "account_groups" table.
 	AccountGroupsColumns = []*schema.Column{
 		{Name: "priority", Type: field.TypeInt, Default: 50},
@@ -1783,6 +1809,7 @@ var (
 	Tables = []*schema.Table{
 		APIKeysTable,
 		AccountsTable,
+		AccountCoOwnersTable,
 		AccountGroupsTable,
 		AnnouncementsTable,
 		AnnouncementReadsTable,
@@ -1828,6 +1855,9 @@ func init() {
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
+	}
+	AccountCoOwnersTable.Annotation = &entsql.Annotation{
+		Table: "account_co_owners",
 	}
 	AccountGroupsTable.ForeignKeys[0].RefTable = AccountsTable
 	AccountGroupsTable.ForeignKeys[1].RefTable = GroupsTable

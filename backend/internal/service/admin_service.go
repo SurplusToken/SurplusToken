@@ -97,6 +97,10 @@ type AdminService interface {
 	// ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
 	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
+	// SetAccountCoOwners 替换账号的 co-owner 集合（去重、跳过非正整数）。createdBy 为操作管理员的用户 ID（0 表示未知，写入 NULL）。
+	SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy int64) error
+	// GetAccountCoOwnerUserIDs 返回账号当前的 co-owner 用户 ID 列表。
+	GetAccountCoOwnerUserIDs(ctx context.Context, accountID int64) ([]int64, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
@@ -2593,6 +2597,27 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 
 func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, error) {
 	return s.accountRepo.GetByID(ctx, id)
+}
+
+// SetAccountCoOwners 校验账号存在后，以替换语义设置其 co-owner 集合。
+// createdBy 为操作管理员的用户 ID：> 0 时记录到 created_by，否则写入 NULL。
+func (s *adminServiceImpl) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy int64) error {
+	if _, err := s.accountRepo.GetByID(ctx, accountID); err != nil {
+		return err
+	}
+	var createdByPtr *int64
+	if createdBy > 0 {
+		createdByPtr = &createdBy
+	}
+	return s.accountRepo.SetAccountCoOwners(ctx, accountID, userIDs, createdByPtr)
+}
+
+// GetAccountCoOwnerUserIDs 校验账号存在后，返回其 co-owner 用户 ID 列表。
+func (s *adminServiceImpl) GetAccountCoOwnerUserIDs(ctx context.Context, accountID int64) ([]int64, error) {
+	if _, err := s.accountRepo.GetByID(ctx, accountID); err != nil {
+		return nil, err
+	}
+	return s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, accountID)
 }
 
 func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error) {

@@ -529,7 +529,7 @@ func TestFilterSurplusAISchedulableAccountsWeeklyReserve(t *testing.T) {
 		},
 	}
 
-	filtered := filterSurplusAISchedulableAccounts(accounts)
+	filtered := filterSurplusAISchedulableAccounts(context.Background(), accounts)
 
 	// Account 1 (OAuth) is filtered out by the weekly-reserve gate: weekly
 	// remaining (100-90=10) is below quota_weekly_min_remaining (20).
@@ -556,4 +556,35 @@ func accountPoolIntPtr(v int) *int {
 
 func accountPoolStringPtr(v string) *string {
 	return &v
+}
+
+func TestFilterSurplusAISchedulableAccounts_OwnerBypassesContributionProtection(t *testing.T) {
+	now := time.Now()
+	ownerID := int64(42)
+	// Weekly remaining (100-90=10) is below quota_weekly_min_remaining (20), so
+	// contribution protection blocks this account for non-owners.
+	acct := Account{
+		ID:          1,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+		Extra: map[string]any{
+			"quota_weekly_limit":         100.0,
+			"quota_weekly_used":          90.0,
+			"quota_weekly_min_remaining": 20.0,
+			"quota_weekly_start":         now.Add(-time.Hour).Format(time.RFC3339),
+		},
+	}
+	accounts := []Account{acct}
+
+	// No requester / a different user: protection applies → filtered out.
+	require.Empty(t, filterSurplusAISchedulableAccounts(context.Background(), accounts))
+	require.Empty(t, filterSurplusAISchedulableAccounts(WithRequestingUserID(context.Background(), 999), accounts))
+
+	// The owner bypasses contribution protection → account stays schedulable.
+	kept := filterSurplusAISchedulableAccounts(WithRequestingUserID(context.Background(), ownerID), accounts)
+	require.Len(t, kept, 1)
+	require.Equal(t, int64(1), kept[0].ID)
 }

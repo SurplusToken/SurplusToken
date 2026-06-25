@@ -25,6 +25,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -1963,6 +1964,87 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// AccountOwnersResponse is the response body for the account owners endpoints.
+type AccountOwnersResponse struct {
+	PrimaryOwnerUserID *int64  `json:"primary_owner_user_id"`
+	CoOwnerUserIDs     []int64 `json:"co_owner_user_ids"`
+}
+
+// SetAccountOwnersRequest is the request body for replacing an account's co-owner set.
+type SetAccountOwnersRequest struct {
+	UserIDs []int64 `json:"user_ids"`
+}
+
+// GetOwners returns the owner set (primary owner + admin-assigned co-owners) of an account.
+// GET /api/v1/admin/accounts/:id/owners
+func (h *AccountHandler) GetOwners(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	coOwnerIDs, err := h.adminService.GetAccountCoOwnerUserIDs(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, AccountOwnersResponse{
+		PrimaryOwnerUserID: account.OwnerUserID,
+		CoOwnerUserIDs:     coOwnerIDs,
+	})
+}
+
+// SetOwners replaces the co-owner set of an account.
+// PUT /api/v1/admin/accounts/:id/owners
+func (h *AccountHandler) SetOwners(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req SetAccountOwnersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	var createdBy int64
+	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
+		createdBy = subject.UserID
+	}
+
+	if err := h.adminService.SetAccountCoOwners(c.Request.Context(), accountID, req.UserIDs, createdBy); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	coOwnerIDs, err := h.adminService.GetAccountCoOwnerUserIDs(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, AccountOwnersResponse{
+		PrimaryOwnerUserID: account.OwnerUserID,
+		CoOwnerUserIDs:     coOwnerIDs,
+	})
 }
 
 // GetAvailableModels handles getting available models for an account

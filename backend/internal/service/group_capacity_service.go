@@ -70,7 +70,7 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 	if len(accounts) == 0 {
 		return GroupCapacitySummary{}, nil
 	}
-	accounts = filterSurplusAISchedulableAccounts(accounts)
+	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
 	if len(accounts) == 0 {
 		return GroupCapacitySummary{}, nil
 	}

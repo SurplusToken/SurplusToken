@@ -2447,7 +2447,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
-			accounts = filterSurplusAISchedulableAccounts(accounts)
+			accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
 			slog.Debug("account_scheduling_list_snapshot",
 				"group_id", derefGroupID(groupID),
 				"platform", platform,
@@ -2532,7 +2532,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 			"error", err)
 		return nil, useMixed, err
 	}
-	accounts = filterSurplusAISchedulableAccounts(accounts)
+	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
 	slog.Debug("account_scheduling_list_single",
 		"group_id", derefGroupID(groupID),
 		"platform", platform,
@@ -9125,19 +9125,32 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
-	if p.Account.OwnerUserID != nil && *p.Account.OwnerUserID > 0 && *p.Account.OwnerUserID != p.User.ID {
+	// Contribution reward: the account's owner set is its primary owner_user_id
+	// unioned with admin-assigned co-owners. The consumer is excluded from the
+	// owner set (no self-reward); if the consumer is the only owner there is no
+	// reward. When eligible owners remain, the reward is split evenly across them.
+	if eligibleOwners := excludeUserID(p.Account.SurplusAIOwnerUserIDs(), p.User.ID); len(eligibleOwners) > 0 {
 		if usageLog != nil && usageLog.AccountStatsCost != nil {
 			cmd.ContributionAccountStatsCost = usageLog.AccountStatsCost
 		}
 		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
 		rewardAmount := roundTo(p.Cost.ActualCost*(rewardRate/100), 8)
 		if rewardAmount > 0 {
-			cmd.ContributorUserID = *p.Account.OwnerUserID
-			cmd.ContributionRewardAmount = rewardAmount
-			cmd.ContributionRewardRatePercent = rewardRate
-			cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
-			cmd.ContributionTotalCost = p.Cost.TotalCost
-			cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
+			perOwner := roundTo(rewardAmount/float64(len(eligibleOwners)), 8)
+			if perOwner > 0 {
+				shares := make([]ContributionRewardShare, 0, len(eligibleOwners))
+				for _, ownerID := range eligibleOwners {
+					shares = append(shares, ContributionRewardShare{UserID: ownerID, Amount: perOwner})
+				}
+				cmd.ContributionRewardShares = shares
+				cmd.ContributionRewardRatePercent = rewardRate
+				cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
+				cmd.ContributionTotalCost = p.Cost.TotalCost
+				cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
+				// Back-compat: mirror the first share onto the legacy single fields.
+				cmd.ContributorUserID = shares[0].UserID
+				cmd.ContributionRewardAmount = shares[0].Amount
+			}
 		}
 	}
 
@@ -10570,7 +10583,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if err != nil || len(accounts) == 0 {
 		return nil
 	}
-	accounts = filterSurplusAISchedulableAccounts(accounts)
+	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
 	if len(accounts) == 0 {
 		return nil
 	}

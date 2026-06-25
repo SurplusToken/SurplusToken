@@ -16,6 +16,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/Wei-Shaw/sub2api/ent/account"
+	"github.com/Wei-Shaw/sub2api/ent/accountcoowner"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
@@ -63,6 +64,8 @@ type Client struct {
 	APIKey *APIKeyClient
 	// Account is the client for interacting with the Account builders.
 	Account *AccountClient
+	// AccountCoOwner is the client for interacting with the AccountCoOwner builders.
+	AccountCoOwner *AccountCoOwnerClient
 	// AccountGroup is the client for interacting with the AccountGroup builders.
 	AccountGroup *AccountGroupClient
 	// Announcement is the client for interacting with the Announcement builders.
@@ -142,6 +145,7 @@ func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.APIKey = NewAPIKeyClient(c.config)
 	c.Account = NewAccountClient(c.config)
+	c.AccountCoOwner = NewAccountCoOwnerClient(c.config)
 	c.AccountGroup = NewAccountGroupClient(c.config)
 	c.Announcement = NewAnnouncementClient(c.config)
 	c.AnnouncementRead = NewAnnouncementReadClient(c.config)
@@ -269,6 +273,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		config:                        cfg,
 		APIKey:                        NewAPIKeyClient(cfg),
 		Account:                       NewAccountClient(cfg),
+		AccountCoOwner:                NewAccountCoOwnerClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
@@ -323,6 +328,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		config:                        cfg,
 		APIKey:                        NewAPIKeyClient(cfg),
 		Account:                       NewAccountClient(cfg),
+		AccountCoOwner:                NewAccountCoOwnerClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
@@ -385,8 +391,8 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
+		c.APIKey, c.Account, c.AccountCoOwner, c.AccountGroup, c.Announcement,
+		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
 		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
@@ -404,8 +410,8 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
+		c.APIKey, c.Account, c.AccountCoOwner, c.AccountGroup, c.Announcement,
+		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
 		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
@@ -426,6 +432,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.APIKey.mutate(ctx, m)
 	case *AccountMutation:
 		return c.Account.mutate(ctx, m)
+	case *AccountCoOwnerMutation:
+		return c.AccountCoOwner.mutate(ctx, m)
 	case *AccountGroupMutation:
 		return c.AccountGroup.mutate(ctx, m)
 	case *AnnouncementMutation:
@@ -876,6 +884,139 @@ func (c *AccountClient) mutate(ctx context.Context, m *AccountMutation) (Value, 
 		return (&AccountDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Account mutation op: %q", m.Op())
+	}
+}
+
+// AccountCoOwnerClient is a client for the AccountCoOwner schema.
+type AccountCoOwnerClient struct {
+	config
+}
+
+// NewAccountCoOwnerClient returns a client for the AccountCoOwner from the given config.
+func NewAccountCoOwnerClient(c config) *AccountCoOwnerClient {
+	return &AccountCoOwnerClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `accountcoowner.Hooks(f(g(h())))`.
+func (c *AccountCoOwnerClient) Use(hooks ...Hook) {
+	c.hooks.AccountCoOwner = append(c.hooks.AccountCoOwner, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `accountcoowner.Intercept(f(g(h())))`.
+func (c *AccountCoOwnerClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AccountCoOwner = append(c.inters.AccountCoOwner, interceptors...)
+}
+
+// Create returns a builder for creating a AccountCoOwner entity.
+func (c *AccountCoOwnerClient) Create() *AccountCoOwnerCreate {
+	mutation := newAccountCoOwnerMutation(c.config, OpCreate)
+	return &AccountCoOwnerCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AccountCoOwner entities.
+func (c *AccountCoOwnerClient) CreateBulk(builders ...*AccountCoOwnerCreate) *AccountCoOwnerCreateBulk {
+	return &AccountCoOwnerCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AccountCoOwnerClient) MapCreateBulk(slice any, setFunc func(*AccountCoOwnerCreate, int)) *AccountCoOwnerCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AccountCoOwnerCreateBulk{err: fmt.Errorf("calling to AccountCoOwnerClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AccountCoOwnerCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AccountCoOwnerCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AccountCoOwner.
+func (c *AccountCoOwnerClient) Update() *AccountCoOwnerUpdate {
+	mutation := newAccountCoOwnerMutation(c.config, OpUpdate)
+	return &AccountCoOwnerUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AccountCoOwnerClient) UpdateOne(_m *AccountCoOwner) *AccountCoOwnerUpdateOne {
+	mutation := newAccountCoOwnerMutation(c.config, OpUpdateOne, withAccountCoOwner(_m))
+	return &AccountCoOwnerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AccountCoOwnerClient) UpdateOneID(id int64) *AccountCoOwnerUpdateOne {
+	mutation := newAccountCoOwnerMutation(c.config, OpUpdateOne, withAccountCoOwnerID(id))
+	return &AccountCoOwnerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AccountCoOwner.
+func (c *AccountCoOwnerClient) Delete() *AccountCoOwnerDelete {
+	mutation := newAccountCoOwnerMutation(c.config, OpDelete)
+	return &AccountCoOwnerDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AccountCoOwnerClient) DeleteOne(_m *AccountCoOwner) *AccountCoOwnerDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AccountCoOwnerClient) DeleteOneID(id int64) *AccountCoOwnerDeleteOne {
+	builder := c.Delete().Where(accountcoowner.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AccountCoOwnerDeleteOne{builder}
+}
+
+// Query returns a query builder for AccountCoOwner.
+func (c *AccountCoOwnerClient) Query() *AccountCoOwnerQuery {
+	return &AccountCoOwnerQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAccountCoOwner},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AccountCoOwner entity by its id.
+func (c *AccountCoOwnerClient) Get(ctx context.Context, id int64) (*AccountCoOwner, error) {
+	return c.Query().Where(accountcoowner.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AccountCoOwnerClient) GetX(ctx context.Context, id int64) *AccountCoOwner {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AccountCoOwnerClient) Hooks() []Hook {
+	return c.hooks.AccountCoOwner
+}
+
+// Interceptors returns the client interceptors.
+func (c *AccountCoOwnerClient) Interceptors() []Interceptor {
+	return c.inters.AccountCoOwner
+}
+
+func (c *AccountCoOwnerClient) mutate(ctx context.Context, m *AccountCoOwnerMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AccountCoOwnerCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AccountCoOwnerUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AccountCoOwnerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AccountCoOwnerDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AccountCoOwner mutation op: %q", m.Op())
 	}
 }
 
@@ -6209,8 +6350,8 @@ func (c *UserSubscriptionClient) mutate(ctx context.Context, m *UserSubscription
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
+		APIKey, Account, AccountCoOwner, AccountGroup, Announcement, AnnouncementRead,
+		AuthIdentity, AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
@@ -6220,8 +6361,8 @@ type (
 		UserSubscription []ent.Hook
 	}
 	inters struct {
-		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
+		APIKey, Account, AccountCoOwner, AccountGroup, Announcement, AnnouncementRead,
+		AuthIdentity, AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,

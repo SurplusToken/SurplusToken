@@ -88,6 +88,23 @@ func (s *ContributionService) invalidateContributionCaches(ctx context.Context, 
 	}
 }
 
+// excludeUserID returns ids with every occurrence of exclude removed, preserving
+// order. Used to drop the consumer from an account's owner set so they never
+// receive a self-reward.
+func excludeUserID(ids []int64, exclude int64) []int64 {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id == exclude {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
 func clampContributionRewardRate(value float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return ContributionRewardRateDefault

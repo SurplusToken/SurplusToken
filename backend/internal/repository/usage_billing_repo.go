@@ -142,8 +142,20 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
-	if cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
-		if err := accrueUsageBillingContributionReward(ctx, tx, cmd); err != nil {
+	// Contribution reward accrual. Prefer the per-owner split (multi-owner
+	// accounts); fall back to the legacy single contributor for back-compat.
+	// All accruals happen within the same transaction.
+	if len(cmd.ContributionRewardShares) > 0 {
+		for _, share := range cmd.ContributionRewardShares {
+			if share.UserID <= 0 || share.Amount <= 0 {
+				continue
+			}
+			if err := accrueUsageBillingContributionReward(ctx, tx, share.UserID, share.Amount, cmd); err != nil {
+				return err
+			}
+		}
+	} else if cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
+		if err := accrueUsageBillingContributionReward(ctx, tx, cmd.ContributorUserID, cmd.ContributionRewardAmount, cmd); err != nil {
 			return err
 		}
 	}
@@ -342,15 +354,20 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 	return &state, nil
 }
 
-func accrueUsageBillingContributionReward(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
-	if cmd == nil || cmd.ContributorUserID <= 0 || cmd.ContributionRewardAmount <= 0 {
+// accrueUsageBillingContributionReward accrues one contribution reward of
+// `amount` to `contributorUserID`. The contributor/amount are parameterized so a
+// single account reward can be split evenly across multiple owners (one call per
+// share); cmd supplies the shared metadata (freeze hours, total cost, account
+// stats cost, rate multiplier, reward rate) and request/consumer identifiers.
+func accrueUsageBillingContributionReward(ctx context.Context, tx *sql.Tx, contributorUserID int64, amount float64, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || contributorUserID <= 0 || amount <= 0 {
 		return nil
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO user_contributions (user_id, created_at, updated_at)
 VALUES ($1, NOW(), NOW())
-ON CONFLICT (user_id) DO NOTHING`, cmd.ContributorUserID); err != nil {
+ON CONFLICT (user_id) DO NOTHING`, contributorUserID); err != nil {
 		return err
 	}
 
@@ -360,7 +377,7 @@ UPDATE user_contributions
 SET contribution_frozen_quota = contribution_frozen_quota + $1,
     contribution_history_quota = contribution_history_quota + $1,
     updated_at = NOW()
-WHERE user_id = $2`, cmd.ContributionRewardAmount, cmd.ContributorUserID); err != nil {
+WHERE user_id = $2`, amount, contributorUserID); err != nil {
 			return err
 		}
 	} else {
@@ -369,7 +386,7 @@ UPDATE user_contributions
 SET contribution_quota = contribution_quota + $1,
     contribution_history_quota = contribution_history_quota + $1,
     updated_at = NOW()
-WHERE user_id = $2`, cmd.ContributionRewardAmount, cmd.ContributorUserID); err != nil {
+WHERE user_id = $2`, amount, contributorUserID); err != nil {
 			return err
 		}
 	}
@@ -387,8 +404,8 @@ INSERT INTO user_contribution_ledger (
     $13, $14, $15, $16, NOW() + make_interval(hours => $17),
     NOW(), NOW()
 )`,
-			cmd.ContributorUserID,
-			cmd.ContributionRewardAmount,
+			contributorUserID,
+			amount,
 			cmd.RequestID,
 			nullablePositiveInt64(cmd.APIKeyID),
 			nullablePositiveInt64(cmd.AccountID),
@@ -420,8 +437,8 @@ INSERT INTO user_contribution_ledger (
     $13, $14, $15, $16,
     NOW(), NOW()
 )`,
-		cmd.ContributorUserID,
-		cmd.ContributionRewardAmount,
+		contributorUserID,
+		amount,
 		cmd.RequestID,
 		nullablePositiveInt64(cmd.APIKeyID),
 		nullablePositiveInt64(cmd.AccountID),

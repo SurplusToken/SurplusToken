@@ -2,6 +2,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
@@ -59,6 +60,11 @@ type Account struct {
 	AccountGroups []AccountGroup
 	GroupIDs      []int64
 	Groups        []*Group
+
+	// CoOwnerUserIDs holds admin-assigned co-owner user IDs for this account.
+	// Non-persisted: hydrated at load time from the account_co_owners table.
+	// The full owner set of an account is its primary OwnerUserID ∪ CoOwnerUserIDs.
+	CoOwnerUserIDs []int64
 
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
@@ -181,6 +187,75 @@ func (a *Account) IsUserContributed() bool {
 	return a != nil && a.OwnerUserID != nil && *a.OwnerUserID > 0
 }
 
+type requestingUserIDContextKeyType struct{}
+
+var requestingUserIDContextKey = requestingUserIDContextKeyType{}
+
+// WithRequestingUserID records the platform user making the current request so
+// downstream scheduling can let owners use their own contributed account
+// unrestricted (bypassing contribution reserve protection and quota auto-pause).
+func WithRequestingUserID(ctx context.Context, userID int64) context.Context {
+	if userID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, requestingUserIDContextKey, userID)
+}
+
+// RequestingUserIDFromContext returns the requesting platform user ID, or 0.
+func RequestingUserIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	if v, ok := ctx.Value(requestingUserIDContextKey).(int64); ok {
+		return v
+	}
+	return 0
+}
+
+// IsSurplusAIOwner reports whether userID is an owner of this account. The owner
+// set is the single primary owner_user_id unioned with the admin-assigned
+// co-owners (account_co_owners), hydrated into CoOwnerUserIDs at load time.
+func (a *Account) IsSurplusAIOwner(userID int64) bool {
+	if a == nil || userID <= 0 {
+		return false
+	}
+	if a.OwnerUserID != nil && *a.OwnerUserID == userID {
+		return true
+	}
+	for _, coOwnerID := range a.CoOwnerUserIDs {
+		if coOwnerID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// SurplusAIOwnerUserIDs returns the deduped union of the primary owner_user_id
+// (when > 0) and the admin-assigned co-owners. Order is primary owner first,
+// then co-owners in their hydrated order. Non-positive IDs are skipped.
+func (a *Account) SurplusAIOwnerUserIDs() []int64 {
+	if a == nil {
+		return nil
+	}
+	owners := make([]int64, 0, len(a.CoOwnerUserIDs)+1)
+	seen := make(map[int64]struct{}, len(a.CoOwnerUserIDs)+1)
+	if a.OwnerUserID != nil && *a.OwnerUserID > 0 {
+		owners = append(owners, *a.OwnerUserID)
+		seen[*a.OwnerUserID] = struct{}{}
+	}
+	for _, coOwnerID := range a.CoOwnerUserIDs {
+		if coOwnerID <= 0 {
+			continue
+		}
+		if _, ok := seen[coOwnerID]; ok {
+			continue
+		}
+		seen[coOwnerID] = struct{}{}
+		owners = append(owners, coOwnerID)
+	}
+	return owners
+}
+
 // isSurplusAIUpstreamAccountTypeAllowed governs which account TYPES admins may
 // create/manage on the platform. Admins may add any standard upstream type —
 // including api-key / passthrough accounts for Chinese domestic OpenAI-compatible
@@ -196,15 +271,22 @@ func isSurplusAIUpstreamAccountTypeAllowed(accountType string) bool {
 	}
 }
 
-func filterSurplusAISchedulableAccounts(accounts []Account) []Account {
+func filterSurplusAISchedulableAccounts(ctx context.Context, accounts []Account) []Account {
 	if len(accounts) == 0 {
 		return accounts
 	}
+	requesterID := RequestingUserIDFromContext(ctx)
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
-		if account.IsSurplusAISchedulableType() && account.IsSchedulable() && account.IsSurplusAIContributionProtectionSchedulable() {
-			filtered = append(filtered, account)
+		if !account.IsSurplusAISchedulableType() || !account.IsSchedulable() {
+			continue
 		}
+		// Owners always retain access to their own contributed account, so they
+		// bypass contribution reserve protection. Non-owners are gated by it.
+		if !account.IsSurplusAIOwner(requesterID) && !account.IsSurplusAIContributionProtectionSchedulable() {
+			continue
+		}
+		filtered = append(filtered, account)
 	}
 	return filtered
 }

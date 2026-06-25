@@ -391,6 +391,14 @@ func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, 
 	return &account, nil
 }
 
+func (s *stubAdminService) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy int64) error {
+	return nil
+}
+
+func (s *stubAdminService) GetAccountCoOwnerUserIDs(ctx context.Context, accountID int64) ([]int64, error) {
+	return nil, nil
+}
+
 func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *service.BulkUpdateAccountsInput) (*service.BulkUpdateAccountsResult, error) {
 	if s.bulkUpdateAccountErr != nil {
 		return nil, s.bulkUpdateAccountErr

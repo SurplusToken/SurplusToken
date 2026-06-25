@@ -33,6 +33,18 @@ func (f AccountFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AccountMutation", m)
 }
 
+// The AccountCoOwnerFunc type is an adapter to allow the use of ordinary
+// function as AccountCoOwner mutator.
+type AccountCoOwnerFunc func(context.Context, *ent.AccountCoOwnerMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AccountCoOwnerFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AccountCoOwnerMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AccountCoOwnerMutation", m)
+}
+
 // The AccountGroupFunc type is an adapter to allow the use of ordinary
 // function as AccountGroup mutator.
 type AccountGroupFunc func(context.Context, *ent.AccountGroupMutation) (ent.Value, error)

@@ -1336,19 +1336,27 @@ func openAICompactSupportTier(account *Account) int {
 // isOpenAIAccountEligibleForRequest centralises the schedulable / OpenAI / model /
 // compact-support checks used during account selection.
 func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	if account == nil || !account.IsOpenAI() || !account.IsSurplusAISchedulableType() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) || !account.IsSurplusAIContributionQuotaSchedulable() {
+	if account == nil || !account.IsOpenAI() || !account.IsSurplusAISchedulableType() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
-	if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
-		// Debug level: this fires per-candidate on the scheduling hot path, so Info
-		// would amplify into log spam once several accounts cross the threshold.
-		slog.Debug("account_auto_paused_by_quota",
-			"account_id", account.ID,
-			"window", reason.window,
-			"threshold", reason.threshold,
-			"utilization", reason.utilization,
-		)
-		return false
+	// Owners use their own contributed account unrestricted: bypass contribution
+	// reserve protection and quota auto-pause. Non-owners remain gated by both.
+	ownerBypass := account.IsSurplusAIOwner(RequestingUserIDFromContext(ctx))
+	if !ownerBypass {
+		if !account.IsSurplusAIContributionQuotaSchedulable() {
+			return false
+		}
+		if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
+			// Debug level: this fires per-candidate on the scheduling hot path, so Info
+			// would amplify into log spam once several accounts cross the threshold.
+			slog.Debug("account_auto_paused_by_quota",
+				"account_id", account.ID,
+				"window", reason.window,
+				"threshold", reason.threshold,
+				"utilization", reason.utilization,
+			)
+			return false
+		}
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return false
@@ -2144,7 +2152,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformOpenAI, false)
-		return filterSurplusAISchedulableAccounts(accounts), err
+		return filterSurplusAISchedulableAccounts(ctx, s.hydrateCoOwners(ctx, accounts)), err
 	}
 	var accounts []Account
 	var err error
@@ -2158,7 +2166,51 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
-	return filterSurplusAISchedulableAccounts(accounts), nil
+	return filterSurplusAISchedulableAccounts(ctx, s.hydrateCoOwners(ctx, accounts)), nil
+}
+
+// hydrateCoOwners populates each account's CoOwnerUserIDs from the
+// account_co_owners table in a single batch query, so owners (primary or
+// co-owner) bypass contribution protection during scheduling. Co-owner lookup
+// failures are non-fatal: on error the accounts are returned un-hydrated and
+// scheduling proceeds (owners just won't bypass for that request).
+func (s *OpenAIGatewayService) hydrateCoOwners(ctx context.Context, accounts []Account) []Account {
+	if len(accounts) == 0 || s.accountRepo == nil {
+		return accounts
+	}
+	ids := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].ID > 0 {
+			ids = append(ids, accounts[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return accounts
+	}
+	var coOwners map[int64][]int64
+	func() {
+		// Co-owner hydration is best-effort: a lookup error or panic must never
+		// break scheduling — owner bypass simply degrades to the primary owner.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("hydrate co-owners panicked; proceeding without owner bypass", "panic", r)
+				coOwners = nil
+			}
+		}()
+		m, err := s.accountRepo.ListCoOwnersByAccountIDs(ctx, ids)
+		if err != nil {
+			slog.Warn("hydrate co-owners failed; proceeding without owner bypass", "error", err, "account_count", len(ids))
+			return
+		}
+		coOwners = m
+	}()
+	if coOwners == nil {
+		return accounts
+	}
+	for i := range accounts {
+		accounts[i].CoOwnerUserIDs = coOwners[accounts[i].ID]
+	}
+	return accounts
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
@@ -2230,6 +2282,23 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	}
 	if !account.IsSurplusAISchedulableType() {
 		return nil, nil
+	}
+	// Hydrate co-owners so owners (primary or co-owner) bypass contribution
+	// protection. Best-effort: an error or panic must never break scheduling.
+	if s.accountRepo != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("hydrate co-owners panicked; proceeding without owner bypass", "panic", r, "account_id", account.ID)
+				}
+			}()
+			coOwnerIDs, err := s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, account.ID)
+			if err != nil {
+				slog.Warn("hydrate co-owners failed; proceeding without owner bypass", "error", err, "account_id", account.ID)
+				return
+			}
+			account.CoOwnerUserIDs = coOwnerIDs
+		}()
 	}
 	return account, nil
 }

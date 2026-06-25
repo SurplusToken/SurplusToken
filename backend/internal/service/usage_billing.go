@@ -47,6 +47,20 @@ type UsageBillingCommand struct {
 	ContributionTotalCost             float64
 	ContributionAccountStatsCost      *float64
 	ContributionAccountRateMultiplier float64
+
+	// ContributionRewardShares carries the per-owner reward split for accounts
+	// with multiple owners (primary owner_user_id ∪ admin-assigned co-owners),
+	// after excluding the consumer. When non-empty, the apply step accrues one
+	// reward per share; the legacy single ContributorUserID/ContributionRewardAmount
+	// fields are kept for back-compat (single-owner accounts).
+	ContributionRewardShares []ContributionRewardShare
+}
+
+// ContributionRewardShare is one owner's slice of a contribution reward when an
+// account's reward is split evenly across its owners (excluding the consumer).
+type ContributionRewardShare struct {
+	UserID int64
+	Amount float64
 }
 
 func (c *UsageBillingCommand) Normalize() {

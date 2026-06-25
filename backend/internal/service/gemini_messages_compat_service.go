@@ -463,7 +463,7 @@ func (s *GeminiMessagesCompatService) hydrateSelectedAccount(ctx context.Context
 func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
-		return filterSurplusAISchedulableAccounts(accounts), err
+		return filterSurplusAISchedulableAccounts(ctx, accounts), err
 	}
 
 	useMixedScheduling := platform == PlatformGemini && !hasForcePlatform
@@ -484,7 +484,7 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 	if err != nil {
 		return nil, err
 	}
-	return filterSurplusAISchedulableAccounts(accounts), nil
+	return filterSurplusAISchedulableAccounts(ctx, accounts), nil
 }
 
 func (s *GeminiMessagesCompatService) validateUpstreamBaseURL(raw string) (string, error) {

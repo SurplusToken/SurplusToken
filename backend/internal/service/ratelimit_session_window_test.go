@@ -163,6 +163,22 @@ func (m *sessionWindowMockRepo) RevertProxyFallback(context.Context, int64) erro
 	panic("unexpected")
 }
 
+func (m *sessionWindowMockRepo) ListCoOwnerUserIDsByAccount(context.Context, int64) ([]int64, error) {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) ListCoOwnersByAccountIDs(context.Context, []int64) (map[int64][]int64, error) {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) ListCoOwnedAccountIDsByUser(context.Context, int64) ([]int64, error) {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) SetAccountCoOwners(context.Context, int64, []int64, *int64) error {
+	panic("unexpected")
+}
+
 // newRateLimitServiceForTest creates a RateLimitService with the given mock repo.
 func newRateLimitServiceForTest(repo AccountRepository) *RateLimitService {
 	return &RateLimitService{accountRepo: repo}

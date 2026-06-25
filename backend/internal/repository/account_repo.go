@@ -2310,3 +2310,148 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 	}
 	return nil
 }
+
+// ListCoOwnerUserIDsByAccount 返回指定账号的全部 co-owner 用户 ID。
+func (r *accountRepository) ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT user_id
+		FROM account_co_owners
+		WHERE account_id = $1
+		ORDER BY id ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var userIDs []int64
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return userIDs, nil
+}
+
+// ListCoOwnersByAccountIDs 批量查询多个账号的 co-owner，按 account_id 分组返回
+// map[account_id][]user_id。accountIDs 为空时返回空 map。
+func (r *accountRepository) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	result := make(map[int64][]int64)
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT account_id, user_id
+		FROM account_co_owners
+		WHERE account_id = ANY($1)
+		ORDER BY account_id ASC, id ASC
+	`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID, userID int64
+		if err := rows.Scan(&accountID, &userID); err != nil {
+			return nil, err
+		}
+		result[accountID] = append(result[accountID], userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListCoOwnedAccountIDsByUser 返回某用户作为 co-owner 的全部账号 ID。
+func (r *accountRepository) ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT account_id
+		FROM account_co_owners
+		WHERE user_id = $1
+		ORDER BY account_id ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var accountIDs []int64
+	for rows.Next() {
+		var accountID int64
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, err
+		}
+		accountIDs = append(accountIDs, accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return accountIDs, nil
+}
+
+// SetAccountCoOwners 以替换语义设置账号的 co-owner 集合：在同一事务内先删除该
+// 账号已有的全部 co-owner，再为每个去重后的合法 userID（> 0）插入一行。
+// createdBy 为分配该 co-owner 的管理员用户 ID，可为 nil。
+func (r *accountRepository) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
+	// 与 Delete / BindGroups 一致：使用 ent 事务保证删除旧记录与写入新记录的原子性。
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+
+	var txClient *dbent.Client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
+	} else {
+		// 已处于外部事务中（ErrTxStarted），复用当前 client
+		txClient = r.client
+	}
+
+	if _, err := txClient.ExecContext(ctx, `DELETE FROM account_co_owners WHERE account_id = $1`, accountID); err != nil {
+		return err
+	}
+
+	seen := make(map[int64]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if userID <= 0 {
+			continue
+		}
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		seen[userID] = struct{}{}
+		if _, err := txClient.ExecContext(ctx, `
+			INSERT INTO account_co_owners (account_id, user_id, created_by, created_at)
+			VALUES ($1, $2, $3, NOW())
+		`, accountID, userID, nullablePositiveInt64Ptr(createdBy)); err != nil {
+			return err
+		}
+	}
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	// co-owner 变更影响调度时的"owner 绕过保护"判定，主动刷新该账号快照。
+	r.syncSchedulerAccountSnapshot(ctx, accountID)
+	return nil
+}
+
+// nullablePositiveInt64Ptr 将 createdBy 指针转换为可空的 SQL 参数：
+// nil 或 <= 0 时返回 nil（写入 NULL），否则返回其值。
+func nullablePositiveInt64Ptr(v *int64) any {
+	if v == nil || *v <= 0 {
+		return nil
+	}
+	return *v
+}

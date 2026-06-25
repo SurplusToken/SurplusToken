@@ -136,6 +136,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				Concurrency: apiKey.User.Concurrency,
 			})
 			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+			c.Request = c.Request.WithContext(service.WithRequestingUserID(c.Request.Context(), apiKey.User.ID))
 			setGroupContext(c, apiKey.Group)
 			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 			c.Next()
@@ -231,6 +232,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			Concurrency: apiKey.User.Concurrency,
 		})
 		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+		c.Request = c.Request.WithContext(service.WithRequestingUserID(c.Request.Context(), apiKey.User.ID))
 		setGroupContext(c, apiKey.Group)
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 

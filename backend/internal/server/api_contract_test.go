@@ -1830,6 +1830,22 @@ func (s *stubAccountRepo) RevertProxyFallback(ctx context.Context, accountID int
 	return nil
 }
 
+func (s *stubAccountRepo) ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (s *stubAccountRepo) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	return map[int64][]int64{}, nil
+}
+
+func (s *stubAccountRepo) ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error) {
+	return nil, nil
+}
+
+func (s *stubAccountRepo) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
+	return nil
+}
+
 type stubProxyRepo struct{}
 
 func (stubProxyRepo) Create(ctx context.Context, proxy *service.Proxy) error {

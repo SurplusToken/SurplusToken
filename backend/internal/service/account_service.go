@@ -82,6 +82,15 @@ type AccountRepository interface {
 	// RevertProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 仅当 proxy_fallback_origin_id IS NOT NULL 时更新，否则视为账号不存在（返回 ErrAccountNotFound）。
 	RevertProxyFallback(ctx context.Context, accountID int64) error
+
+	// ListCoOwnerUserIDsByAccount 返回指定账号的全部 co-owner 用户 ID。
+	ListCoOwnerUserIDsByAccount(ctx context.Context, accountID int64) ([]int64, error)
+	// ListCoOwnersByAccountIDs 批量查询多个账号的 co-owner，按 account_id 分组返回。accountIDs 为空时返回空 map。
+	ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error)
+	// ListCoOwnedAccountIDsByUser 返回某用户作为 co-owner 的全部账号 ID。
+	ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error)
+	// SetAccountCoOwners 以替换语义设置账号的 co-owner 集合（去重、跳过非正整数）。createdBy 为分配该 co-owner 的管理员用户 ID，可为 nil。
+	SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error
 }
 
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
