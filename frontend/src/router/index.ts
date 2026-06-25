@@ -715,10 +715,8 @@ const BACKEND_MODE_CALLBACK_PATHS = [
 ]
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
 const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = [
-  '/subscriptions',
   '/redeem',
   '/affiliate',
-  '/admin/subscriptions',
   '/admin/redeem',
   '/admin/promo-codes',
   '/admin/affiliates',
