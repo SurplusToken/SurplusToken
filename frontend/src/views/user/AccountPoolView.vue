@@ -1309,7 +1309,8 @@ function isProAccount(account: UserAccountPoolItem): boolean {
 }
 
 function isRemoteSeedReady(account: UserAccountPoolItem): boolean {
-  return account.extra?.remote_seed_ready === true
+  // Top-level remote_seed_ready is exposed to owner AND co-owners (extra is owner-only).
+  return account.remote_seed_ready === true || account.extra?.remote_seed_ready === true
 }
 
 async function setupRemoteLogin(account: UserAccountPoolItem) {
