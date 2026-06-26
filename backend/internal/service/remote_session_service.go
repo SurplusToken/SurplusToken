@@ -195,7 +195,7 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 		return nil, err
 	}
 	kasmID, connectURL, err := s.kasm.RequestKasm(ctx, kasmUserID, map[string]string{
-		kasmSeedAccountEnvKey: strconv64(account.ID),
+		kasmSeedAccountEnvKey: s.kasm.SeedAccountValue(account.ID),
 		kasmSeedModeEnvKey:    RemoteSessionModeSetup,
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func (s *RemoteSessionService) allocate(ctx context.Context, surplusUserID, acco
 		return nil, err
 	}
 	kasmID, connectURL, err := s.kasm.RequestKasm(ctx, kasmUserID, map[string]string{
-		kasmSeedAccountEnvKey: strconv64(accountID),
+		kasmSeedAccountEnvKey: s.kasm.SeedAccountValue(accountID),
 		kasmSeedModeEnvKey:    RemoteSessionModeUse,
 	})
 	if err != nil {

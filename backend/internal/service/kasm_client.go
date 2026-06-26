@@ -28,7 +28,10 @@ type KasmClient struct {
 	apiSecret  string
 	imageID    string
 	publicHost string
-	httpClient *http.Client
+	// seedNamespace ("prod"/"staging"/"") isolates seed dirs and Kasm users per
+	// environment so deployments sharing one Kasm don't share login state.
+	seedNamespace string
+	httpClient    *http.Client
 }
 
 // KasmSession is one live Kasm session as returned by get_kasms.
@@ -63,8 +66,9 @@ func NewKasmClient(cfg *config.Config) *KasmClient {
 		apiBase:    base,
 		apiKey:     strings.TrimSpace(cfg.Kasm.APIKey),
 		apiSecret:  strings.TrimSpace(cfg.Kasm.APISecret),
-		imageID:    strings.TrimSpace(cfg.Kasm.ImageID),
-		publicHost: strings.TrimSpace(cfg.Kasm.PublicHost),
+		imageID:       strings.TrimSpace(cfg.Kasm.ImageID),
+		publicHost:    strings.TrimSpace(cfg.Kasm.PublicHost),
+		seedNamespace: strings.TrimSpace(cfg.Kasm.SeedNamespace),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -241,9 +245,24 @@ type getUserResponse struct {
 	} `json:"user"`
 }
 
-// kasmUsername derives the per-SurplusAI-user Kasm username.
-func kasmUsername(surplusUserID int64) string {
+// kasmUsername derives the per-SurplusAI-user Kasm username, namespaced by
+// environment when seedNamespace is set (surplus-<ns>-u<id> vs surplus-u<id>) so
+// prod and staging don't share Kasm users (and thus sessions).
+func (c *KasmClient) kasmUsername(surplusUserID int64) string {
+	if c.seedNamespace != "" {
+		return fmt.Sprintf("surplus-%s-u%d@kasm.local", c.seedNamespace, surplusUserID)
+	}
 	return fmt.Sprintf("surplus-u%d@kasm.local", surplusUserID)
+}
+
+// SeedAccountValue is the KASM_SEED_ACCOUNT env value, which ime_env.sh uses as the
+// seed dir name (/srv/kasm-seeds/<value>). Namespaced so prod/staging seeds differ:
+// "<ns>-<accountID>" vs "<accountID>".
+func (c *KasmClient) SeedAccountValue(accountID int64) string {
+	if c.seedNamespace != "" {
+		return fmt.Sprintf("%s-%d", c.seedNamespace, accountID)
+	}
+	return fmt.Sprintf("%d", accountID)
 }
 
 // EnsureKasmUser returns the Kasm user_id for the given SurplusAI user, creating
@@ -253,7 +272,7 @@ func (c *KasmClient) EnsureKasmUser(ctx context.Context, surplusUserID int64) (s
 	if c == nil {
 		return "", fmt.Errorf("kasm client not configured")
 	}
-	username := kasmUsername(surplusUserID)
+	username := c.kasmUsername(surplusUserID)
 
 	// Try to look the user up first (get_user errors with "Invalid Request" when missing).
 	var existing getUserResponse

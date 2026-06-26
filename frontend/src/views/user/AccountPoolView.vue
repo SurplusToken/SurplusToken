@@ -1265,15 +1265,19 @@ interface RemoteSessionState {
   position: number | null
   kasmId: string | null // set once a session is running, enables "断开"
   timer: number | null // polling timer for queued sessions
-  win: Window | null // handle to the opened Kasm tab (to detect close)
-  watchTimer: number | null // interval polling win.closed -> auto-disconnect
 }
 const remoteSessions = reactive<Map<number, RemoteSessionState>>(new Map())
+
+// The opened Kasm Window handle and its close-poll interval are kept OUT of the
+// reactive state on purpose: Vue introspects reactive values (reads __v_isReadonly),
+// which throws a SecurityError on a cross-origin Window. Plain non-reactive maps.
+const remoteWindows = new Map<number, Window>()
+const remoteWatchTimers = new Map<number, number>()
 
 function remoteState(id: number): RemoteSessionState {
   let state = remoteSessions.get(id)
   if (!state) {
-    state = { busy: false, queued: false, position: null, kasmId: null, timer: null, win: null, watchTimer: null }
+    state = { busy: false, queued: false, position: null, kasmId: null, timer: null }
     remoteSessions.set(id, state)
   }
   return state
@@ -1286,25 +1290,28 @@ function clearRemoteTimer(state: RemoteSessionState) {
   }
 }
 
-function clearRemoteWatch(state: RemoteSessionState) {
-  if (state.watchTimer !== null) {
-    window.clearInterval(state.watchTimer)
-    state.watchTimer = null
+function clearRemoteWatch(accountId: number) {
+  const t = remoteWatchTimers.get(accountId)
+  if (t !== undefined) {
+    window.clearInterval(t)
+    remoteWatchTimers.delete(accountId)
   }
-  state.win = null
+  remoteWindows.delete(accountId)
 }
 
 // watchRemoteWindow polls the opened Kasm tab; when the user closes it we
 // auto-disconnect so the container is torn down instead of lingering until the
 // Kasm keepalive / 4h hard limit. Closing the tab is the "user left" signal.
+// The Window lives in a non-reactive map (see above); only window.closed is read,
+// which is safe to access cross-origin.
 function watchRemoteWindow(account: UserAccountPoolItem, win: Window | null) {
-  const state = remoteState(account.id)
-  clearRemoteWatch(state)
+  clearRemoteWatch(account.id)
   if (!win) return
-  state.win = win
-  state.watchTimer = window.setInterval(() => {
+  remoteWindows.set(account.id, win)
+  const timer = window.setInterval(() => {
     if (!win.closed) return
-    clearRemoteWatch(state)
+    clearRemoteWatch(account.id)
+    const state = remoteState(account.id)
     const kid = state.kasmId
     state.kasmId = null
     if (kid) {
@@ -1312,6 +1319,7 @@ function watchRemoteWindow(account: UserAccountPoolItem, win: Window | null) {
       accountsAPI.disconnectRemoteSession(account.id, kid).catch(() => {})
     }
   }, 2000)
+  remoteWatchTimers.set(account.id, timer)
 }
 
 function isProAccount(account: UserAccountPoolItem): boolean {
@@ -1416,7 +1424,7 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
   state.busy = true
   try {
     await accountsAPI.disconnectRemoteSession(account.id, state.kasmId)
-    clearRemoteWatch(state)
+    clearRemoteWatch(account.id)
     state.kasmId = null
     appStore.showSuccess(t('accountPool.remote.disconnectSuccess'))
   } catch (err: unknown) {

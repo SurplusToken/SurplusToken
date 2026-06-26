@@ -106,6 +106,9 @@ type KasmConfig struct {
 	APISecret  string `mapstructure:"api_secret"`  // from env KASM_API_SECRET
 	ImageID    string `mapstructure:"image_id"`    // remote-browser Kasm image id
 	PublicHost string `mapstructure:"public_host"` // e.g. kasm.surplustoken.com
+	// SeedNamespace isolates seed dirs and Kasm users per environment ("prod" /
+	// "staging") so deployments sharing one Kasm don't share login state. Empty = none.
+	SeedNamespace string `mapstructure:"seed_namespace"` // env KASM_SEED_NAMESPACE
 }
 
 type LogConfig struct {
@@ -1997,6 +2000,7 @@ func setDefaults() {
 	viper.SetDefault("kasm.api_secret", "")
 	viper.SetDefault("kasm.image_id", "")
 	viper.SetDefault("kasm.public_host", "")
+	viper.SetDefault("kasm.seed_namespace", "")
 
 }
 
