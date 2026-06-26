@@ -1172,6 +1172,7 @@ export default {
     },
     remote: {
       setup: 'Set up remote login',
+      relogin: 'Re-login',
       connect: 'Remote connect',
       disconnect: 'Disconnect',
       connecting: 'Connecting…',

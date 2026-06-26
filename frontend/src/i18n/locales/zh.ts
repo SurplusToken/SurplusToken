@@ -1176,6 +1176,7 @@ export default {
     },
     remote: {
       setup: '设置远程登录',
+      relogin: '重新登录',
       connect: '远程连接',
       disconnect: '断开',
       connecting: '连接中…',

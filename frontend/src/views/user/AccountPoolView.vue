@@ -379,6 +379,17 @@
                     >
                       {{ t('accountPool.remote.disconnect') }}
                     </button>
+                    <!-- Owner can re-run setup anytime to refresh the seed login (e.g. when
+                         the ChatGPT session expires), instead of being stuck on connect. -->
+                    <button
+                      v-if="account.is_mine"
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      :disabled="remoteState(account.id).busy"
+                      @click="setupRemoteLogin(account)"
+                    >
+                      {{ t('accountPool.remote.relogin') }}
+                    </button>
                   </template>
                 </template>
               </div>
