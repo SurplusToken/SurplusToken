@@ -2968,7 +2968,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			removedReasoningItems := trimOpenAIEncryptedReasoningItems(wsReqBody)
 			if !removedReasoningItems {
 				logOpenAIWSModeInfo(
-					"reconnect_invalid_encrypted_content_recovery_skip account_id=%d attempt=%d reason=missing_encrypted_reasoning_items",
+					"reconnect_invalid_encrypted_content_recovery_skip account_id=%d attempt=%d reason=missing_encrypted_content",
 					account.ID,
 					attempt,
 				)
@@ -3170,7 +3170,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request once after invalid_encrypted_content (account: %s)", account.Name)
 					continue
 				}
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 invalid_encrypted_content retry because encrypted reasoning items are missing (account: %s)", account.Name)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 invalid_encrypted_content retry because encrypted_content fields are missing (account: %s)", account.Name)
 			}
 			if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
 				upstreamDetail := ""
@@ -5837,20 +5837,70 @@ func sanitizeEncryptedReasoningInputItem(item any) (next any, changed bool, keep
 	}
 
 	itemType, _ := inputItem["type"].(string)
-	if strings.TrimSpace(itemType) != "reasoning" {
-		return item, false, true
-	}
-
 	_, hasEncryptedContent := inputItem["encrypted_content"]
-	if !hasEncryptedContent {
-		return item, false, true
+	if hasEncryptedContent {
+		delete(inputItem, "encrypted_content")
+		changed = true
 	}
 
-	delete(inputItem, "encrypted_content")
-	if len(inputItem) == 1 {
+	for key, value := range inputItem {
+		nextValue, valueChanged := sanitizeNestedEncryptedContent(value)
+		if valueChanged {
+			inputItem[key] = nextValue
+			changed = true
+		}
+	}
+
+	if !changed {
+		return item, false, true
+	}
+	if strings.TrimSpace(itemType) == "reasoning" && len(inputItem) == 1 {
 		return nil, true, false
 	}
 	return inputItem, true, true
+}
+
+func sanitizeNestedEncryptedContent(value any) (any, bool) {
+	switch v := value.(type) {
+	case []any:
+		changed := false
+		for i, item := range v {
+			nextItem, itemChanged := sanitizeNestedEncryptedContent(item)
+			if itemChanged {
+				v[i] = nextItem
+				changed = true
+			}
+		}
+		return v, changed
+	case []map[string]any:
+		changed := false
+		for i, item := range v {
+			nextItem, itemChanged := sanitizeNestedEncryptedContent(item)
+			if itemChanged {
+				if nextMap, ok := nextItem.(map[string]any); ok {
+					v[i] = nextMap
+				}
+				changed = true
+			}
+		}
+		return v, changed
+	case map[string]any:
+		changed := false
+		if _, ok := v["encrypted_content"]; ok {
+			delete(v, "encrypted_content")
+			changed = true
+		}
+		for key, child := range v {
+			nextChild, childChanged := sanitizeNestedEncryptedContent(child)
+			if childChanged {
+				v[key] = nextChild
+				changed = true
+			}
+		}
+		return v, changed
+	default:
+		return value, false
+	}
 }
 
 func IsOpenAIResponsesCompactPathForTest(c *gin.Context) bool {

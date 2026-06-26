@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -238,6 +239,122 @@ func TestForwardAsAnthropic_MappedClaudeModelAcceptsChatUsageShape(t *testing.T)
 	require.Equal(t, 9, result.Usage.OutputTokens)
 	require.Equal(t, 11, result.Usage.CacheReadInputTokens)
 	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.lastBody, "model").String())
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-haiku-4-5-20251001","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_messages_chat_json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_glm_json","object":"chat.completion","model":"GLM-5.2","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10,"prompt_tokens_details":{"cached_tokens":2}}}`,
+		)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
+	}
+	account := forceChatAnthropicMessagesTestAccount()
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "GLM-5.2")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
+	require.Equal(t, "GLM-5.2", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "user", gjson.GetBytes(upstream.lastBody, "messages.0.role").String())
+	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+	require.Equal(t, "claude-haiku-4-5-20251001", result.Model)
+	require.Equal(t, "GLM-5.2", result.BillingModel)
+	require.Equal(t, "GLM-5.2", result.UpstreamModel)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, 2, result.Usage.CacheReadInputTokens)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "claude-haiku-4-5-20251001", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+	require.Equal(t, "ok", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String())
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-opus-4-6","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_glm_stream","object":"chat.completion.chunk","model":"GLM-5.2","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_glm_stream","object":"chat.completion.chunk","model":"GLM-5.2","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_glm_stream","object":"chat.completion.chunk","model":"GLM-5.2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		`data: {"id":"chatcmpl_glm_stream","object":"chat.completion.chunk","model":"GLM-5.2","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":4,"total_tokens":13,"prompt_tokens_details":{"cached_tokens":1}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_messages_chat_stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
+	}
+	account := forceChatAnthropicMessagesTestAccount()
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "GLM-5.2")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
+	require.Equal(t, "GLM-5.2", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Contains(t, rec.Body.String(), "event: message_start")
+	require.Contains(t, rec.Body.String(), "event: content_block_delta")
+	require.Contains(t, rec.Body.String(), `"text":"ok"`)
+	require.Contains(t, rec.Body.String(), "event: message_stop")
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
+	require.True(t, result.Stream)
+	require.NotNil(t, result.FirstTokenMs)
+}
+
+func forceChatAnthropicMessagesTestAccount() *Account {
+	return &Account{
+		ID:          101,
+		Name:        "glm-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "http://upstream.example",
+			"model_mapping": map[string]any{
+				"claude-haiku-4-5-20251001": "GLM-5.2",
+				"claude-opus-4-6":           "GLM-5.2",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+		},
+	}
 }
 
 func TestForwardAsAnthropic_InjectsPromptCacheKeyForAPIKeyMessagesDispatch(t *testing.T) {

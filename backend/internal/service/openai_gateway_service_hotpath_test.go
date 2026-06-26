@@ -345,15 +345,19 @@ func TestOpenAIGatewayService_Forward_HTTPRetryRecoveryDoesNotDecodeBeforeError(
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 
-	body := []byte(`{"model":"gpt-5","stream":false,"input":[{"type":"reasoning","encrypted_content":"gAAA","summary":[{"type":"summary_text","text":"keep me"}]},{"type":"message","content":[{"type":"input_text","text":"hi","nonce":9007199254740993}]}]}`)
+	body := []byte(`{"model":"gpt-5","stream":false,"input":[{"type":"reasoning","encrypted_content":"gAAA","summary":[{"type":"summary_text","text":"keep me"}]},{"type":"message","content":[{"type":"input_text","text":"hi","nonce":9007199254740993,"encrypted_content":"用户正在检查部署状态。"}]},{"type":"input_text","text":"keep top-level input text","encrypted_content":"not-base64"}]}`)
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, "gAAA", gjson.GetBytes(upstream.bodies[0], "input.0.encrypted_content").String())
 	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.bodies[0], "input.1.content.0.nonce").Raw)
+	require.Equal(t, "用户正在检查部署状态。", gjson.GetBytes(upstream.bodies[0], "input.1.content.0.encrypted_content").String())
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "input.0.encrypted_content").Exists())
 	require.Equal(t, "summary_text", gjson.GetBytes(upstream.bodies[1], "input.0.summary.0.type").String())
+	require.Equal(t, "hi", gjson.GetBytes(upstream.bodies[1], "input.1.content.0.text").String())
+	require.Equal(t, "keep top-level input text", gjson.GetBytes(upstream.bodies[1], "input.2.text").String())
+	require.NotContains(t, string(upstream.bodies[1]), "encrypted_content")
 }
 
 func TestOpenAIGatewayService_Forward_CodexSparkRejectsEscapedInputImage(t *testing.T) {
