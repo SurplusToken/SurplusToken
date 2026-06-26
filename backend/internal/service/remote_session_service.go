@@ -13,6 +13,13 @@ import (
 // strconv64 formats an int64 as a base-10 string.
 func strconv64(v int64) string { return strconv.FormatInt(v, 10) }
 
+// normalizeKasmID strips dashes so the dashed form stored in remote_sessions
+// (returned by request_kasm) compares equal to the dash-less form get_kasms
+// returns. destroy_kasm accepts either form, so only correlation needs this.
+func normalizeKasmID(s string) string {
+	return strings.ReplaceAll(strings.TrimSpace(s), "-", "")
+}
+
 // Remote-session concurrency limits and status/mode constants.
 const (
 	RemoteSessionMaxPerAccount = 5
@@ -177,11 +184,11 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 		return nil, err
 	}
 
-	// Only one setup session may write the shared per-account seed profile at a time.
-	// Concurrent setup containers symlink the same ~/.mozilla, so a second Firefox
-	// refuses to start ("Firefox is already running") or corrupts the profile. Tear
-	// down any existing live setup session for this account before starting a new one.
-	s.destroyLiveSetupSessions(ctx, account.ID)
+	// One container per user: tear down any session this owner already has for the
+	// account before starting a new one. Also guarantees a single writer of the shared
+	// seed profile (concurrent setup containers symlink the same ~/.mozilla and Firefox
+	// would refuse to start / corrupt the profile).
+	s.destroyUserSessions(ctx, account.ID, surplusUserID)
 
 	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID)
 	if err != nil {
@@ -213,16 +220,17 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 	return &RemoteSessionSetupResult{ConnectURL: connectURL, KasmID: kasmID}, nil
 }
 
-// destroyLiveSetupSessions best-effort destroys any live MODE=setup Kasm sessions for
-// the account and marks their rows ended, so a new setup session is the sole writer of
-// the per-account seed profile.
-func (s *RemoteSessionService) destroyLiveSetupSessions(ctx context.Context, accountID int64) {
+// destroyUserSessions best-effort tears down any live Kasm sessions this user already
+// has for the account (any mode) and marks their rows ended. This enforces one
+// container per user per account (a fresh click replaces the user's previous session
+// instead of stacking) and, for setup, guarantees a single writer of the shared seed.
+func (s *RemoteSessionService) destroyUserSessions(ctx context.Context, accountID, surplusUserID int64) {
 	live, err := s.repo.ListLive(ctx)
 	if err != nil {
 		return
 	}
 	for i := range live {
-		if live[i].AccountID != accountID || live[i].Mode != RemoteSessionModeSetup {
+		if live[i].AccountID != accountID || live[i].SurplusUserID != surplusUserID {
 			continue
 		}
 		_ = s.kasm.DestroyKasm(ctx, live[i].KasmID, live[i].KasmUserID)
@@ -269,6 +277,10 @@ func (s *RemoteSessionService) Poll(ctx context.Context, surplusUserID, accountI
 // allocate performs the capacity check (reconciled liveness comes from the reconciler
 // keeping the table fresh) and either starts a session or returns queued.
 func (s *RemoteSessionService) allocate(ctx context.Context, surplusUserID, accountID int64) (*RemoteSessionResult, error) {
+	// One container per user: replace this user's existing session for the account
+	// (a re-click shouldn't stack a second container) and free their own slot first.
+	s.destroyUserSessions(ctx, accountID, surplusUserID)
+
 	perAccount, err := s.repo.CountLiveByAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -394,9 +406,12 @@ func (s *RemoteSessionService) reconcileOnce() {
 	if err != nil {
 		return
 	}
+	// NOTE: request_kasm returns the kasm_id WITH dashes (stored in the DB), but
+	// get_kasms returns it WITHOUT dashes. Correlate on the dash-stripped form or
+	// every live session looks "gone" and gets ended without being destroyed (leak).
 	byID := make(map[string]KasmSession, len(kasms))
 	for _, k := range kasms {
-		if id := strings.TrimSpace(k.KasmID); id != "" {
+		if id := normalizeKasmID(k.KasmID); id != "" {
 			byID[id] = k
 		}
 	}
@@ -406,7 +421,7 @@ func (s *RemoteSessionService) reconcileOnce() {
 	var ended []int64
 	for i := range live {
 		sess := live[i]
-		kasmID := strings.TrimSpace(sess.KasmID)
+		kasmID := normalizeKasmID(sess.KasmID)
 		seen[kasmID] = struct{}{}
 
 		k, ok := byID[kasmID]
