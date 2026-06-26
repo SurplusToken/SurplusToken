@@ -111,6 +111,17 @@ func (r *remoteSessionRepository) MarkEndedByKasmID(ctx context.Context, kasmID 
 	return err
 }
 
+func (r *remoteSessionRepository) TouchLastSeen(ctx context.Context, id int64) error {
+	const q = `
+		UPDATE remote_sessions
+		SET last_seen_at = NOW()
+		WHERE id = $1
+		  AND ended_at IS NULL
+	`
+	_, err := r.sql.ExecContext(ctx, q, id)
+	return err
+}
+
 func (r *remoteSessionRepository) MarkEndedByIDs(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil

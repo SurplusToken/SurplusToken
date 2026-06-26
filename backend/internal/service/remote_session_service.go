@@ -24,6 +24,13 @@ const (
 	// after creation and the real container leaks.
 	remoteSessionReconcileGrace = 90 * time.Second
 
+	// remoteSessionDisconnectGrace is how long a session may stay alive in Kasm with
+	// NO viewer attached before the reconciler tears it down. This is the server-side
+	// backstop for "user closed the tab → stop the container" that works regardless of
+	// what happens to the platform page (close/refresh/network loss). Must exceed the
+	// time a user takes to first connect after the session is created.
+	remoteSessionDisconnectGrace = 90 * time.Second
+
 	RemoteSessionStatusStarting = "starting"
 	RemoteSessionStatusRunning  = "running"
 	RemoteSessionStatusQueued   = "queued"
@@ -75,6 +82,8 @@ type RemoteSessionRepository interface {
 	MarkEndedByKasmID(ctx context.Context, kasmID string) error
 	// MarkEndedByIDs marks the given row ids as ended.
 	MarkEndedByIDs(ctx context.Context, ids []int64) error
+	// TouchLastSeen bumps last_seen_at=NOW() for a live row (called while a viewer is attached).
+	TouchLastSeen(ctx context.Context, id int64) error
 }
 
 // RemoteSessionService implements the "远程连接" (remote browser) feature: it gates
@@ -91,16 +100,23 @@ type RemoteSessionService struct {
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
+
+	// lastKeepalive tracks the last-observed Kasm keepalive_date per kasm_id so the
+	// reconciler can tell "client still pinging" from "client gone" even if
+	// connection_info is momentarily empty. Touched only by the single reconciler
+	// goroutine, so no lock is needed.
+	lastKeepalive map[string]string
 }
 
 // NewRemoteSessionService constructs the service. kasm may be nil (feature disabled).
 func NewRemoteSessionService(repo RemoteSessionRepository, accountSvc *AccountService, kasm *KasmClient, reconcileInterval time.Duration) *RemoteSessionService {
 	return &RemoteSessionService{
-		repo:       repo,
-		accountSvc: accountSvc,
-		kasm:       kasm,
-		interval:   reconcileInterval,
-		stopCh:     make(chan struct{}),
+		repo:          repo,
+		accountSvc:    accountSvc,
+		kasm:          kasm,
+		interval:      reconcileInterval,
+		stopCh:        make(chan struct{}),
+		lastKeepalive: make(map[string]string),
 	}
 }
 
@@ -359,40 +375,84 @@ func (s *RemoteSessionService) Stop() {
 	s.wg.Wait()
 }
 
-// reconcileOnce marks local live rows whose kasm_id is no longer reported by Kasm as
-// ended (frees per-account + global slots and the queue).
+// reconcileOnce keeps the local table and Kasm in sync, and is the server-side
+// "user left → stop the container" backstop. For each live row it:
+//   - marks ended any row whose kasm_id Kasm no longer reports (with a creation
+//     grace so newborns aren't reaped before get_kasms lists them), and
+//   - for sessions Kasm still reports, destroys the Kasm container (and marks the
+//     row ended) once NO viewer has been attached for remoteSessionDisconnectGrace —
+//     detected via connection_info plus keepalive_date movement.
 func (s *RemoteSessionService) reconcileOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	live, err := s.repo.ListLive(ctx)
-	if err != nil {
-		return
-	}
-	if len(live) == 0 {
+	if err != nil || len(live) == 0 {
 		return
 	}
 	kasms, err := s.kasm.GetKasms(ctx)
 	if err != nil {
 		return
 	}
-	alive := make(map[string]struct{}, len(kasms))
+	byID := make(map[string]KasmSession, len(kasms))
 	for _, k := range kasms {
 		if id := strings.TrimSpace(k.KasmID); id != "" {
-			alive[id] = struct{}{}
+			byID[id] = k
 		}
 	}
-	var stale []int64
+
+	now := time.Now()
+	seen := make(map[string]struct{}, len(live))
+	var ended []int64
 	for i := range live {
-		// Don't reap newborns: a just-requested session isn't in get_kasms yet.
-		if time.Since(live[i].CreatedAt) < remoteSessionReconcileGrace {
+		sess := live[i]
+		kasmID := strings.TrimSpace(sess.KasmID)
+		seen[kasmID] = struct{}{}
+
+		k, ok := byID[kasmID]
+		if !ok {
+			// Kasm no longer reports it. Protect newborns from the get_kasms lag race.
+			if now.Sub(sess.CreatedAt) >= remoteSessionReconcileGrace {
+				ended = append(ended, sess.ID)
+				delete(s.lastKeepalive, kasmID)
+			}
 			continue
 		}
-		if _, ok := alive[strings.TrimSpace(live[i].KasmID)]; !ok {
-			stale = append(stale, live[i].ID)
+
+		// "Active" = a viewer is attached, or its keepalive_date advanced since the
+		// previous reconcile (client still pinging). Either keeps the session alive.
+		active := k.Connected()
+		if prev, had := s.lastKeepalive[kasmID]; had && prev != k.KeepaliveDate {
+			active = true
+		}
+		s.lastKeepalive[kasmID] = k.KeepaliveDate
+
+		if active {
+			_ = s.repo.TouchLastSeen(ctx, sess.ID)
+			continue
+		}
+
+		// Alive in Kasm but no viewer. Tear it down once the disconnect grace elapses,
+		// measured from the last time we saw activity (or creation if never connected).
+		ref := sess.CreatedAt
+		if sess.LastSeenAt.After(ref) {
+			ref = sess.LastSeenAt
+		}
+		if now.Sub(ref) >= remoteSessionDisconnectGrace {
+			_ = s.kasm.DestroyKasm(ctx, sess.KasmID, sess.KasmUserID)
+			ended = append(ended, sess.ID)
+			delete(s.lastKeepalive, kasmID)
 		}
 	}
-	if len(stale) > 0 {
-		_ = s.repo.MarkEndedByIDs(ctx, stale)
+
+	// Prune keepalive entries for sessions that are no longer live.
+	for id := range s.lastKeepalive {
+		if _, ok := seen[id]; !ok {
+			delete(s.lastKeepalive, id)
+		}
+	}
+
+	if len(ended) > 0 {
+		_ = s.repo.MarkEndedByIDs(ctx, ended)
 	}
 }

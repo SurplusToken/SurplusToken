@@ -33,11 +33,20 @@ type KasmClient struct {
 
 // KasmSession is one live Kasm session as returned by get_kasms.
 type KasmSession struct {
-	KasmID            string `json:"kasm_id"`
-	UserID            string `json:"user_id"`
-	Username          string `json:"username"`
-	ImageID           string `json:"image_id"`
-	OperationalStatus string `json:"operational_status"`
+	KasmID            string         `json:"kasm_id"`
+	UserID            string         `json:"user_id"`
+	Username          string         `json:"username"`
+	ImageID           string         `json:"image_id"`
+	OperationalStatus string         `json:"operational_status"`
+	ConnectionInfo    map[string]any `json:"connection_info"`
+	KeepaliveDate     string         `json:"keepalive_date"`
+}
+
+// Connected reports whether a streaming client is currently attached to the
+// session. Kasm populates connection_info while a viewer is connected and resets
+// it to an empty object once the user closes the tab.
+func (k KasmSession) Connected() bool {
+	return len(k.ConnectionInfo) > 0
 }
 
 // NewKasmClient builds a KasmClient from app config. Returns nil when Kasm is not
