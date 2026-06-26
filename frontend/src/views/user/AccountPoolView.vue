@@ -1254,13 +1254,15 @@ interface RemoteSessionState {
   position: number | null
   kasmId: string | null // set once a session is running, enables "断开"
   timer: number | null // polling timer for queued sessions
+  win: Window | null // handle to the opened Kasm tab (to detect close)
+  watchTimer: number | null // interval polling win.closed -> auto-disconnect
 }
 const remoteSessions = reactive<Map<number, RemoteSessionState>>(new Map())
 
 function remoteState(id: number): RemoteSessionState {
   let state = remoteSessions.get(id)
   if (!state) {
-    state = { busy: false, queued: false, position: null, kasmId: null, timer: null }
+    state = { busy: false, queued: false, position: null, kasmId: null, timer: null, win: null, watchTimer: null }
     remoteSessions.set(id, state)
   }
   return state
@@ -1271,6 +1273,34 @@ function clearRemoteTimer(state: RemoteSessionState) {
     window.clearTimeout(state.timer)
     state.timer = null
   }
+}
+
+function clearRemoteWatch(state: RemoteSessionState) {
+  if (state.watchTimer !== null) {
+    window.clearInterval(state.watchTimer)
+    state.watchTimer = null
+  }
+  state.win = null
+}
+
+// watchRemoteWindow polls the opened Kasm tab; when the user closes it we
+// auto-disconnect so the container is torn down instead of lingering until the
+// Kasm keepalive / 4h hard limit. Closing the tab is the "user left" signal.
+function watchRemoteWindow(account: UserAccountPoolItem, win: Window | null) {
+  const state = remoteState(account.id)
+  clearRemoteWatch(state)
+  if (!win) return
+  state.win = win
+  state.watchTimer = window.setInterval(() => {
+    if (!win.closed) return
+    clearRemoteWatch(state)
+    const kid = state.kasmId
+    state.kasmId = null
+    if (kid) {
+      // Best-effort; the slot frees up regardless.
+      accountsAPI.disconnectRemoteSession(account.id, kid).catch(() => {})
+    }
+  }, 2000)
 }
 
 function isProAccount(account: UserAccountPoolItem): boolean {
@@ -1288,8 +1318,10 @@ async function setupRemoteLogin(account: UserAccountPoolItem) {
   state.busy = true
   try {
     const res = await accountsAPI.setupRemoteSession(account.id)
+    state.kasmId = res.kasm_id ?? null
     if (res.connect_url) {
-      window.open(res.connect_url, '_blank')
+      const win = window.open(res.connect_url, '_blank')
+      watchRemoteWindow(account, win)
     }
     appStore.showSuccess(t('accountPool.remote.setupHint'))
   } catch (err: unknown) {
@@ -1299,19 +1331,21 @@ async function setupRemoteLogin(account: UserAccountPoolItem) {
   }
 }
 
-function applyRemoteResult(state: RemoteSessionState, res: {
+function applyRemoteResult(account: UserAccountPoolItem, res: {
   status: 'ready' | 'queued'
   connect_url?: string
   kasm_id?: string
   position?: number
 }) {
+  const state = remoteState(account.id)
   if (res.status === 'ready') {
     clearRemoteTimer(state)
     state.queued = false
     state.position = null
     state.kasmId = res.kasm_id ?? null
     if (res.connect_url) {
-      window.open(res.connect_url, '_blank')
+      const win = window.open(res.connect_url, '_blank')
+      watchRemoteWindow(account, win)
     } else {
       appStore.showError(t('accountPool.remote.openFailed'))
     }
@@ -1327,7 +1361,7 @@ function pollRemoteSession(account: UserAccountPoolItem) {
     if (!state.queued) return
     try {
       const res = await accountsAPI.getRemoteSessionStatus(account.id)
-      applyRemoteResult(state, res)
+      applyRemoteResult(account, res)
       if (state.queued) {
         pollRemoteSession(account)
       }
@@ -1346,7 +1380,7 @@ async function connectRemoteSession(account: UserAccountPoolItem) {
   state.busy = true
   try {
     const res = await accountsAPI.startRemoteSession(account.id)
-    applyRemoteResult(state, res)
+    applyRemoteResult(account, res)
     if (state.queued) {
       pollRemoteSession(account)
     }
@@ -1370,6 +1404,7 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
   state.busy = true
   try {
     await accountsAPI.disconnectRemoteSession(account.id, state.kasmId)
+    clearRemoteWatch(state)
     state.kasmId = null
     appStore.showSuccess(t('accountPool.remote.disconnectSuccess'))
   } catch (err: unknown) {

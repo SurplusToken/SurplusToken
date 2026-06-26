@@ -18,6 +18,12 @@ const (
 	RemoteSessionMaxPerAccount = 5
 	RemoteSessionMaxGlobal     = 5
 
+	// remoteSessionReconcileGrace protects a freshly-requested session from being
+	// reaped by the reconciler before Kasm reports it in get_kasms (a new session
+	// takes a few seconds to appear). Without it, newborns get marked ended ~1s
+	// after creation and the real container leaks.
+	remoteSessionReconcileGrace = 90 * time.Second
+
 	RemoteSessionStatusStarting = "starting"
 	RemoteSessionStatusRunning  = "running"
 	RemoteSessionStatusQueued   = "queued"
@@ -155,6 +161,12 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 		return nil, err
 	}
 
+	// Only one setup session may write the shared per-account seed profile at a time.
+	// Concurrent setup containers symlink the same ~/.mozilla, so a second Firefox
+	// refuses to start ("Firefox is already running") or corrupts the profile. Tear
+	// down any existing live setup session for this account before starting a new one.
+	s.destroyLiveSetupSessions(ctx, account.ID)
+
 	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID)
 	if err != nil {
 		return nil, err
@@ -183,6 +195,23 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 	})
 
 	return &RemoteSessionSetupResult{ConnectURL: connectURL, KasmID: kasmID}, nil
+}
+
+// destroyLiveSetupSessions best-effort destroys any live MODE=setup Kasm sessions for
+// the account and marks their rows ended, so a new setup session is the sole writer of
+// the per-account seed profile.
+func (s *RemoteSessionService) destroyLiveSetupSessions(ctx context.Context, accountID int64) {
+	live, err := s.repo.ListLive(ctx)
+	if err != nil {
+		return
+	}
+	for i := range live {
+		if live[i].AccountID != accountID || live[i].Mode != RemoteSessionModeSetup {
+			continue
+		}
+		_ = s.kasm.DestroyKasm(ctx, live[i].KasmID, live[i].KasmUserID)
+		_ = s.repo.MarkEndedByKasmID(ctx, live[i].KasmID)
+	}
 }
 
 // RemoteSessionResult is returned by Connect / Poll.
@@ -355,6 +384,10 @@ func (s *RemoteSessionService) reconcileOnce() {
 	}
 	var stale []int64
 	for i := range live {
+		// Don't reap newborns: a just-requested session isn't in get_kasms yet.
+		if time.Since(live[i].CreatedAt) < remoteSessionReconcileGrace {
+			continue
+		}
 		if _, ok := alive[strings.TrimSpace(live[i].KasmID)]; !ok {
 			stale = append(stale, live[i].ID)
 		}
