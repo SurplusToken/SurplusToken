@@ -9590,6 +9590,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 	requestID := usageLog.RequestID
+	// Contribution reward splits across the FULL owner set (primary + co-owners);
+	// hydrate co-owners (the scheduler-selected account may carry only the primary
+	// owner) so each co-owner gets their share instead of all going to the primary.
+	if account != nil && account.OwnerUserID != nil && *account.OwnerUserID > 0 && len(account.CoOwnerUserIDs) == 0 {
+		if coOwners, cErr := s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, account.ID); cErr == nil && len(coOwners) > 0 {
+			account.CoOwnerUserIDs = coOwners
+		}
+	}
 	contributorUserID := usageBillingContributorUserID(account, user)
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                          cost,

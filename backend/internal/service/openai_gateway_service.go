@@ -6252,6 +6252,17 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		return nil
 	}
 
+	// Contribution reward splits evenly across the FULL owner set (primary owner +
+	// admin-assigned co-owners). The scheduler-selected account often carries only the
+	// primary owner (the cache doesn't project co-owners), which would send the entire
+	// reward to the primary owner. Hydrate co-owners here (post-response path) so each
+	// co-owner gets their share.
+	if account != nil && account.OwnerUserID != nil && *account.OwnerUserID > 0 && len(account.CoOwnerUserIDs) == 0 {
+		if coOwners, cErr := s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, account.ID); cErr == nil && len(coOwners) > 0 {
+			account.CoOwnerUserIDs = coOwners
+		}
+	}
+
 	contributorUserID := usageBillingContributorUserID(account, user)
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
