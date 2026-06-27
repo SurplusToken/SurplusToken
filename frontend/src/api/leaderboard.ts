@@ -25,6 +25,8 @@ export interface LeaderboardResponse {
   period: LeaderboardPeriod
   entries: LeaderboardEntry[]
   me: LeaderboardMe | null
+  /** Inclusive aggregation window start (set for the group leaderboard's 订阅月). */
+  window_start?: string | null
 }
 
 /**

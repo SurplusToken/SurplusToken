@@ -101,6 +101,11 @@
         </div>
 
         <template v-else>
+          <!-- 订阅月 caption: unified window start for the whole group -->
+          <p v-if="showSubMonthNote" class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('leaderboard.subMonthSince') }} {{ fmtDate(windowStart) }}
+          </p>
+
           <!-- Ranked list (all entries, starting from #1) -->
           <section
             class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
@@ -220,6 +225,8 @@ const loading = ref(false)
 const error = ref(false)
 const entries = ref<LeaderboardEntry[]>([])
 const me = ref<LeaderboardMe | null>(null)
+// Unified 订阅月 start (returned for the group leaderboard) for the caption.
+const windowStart = ref<string | null>(null)
 
 // Per-user token usage trend (one line per user)
 const trendLoading = ref(false)
@@ -235,6 +242,19 @@ function periodLabel(p: LeaderboardPeriod): string {
   if (p === 'month' && scope.value !== 'platform') return t('leaderboard.subMonth')
   return t(`leaderboard.periods.${p}`)
 }
+
+// Format an ISO timestamp to YYYY-MM-DD (local) for the 订阅月 caption.
+function fmtDate(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+const showSubMonthNote = computed(
+  () => scope.value !== 'platform' && period.value === 'month' && !!windowStart.value
+)
 
 const currentUserId = computed(() => authStore.user?.id)
 function isMe(entry: LeaderboardEntry): boolean {
@@ -373,6 +393,7 @@ async function load() {
     const data = await leaderboardAPI.getUsageLeaderboard(period.value, groupId)
     entries.value = data.entries ?? []
     me.value = data.me ?? null
+    windowStart.value = data.window_start ?? null
   } catch (err) {
     console.error('Failed to load usage statistics:', err)
     error.value = true

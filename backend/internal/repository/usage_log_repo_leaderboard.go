@@ -67,62 +67,30 @@ func (r *usageLogRepository) UsageLeaderboard(ctx context.Context, since time.Ti
 	return entries, nil
 }
 
-// GroupUsageLeaderboard ranks users by spend within a single group for the period.
-// For period=="month" the per-user window is the subscription's monthly_window_start
-// ("订阅月", falling back to the calendar month start); other periods use `since`.
-func (r *usageLogRepository) GroupUsageLeaderboard(ctx context.Context, groupID int64, period string, since time.Time, limit int) (entries []service.LeaderboardEntry, err error) {
+// GroupUsageLeaderboard ranks users by spend within a single group for usage at/after
+// `since`. The caller picks `since` (calendar day/week, or the group's unified 订阅月
+// start from GroupSubscriptionMonthStart).
+func (r *usageLogRepository) GroupUsageLeaderboard(ctx context.Context, groupID int64, since time.Time, limit int) (entries []service.LeaderboardEntry, err error) {
 	const tokenSum = "ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens + ul.image_output_tokens"
-	var query string
-	var args []any
-	if period == "month" {
-		// 订阅月: per-user start = the subscription's monthly_window_start for this group.
-		query = `
-			SELECT
-				ul.user_id,
-				COALESCE(u.username, '') AS username,
-				COALESCE(u.email, '') AS email,
-				COALESCE(SUM(` + tokenSum + `), 0) AS total_tokens,
-				COALESCE(SUM(ul.actual_cost), 0) AS total_cost
-			FROM usage_logs ul
-			LEFT JOIN users u ON u.id = ul.user_id
-			JOIN (
-				SELECT DISTINCT ON (user_id) user_id,
-					COALESCE(monthly_window_start, date_trunc('month', now())) AS ws
-				FROM user_subscriptions
-				WHERE group_id = $1 AND deleted_at IS NULL
-				ORDER BY user_id, starts_at DESC
-			) us ON us.user_id = ul.user_id
-			WHERE ul.group_id = $1
-				AND ul.created_at >= us.ws
-				AND ` + usageLogSuccessFilterUL + `
-				AND (u.deleted_at IS NULL)
-			GROUP BY ul.user_id, u.username, u.email
-			ORDER BY total_cost DESC
-			LIMIT $2
-		`
-		args = []any{groupID, limit}
-	} else {
-		query = `
-			SELECT
-				ul.user_id,
-				COALESCE(u.username, '') AS username,
-				COALESCE(u.email, '') AS email,
-				COALESCE(SUM(` + tokenSum + `), 0) AS total_tokens,
-				COALESCE(SUM(ul.actual_cost), 0) AS total_cost
-			FROM usage_logs ul
-			LEFT JOIN users u ON u.id = ul.user_id
-			WHERE ul.group_id = $1
-				AND ul.created_at >= $2
-				AND ` + usageLogSuccessFilterUL + `
-				AND (u.deleted_at IS NULL)
-			GROUP BY ul.user_id, u.username, u.email
-			ORDER BY total_cost DESC
-			LIMIT $3
-		`
-		args = []any{groupID, since, limit}
-	}
+	query := `
+		SELECT
+			ul.user_id,
+			COALESCE(u.username, '') AS username,
+			COALESCE(u.email, '') AS email,
+			COALESCE(SUM(` + tokenSum + `), 0) AS total_tokens,
+			COALESCE(SUM(ul.actual_cost), 0) AS total_cost
+		FROM usage_logs ul
+		LEFT JOIN users u ON u.id = ul.user_id
+		WHERE ul.group_id = $1
+			AND ul.created_at >= $2
+			AND ` + usageLogSuccessFilterUL + `
+			AND (u.deleted_at IS NULL)
+		GROUP BY ul.user_id, u.username, u.email
+		ORDER BY total_cost DESC
+		LIMIT $3
+	`
 
-	rows, err := r.sql.QueryContext(ctx, query, args...)
+	rows, err := r.sql.QueryContext(ctx, query, groupID, since, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +113,36 @@ func (r *usageLogRepository) GroupUsageLeaderboard(ctx context.Context, groupID 
 		return nil, err
 	}
 	return entries, nil
+}
+
+// GroupSubscriptionMonthStart returns the most common (mode) monthly_window_start across
+// a group's active subscriptions — a single unified "订阅月" start for the whole group so
+// mid-cycle joiners are measured from the same date. found=false when no subscription has
+// a window start (caller falls back to the calendar month).
+func (r *usageLogRepository) GroupSubscriptionMonthStart(ctx context.Context, groupID int64) (start time.Time, found bool, err error) {
+	const q = `
+		SELECT monthly_window_start
+		FROM user_subscriptions
+		WHERE group_id = $1 AND deleted_at IS NULL AND monthly_window_start IS NOT NULL
+		GROUP BY monthly_window_start
+		ORDER BY COUNT(*) DESC, monthly_window_start DESC
+		LIMIT 1
+	`
+	rows, err := r.sql.QueryContext(ctx, q, groupID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		if err := rows.Scan(&start); err != nil {
+			return time.Time{}, false, err
+		}
+		return start, true, nil
+	}
+	if err := rows.Err(); err != nil {
+		return time.Time{}, false, err
+	}
+	return time.Time{}, false, nil
 }
 
 // UserUsageTotals returns one user's total tokens and consumed credits for usage recorded

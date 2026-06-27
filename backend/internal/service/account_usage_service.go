@@ -57,9 +57,11 @@ type UsageLogRepository interface {
 
 	// User-facing usage leaderboard (regular users).
 	UsageLeaderboard(ctx context.Context, since time.Time, limit int) ([]LeaderboardEntry, error)
-	// GroupUsageLeaderboard ranks users by spend within one group. For period=="month"
-	// the per-user window is the subscription's monthly_window_start ("订阅月").
-	GroupUsageLeaderboard(ctx context.Context, groupID int64, period string, since time.Time, limit int) ([]LeaderboardEntry, error)
+	// GroupUsageLeaderboard ranks users by spend within one group for usage at/after since.
+	GroupUsageLeaderboard(ctx context.Context, groupID int64, since time.Time, limit int) ([]LeaderboardEntry, error)
+	// GroupSubscriptionMonthStart returns the group's unified 订阅月 start (mode of the
+	// subscriptions' monthly_window_start); found=false to fall back to the calendar month.
+	GroupSubscriptionMonthStart(ctx context.Context, groupID int64) (start time.Time, found bool, err error)
 	UserUsageTotals(ctx context.Context, userID int64, since time.Time) (totalTokens int64, totalCost float64, rank int64, found bool, err error)
 	GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchUserUsageStats, error)
 	GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchAPIKeyUsageStats, error)

@@ -39,6 +39,9 @@ type UsageLeaderboardResponse struct {
 	Period  string                 `json:"period"`
 	Entries []UsageLeaderboardItem `json:"entries"`
 	Me      *UsageLeaderboardMe    `json:"me"`
+	// WindowStart is the inclusive start of the aggregation window (set for the group
+	// leaderboard so the UI can label the 订阅月 with its unified start date).
+	WindowStart *time.Time `json:"window_start,omitempty"`
 }
 
 const usageLeaderboardLimit = 50
@@ -196,7 +199,16 @@ func (s *UsageService) GetUsageLeaderboard(ctx context.Context, period string, c
 func (s *UsageService) GetGroupUsageLeaderboard(ctx context.Context, groupID int64, period string) (*UsageLeaderboardResponse, error) {
 	normalizedPeriod, since := leaderboardSince(period)
 
-	entries, err := s.usageRepo.GroupUsageLeaderboard(ctx, groupID, normalizedPeriod, since, usageLeaderboardLimit)
+	// 订阅月: aggregate from the group's UNIFIED window start (mode of the subscriptions'
+	// monthly_window_start) so mid-cycle joiners are measured from the same date. Falls
+	// back to the calendar month start (already in `since`) when no subscription window.
+	if normalizedPeriod == "month" {
+		if ws, found, err := s.usageRepo.GroupSubscriptionMonthStart(ctx, groupID); err == nil && found {
+			since = ws
+		}
+	}
+
+	entries, err := s.usageRepo.GroupUsageLeaderboard(ctx, groupID, since, usageLeaderboardLimit)
 	if err != nil {
 		return nil, fmt.Errorf("get group usage leaderboard: %w", err)
 	}
@@ -212,5 +224,6 @@ func (s *UsageService) GetGroupUsageLeaderboard(ctx context.Context, groupID int
 		})
 	}
 
-	return &UsageLeaderboardResponse{Period: normalizedPeriod, Entries: items, Me: nil}, nil
+	windowStart := since
+	return &UsageLeaderboardResponse{Period: normalizedPeriod, Entries: items, Me: nil, WindowStart: &windowStart}, nil
 }

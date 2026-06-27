@@ -1102,6 +1102,7 @@ export default {
     retry: 'Retry',
     empty: 'No data for this period',
     subMonth: 'Sub. month',
+    subMonthSince: 'Subscription month from (unified):',
     scope: {
       platform: 'Whole platform'
     }

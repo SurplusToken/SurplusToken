@@ -1106,6 +1106,7 @@ export default {
     retry: '重试',
     empty: '本期暂无数据',
     subMonth: '订阅月',
+    subMonthSince: '订阅月统计起点(全组统一):',
     scope: {
       platform: '全平台'
     }
