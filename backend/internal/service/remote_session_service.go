@@ -32,11 +32,25 @@ const (
 	remoteSessionReconcileGrace = 90 * time.Second
 
 	// remoteSessionDisconnectGrace is how long a session may stay alive in Kasm with
-	// NO viewer attached before the reconciler tears it down. This is the server-side
+	// NO observed activity before the reconciler tears it down. This is the server-side
 	// backstop for "user closed the tab → stop the container" that works regardless of
-	// what happens to the platform page (close/refresh/network loss). Must exceed the
-	// time a user takes to first connect after the session is created.
-	remoteSessionDisconnectGrace = 90 * time.Second
+	// what happens to the platform page (close/refresh/network loss).
+	//
+	// CRITICAL: this MUST exceed Kasm's keepalive_interval (300s). The reconciler's only
+	// reliable liveness signal here is keepalive_date advancing (connection_info comes
+	// back empty in this deployment), and Kasm only advances it every keepalive_interval.
+	// A grace shorter than that window reaps ACTIVELY-CONNECTED sessions (the original
+	// 90s value killed every session at ~2 minutes). The frontend also bumps last_seen
+	// via a keepalive ping while its tab is open, so a real disconnect is detected well
+	// before this backstop fires; the backstop just covers crash/refresh/network-loss.
+	remoteSessionDisconnectGrace = 360 * time.Second
+
+	// remoteSessionOrphanStaleGrace is how stale a Kasm session's keepalive_date must be
+	// before the reconciler reaps it as an ORPHAN — a session belonging to this namespace
+	// that has no live remote_sessions row (e.g. a row-create failed, or a destroy_kasm
+	// did not land). Combined with "no viewer attached", this guarantees we never tear
+	// down a session anyone is actually using. Generous so it can't race a live session.
+	remoteSessionOrphanStaleGrace = 15 * time.Minute
 
 	RemoteSessionStatusStarting = "starting"
 	RemoteSessionStatusRunning  = "running"
@@ -71,9 +85,12 @@ type RemoteSession struct {
 	KasmUserID    string
 	Mode          string
 	Status        string
-	CreatedAt     time.Time
-	LastSeenAt    time.Time
-	EndedAt       *time.Time
+	// ConnectURL is the Kasm auto-login URL (rooted at the public host). Stored so a
+	// reconnect can REATTACH to the same live container instead of recreating it.
+	ConnectURL string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	EndedAt    *time.Time
 }
 
 // RemoteSessionRepository persists remote_sessions rows.
@@ -85,6 +102,9 @@ type RemoteSessionRepository interface {
 	CountLiveGlobal(ctx context.Context) (int, error)
 	// ListLive returns all non-ended sessions (status in starting/running).
 	ListLive(ctx context.Context) ([]RemoteSession, error)
+	// GetLiveByAccountAndUser returns the most recent non-ended session for (account, user),
+	// or nil if none. Used to reattach a reconnecting user to their existing container.
+	GetLiveByAccountAndUser(ctx context.Context, accountID, surplusUserID int64) (*RemoteSession, error)
 	// MarkEndedByKasmID marks the most recent live row with kasm_id as ended; no-op if none.
 	MarkEndedByKasmID(ctx context.Context, kasmID string) error
 	// MarkEndedByIDs marks the given row ids as ended.
@@ -215,6 +235,7 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 		KasmUserID:    kasmUserID,
 		Mode:          RemoteSessionModeSetup,
 		Status:        RemoteSessionStatusStarting,
+		ConnectURL:    connectURL,
 	})
 
 	return &RemoteSessionSetupResult{ConnectURL: connectURL, KasmID: kasmID}, nil
@@ -274,12 +295,47 @@ func (s *RemoteSessionService) Poll(ctx context.Context, surplusUserID, accountI
 	return s.allocate(ctx, surplusUserID, account.ID)
 }
 
-// allocate performs the capacity check (reconciled liveness comes from the reconciler
-// keeping the table fresh) and either starts a session or returns queued.
+// kasmSessionLive reports whether Kasm still lists a session with this id (dash-insensitive).
+// On a Kasm API error it returns true (fail-safe: don't tear down a possibly-good session).
+func (s *RemoteSessionService) kasmSessionLive(ctx context.Context, kasmID string) bool {
+	want := normalizeKasmID(kasmID)
+	if want == "" {
+		return false
+	}
+	kasms, err := s.kasm.GetKasms(ctx)
+	if err != nil {
+		return true
+	}
+	for _, k := range kasms {
+		if normalizeKasmID(k.KasmID) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// allocate either REATTACHES the user to their existing live container, starts a new
+// session, or returns queued when capacity is exhausted.
 func (s *RemoteSessionService) allocate(ctx context.Context, surplusUserID, accountID int64) (*RemoteSessionResult, error) {
-	// One container per user: replace this user's existing session for the account
-	// (a re-click shouldn't stack a second container) and free their own slot first.
-	s.destroyUserSessions(ctx, accountID, surplusUserID)
+	// Reattach: if the user already has a live session for this account that Kasm still
+	// reports, hand back the SAME container (its stored connect URL) instead of
+	// destroying + recreating it. This is what preserves the open tab and the
+	// in-progress conversation across a reconnect — a fresh container would only ever
+	// show server-side history, losing whatever wasn't yet saved.
+	if existing, err := s.repo.GetLiveByAccountAndUser(ctx, accountID, surplusUserID); err == nil && existing != nil {
+		if existing.Mode == RemoteSessionModeUse && strings.TrimSpace(existing.ConnectURL) != "" && s.kasmSessionLive(ctx, existing.KasmID) {
+			_ = s.repo.TouchLastSeen(ctx, existing.ID)
+			return &RemoteSessionResult{
+				Status:     RemoteSessionStatusRunning,
+				ConnectURL: existing.ConnectURL,
+				KasmID:     existing.KasmID,
+			}, nil
+		}
+		// Stale row, or a leftover setup-mode session: retire it before reallocating so it
+		// doesn't hold a concurrency slot (and a fresh use-mode container is started below).
+		_ = s.kasm.DestroyKasm(ctx, existing.KasmID, existing.KasmUserID)
+		_ = s.repo.MarkEndedByKasmID(ctx, existing.KasmID)
+	}
 
 	perAccount, err := s.repo.CountLiveByAccount(ctx, accountID)
 	if err != nil {
@@ -320,6 +376,7 @@ func (s *RemoteSessionService) allocate(ctx context.Context, surplusUserID, acco
 		KasmUserID:    kasmUserID,
 		Mode:          RemoteSessionModeUse,
 		Status:        RemoteSessionStatusStarting,
+		ConnectURL:    connectURL,
 	}); err != nil {
 		// Roll back the Kasm session so we don't leak a slot.
 		_ = s.kasm.DestroyKasm(ctx, kasmID, kasmUserID)
@@ -350,6 +407,25 @@ func (s *RemoteSessionService) Disconnect(ctx context.Context, surplusUserID, ac
 	// Best-effort destroy; mark the row ended regardless so the slot frees up.
 	_ = s.kasm.DestroyKasm(ctx, kasmID, kasmUserID)
 	return s.repo.MarkEndedByKasmID(ctx, kasmID)
+}
+
+// Keepalive bumps last_seen_at for the caller's live session on this account. The
+// frontend calls this every ~30s while its Kasm tab is open, giving the reconciler a
+// reliable "user is still here" signal that does NOT depend on Kasm's connection_info
+// (empty in this deployment) or its slow 300s keepalive_date. No-op (not an error) when
+// the user has no live session.
+func (s *RemoteSessionService) Keepalive(ctx context.Context, surplusUserID, accountID int64) error {
+	if _, err := s.authorizedAccount(ctx, surplusUserID, accountID, false); err != nil {
+		return err
+	}
+	existing, err := s.repo.GetLiveByAccountAndUser(ctx, accountID, surplusUserID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	return s.repo.TouchLastSeen(ctx, existing.ID)
 }
 
 // Start launches the reconciler goroutine (every s.interval). Mirrors
@@ -399,7 +475,7 @@ func (s *RemoteSessionService) reconcileOnce() {
 	defer cancel()
 
 	live, err := s.repo.ListLive(ctx)
-	if err != nil || len(live) == 0 {
+	if err != nil {
 		return
 	}
 	kasms, err := s.kasm.GetKasms(ctx)
@@ -470,4 +546,52 @@ func (s *RemoteSessionService) reconcileOnce() {
 	if len(ended) > 0 {
 		_ = s.repo.MarkEndedByIDs(ctx, ended)
 	}
+
+	// Orphan reaping: tear down Kasm sessions that belong to THIS namespace but have no
+	// live row (a row-create failed, or a prior destroy_kasm didn't land — leaving a
+	// container running with nobody tracking it). Scoped by username prefix so prod never
+	// touches staging's sessions on the shared Kasm.
+	s.reapOrphans(ctx, kasms, seen, now)
+}
+
+// reapOrphans destroys Kasm sessions that are ours (by username namespace), untracked
+// (no live row), have no attached viewer, AND whose keepalive_date is stale beyond
+// remoteSessionOrphanStaleGrace. The triple guard makes it impossible to reap a session
+// anyone could still be using or one that was just created in a row-create race.
+func (s *RemoteSessionService) reapOrphans(ctx context.Context, kasms []KasmSession, seen map[string]struct{}, now time.Time) {
+	for _, k := range kasms {
+		id := normalizeKasmID(k.KasmID)
+		if id == "" {
+			continue
+		}
+		if _, tracked := seen[id]; tracked {
+			continue // we have a live row for it
+		}
+		if !s.kasm.OwnsUsername(k.Username) {
+			continue // another deployment's session — never touch
+		}
+		if k.Connected() {
+			continue // a viewer is attached
+		}
+		ka, ok := parseKasmKeepalive(k.KeepaliveDate)
+		if !ok || now.Sub(ka) < remoteSessionOrphanStaleGrace {
+			continue // recently active, or unknown freshness — leave it
+		}
+		_ = s.kasm.DestroyKasm(ctx, k.KasmID, k.UserID)
+	}
+}
+
+// parseKasmKeepalive parses Kasm's keepalive_date ("2006-01-02 15:04:05.999999"; no
+// timezone, interpreted as UTC). Returns ok=false when empty/unparseable.
+func parseKasmKeepalive(v string) (time.Time, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05.999999", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }

@@ -100,6 +100,25 @@ func (h *AccountPoolHandler) RemoteSessionStatus(c *gin.Context) {
 	response.Success(c, remoteSessionReady(result))
 }
 
+// RemoteSessionKeepalive handles POST /accounts/pool/:id/remote-session/keepalive.
+// The frontend calls this every ~30s while its Kasm tab is open so the reconciler has a
+// reliable "user is still here" signal (Kasm's own connection_info is empty here).
+func (h *AccountPoolHandler) RemoteSessionKeepalive(c *gin.Context) {
+	userID, ok := h.requireRemoteSessionService(c)
+	if !ok {
+		return
+	}
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if err := h.remoteSessionService.Keepalive(c.Request.Context(), userID, accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "ok"})
+}
+
 // RemoteSessionDisconnect handles POST /accounts/pool/:id/remote-session/disconnect.
 func (h *AccountPoolHandler) RemoteSessionDisconnect(c *gin.Context) {
 	userID, ok := h.requireRemoteSessionService(c)

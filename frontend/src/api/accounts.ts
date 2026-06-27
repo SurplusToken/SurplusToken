@@ -349,6 +349,16 @@ export async function disconnectRemoteSession(
   return data
 }
 
+// keepaliveRemoteSession is pinged every ~30s while the Kasm tab is open so the backend
+// reconciler knows the user is still here (Kasm's own connection_info is empty in this
+// deployment, so this is the reliable "still connected" signal).
+export async function keepaliveRemoteSession(id: number): Promise<Record<string, never>> {
+  const { data } = await apiClient.post<Record<string, never>>(
+    `/accounts/pool/${id}/remote-session/keepalive`,
+  )
+  return data
+}
+
 export interface ContributionPoolRecipient {
   user_id: number
   display_name: string
@@ -412,6 +422,7 @@ export const accountsAPI = {
   setupRemoteSession,
   startRemoteSession,
   getRemoteSessionStatus,
+  keepaliveRemoteSession,
   disconnectRemoteSession,
 }
 

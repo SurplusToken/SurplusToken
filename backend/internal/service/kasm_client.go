@@ -255,6 +255,28 @@ func (c *KasmClient) kasmUsername(surplusUserID int64) string {
 	return fmt.Sprintf("surplus-u%d@kasm.local", surplusUserID)
 }
 
+// usernamePrefix is the common prefix of every Kasm username this deployment owns
+// ("surplus-<ns>-u" / "surplus-u"). Used to scope orphan reaping to THIS namespace so
+// prod's reconciler never tears down staging's sessions (they share one Kasm).
+func (c *KasmClient) usernamePrefix() string {
+	if c.seedNamespace != "" {
+		return fmt.Sprintf("surplus-%s-u", c.seedNamespace)
+	}
+	return "surplus-u"
+}
+
+// OwnsUsername reports whether a Kasm username belongs to THIS deployment's namespace.
+// Note the prefixes are disjoint across namespaces ("surplus-prod-u" vs "surplus-u" vs
+// "surplus-staging-u"), so a non-namespaced deployment will not claim namespaced users
+// and vice-versa.
+func (c *KasmClient) OwnsUsername(username string) bool {
+	if c == nil {
+		return false
+	}
+	u := strings.ToLower(strings.TrimSpace(username))
+	return u != "" && strings.HasPrefix(u, c.usernamePrefix())
+}
+
 // SeedAccountValue is the KASM_SEED_ACCOUNT env value, which ime_env.sh uses as the
 // seed dir name (/srv/kasm-seeds/<value>). Namespaced so prod/staging seeds differ:
 // "<ns>-<accountID>" vs "<accountID>".

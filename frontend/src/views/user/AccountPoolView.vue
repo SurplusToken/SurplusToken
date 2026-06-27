@@ -1425,6 +1425,9 @@ const remoteSessions = reactive<Map<number, RemoteSessionState>>(new Map())
 // which throws a SecurityError on a cross-origin Window. Plain non-reactive maps.
 const remoteWindows = new Map<number, Window>()
 const remoteWatchTimers = new Map<number, number>()
+// Keepalive ping timers (every ~30s while the Kasm tab is open). Kept out of reactive
+// state for the same cross-origin reason as the window/watch maps above.
+const remoteKeepaliveTimers = new Map<number, number>()
 
 function remoteState(id: number): RemoteSessionState {
   let state = remoteSessions.get(id)
@@ -1447,6 +1450,11 @@ function clearRemoteWatch(accountId: number) {
   if (t !== undefined) {
     window.clearInterval(t)
     remoteWatchTimers.delete(accountId)
+  }
+  const k = remoteKeepaliveTimers.get(accountId)
+  if (k !== undefined) {
+    window.clearInterval(k)
+    remoteKeepaliveTimers.delete(accountId)
   }
   remoteWindows.delete(accountId)
 }
@@ -1472,6 +1480,15 @@ function watchRemoteWindow(account: UserAccountPoolItem, win: Window | null) {
     }
   }, 2000)
   remoteWatchTimers.set(account.id, timer)
+
+  // Keepalive: while the tab is open, ping the backend every 30s so the reconciler keeps
+  // the container alive (Kasm's connection_info is empty, so this is the liveness signal
+  // that prevents the session from being reaped mid-use).
+  const keepalive = window.setInterval(() => {
+    if (win.closed) return
+    accountsAPI.keepaliveRemoteSession(account.id).catch(() => {})
+  }, 30000)
+  remoteKeepaliveTimers.set(account.id, keepalive)
 }
 
 function isProAccount(account: UserAccountPoolItem): boolean {
