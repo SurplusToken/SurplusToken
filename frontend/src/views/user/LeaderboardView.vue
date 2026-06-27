@@ -195,6 +195,7 @@ import {
   type LeaderboardTrendPoint,
 } from '@/api/leaderboard'
 import { userGroupsAPI } from '@/api/groups'
+import { groupsAPI as adminGroupsAPI } from '@/api/admin/groups'
 import type { Group } from '@/types'
 import { formatCompactNumber, formatCostFixed } from '@/utils/format'
 
@@ -396,7 +397,11 @@ async function loadTrend() {
 
 async function loadGroups() {
   try {
-    groups.value = await userGroupsAPI.getAvailable()
+    // Admins manage all groups (incl. ones they aren't subscribed to, e.g. car1);
+    // regular users only see groups available to them.
+    groups.value = authStore.isAdmin
+      ? await adminGroupsAPI.getAllIncludingInactive()
+      : await userGroupsAPI.getAvailable()
   } catch (err) {
     console.error('Failed to load groups:', err)
     groups.value = []
