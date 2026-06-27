@@ -1104,7 +1104,11 @@ export default {
     loading: '加载中...',
     loadError: '加载失败',
     retry: '重试',
-    empty: '本期暂无数据'
+    empty: '本期暂无数据',
+    subMonth: '订阅月',
+    scope: {
+      platform: '全平台'
+    }
   },
 
   // Available Channels (user-facing)

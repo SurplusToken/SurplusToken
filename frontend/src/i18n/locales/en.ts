@@ -1100,7 +1100,11 @@ export default {
     loading: 'Loading...',
     loadError: 'Failed to load',
     retry: 'Retry',
-    empty: 'No data for this period'
+    empty: 'No data for this period',
+    subMonth: 'Sub. month',
+    scope: {
+      platform: 'Whole platform'
+    }
   },
 
   // Available Channels (user-facing)

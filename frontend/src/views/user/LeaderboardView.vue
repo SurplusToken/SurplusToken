@@ -8,25 +8,40 @@
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('leaderboard.description') }}</p>
         </div>
 
-        <!-- Period segmented control -->
-        <div class="flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
-          <button
-            v-for="p in periods"
-            :key="p"
-            type="button"
-            class="rounded-md px-4 py-1.5 text-sm font-medium transition-colors"
-            :class="
-              period === p
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-white'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-            "
-            @click="setPeriod(p)"
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <!-- Scope selector (admin only): 全平台 / a subscription group -->
+          <select
+            v-if="isAdmin"
+            v-model="scope"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-700 dark:text-white"
+            @change="onScopeChange"
           >
-            {{ t(`leaderboard.periods.${p}`) }}
-          </button>
+            <option value="platform">{{ t('leaderboard.scope.platform') }}</option>
+            <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+          </select>
+
+          <!-- Period segmented control (platform scope only) -->
+          <div v-if="scope === 'platform'" class="flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+            <button
+              v-for="p in periods"
+              :key="p"
+              type="button"
+              class="rounded-md px-4 py-1.5 text-sm font-medium transition-colors"
+              :class="
+                period === p
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-white'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              "
+              @click="setPeriod(p)"
+            >
+              {{ t(`leaderboard.periods.${p}`) }}
+            </button>
+          </div>
         </div>
       </div>
 
+      <!-- ===== Platform-wide usage stats (default scope) ===== -->
+      <template v-if="scope === 'platform'">
       <!-- Per-user token usage trend (one line per user; display_name masked by backend) -->
       <section
         class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-800"
@@ -148,6 +163,51 @@
           </div>
         </template>
       </template>
+      </template>
+
+      <!-- ===== Per-user usage within the selected subscription (订阅) ===== -->
+      <template v-else>
+        <section
+          class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
+        >
+          <div
+            v-if="subLoading"
+            class="flex items-center justify-center py-12"
+          >
+            <LoadingSpinner />
+          </div>
+          <div
+            v-else-if="subRows.length === 0"
+            class="flex items-center justify-center py-16 text-center text-sm text-gray-500 dark:text-gray-400"
+          >
+            {{ t('leaderboard.empty') }}
+          </div>
+          <template v-else>
+            <div
+              class="grid grid-cols-[3rem_1fr_5rem_5rem_5rem] gap-2 border-b border-gray-200 px-4 py-2.5 text-xs font-medium text-gray-500 dark:border-dark-700 dark:text-gray-400 sm:grid-cols-[4rem_1fr_7rem_7rem_7rem]"
+            >
+              <span>{{ t('leaderboard.columns.rank') }}</span>
+              <span>{{ t('leaderboard.columns.user') }}</span>
+              <span class="text-right">{{ t('leaderboard.periods.today') }}</span>
+              <span class="text-right">{{ t('leaderboard.periods.week') }}</span>
+              <span class="text-right">{{ t('leaderboard.subMonth') }}</span>
+            </div>
+            <ul class="divide-y divide-gray-100 dark:divide-dark-700">
+              <li
+                v-for="r in subRows"
+                :key="r.userId"
+                class="grid grid-cols-[3rem_1fr_5rem_5rem_5rem] items-center gap-2 px-4 py-3 text-sm sm:grid-cols-[4rem_1fr_7rem_7rem_7rem]"
+              >
+                <span class="font-mono text-gray-500 dark:text-gray-400">#{{ r.rank }}</span>
+                <span class="truncate text-gray-900 dark:text-white" :title="r.name">{{ r.name }}</span>
+                <span class="text-right font-mono text-gray-600 dark:text-gray-300">{{ formatCredits(r.today) }}</span>
+                <span class="text-right font-mono text-gray-600 dark:text-gray-300">{{ formatCredits(r.week) }}</span>
+                <span class="text-right font-mono font-medium text-gray-900 dark:text-white">{{ formatCredits(r.month) }}</span>
+              </li>
+            </ul>
+          </template>
+        </section>
+      </template>
     </div>
   </AppLayout>
 </template>
@@ -177,6 +237,9 @@ import {
   type LeaderboardPeriod,
   type LeaderboardTrendPoint,
 } from '@/api/leaderboard'
+import { subscriptionsAPI } from '@/api/admin/subscriptions'
+import { groupsAPI } from '@/api/admin/groups'
+import type { UserSubscription, AdminGroup } from '@/types'
 import { formatCompactNumber, formatCostFixed } from '@/utils/format'
 
 ChartJS.register(
@@ -204,6 +267,63 @@ const me = ref<LeaderboardMe | null>(null)
 // Per-user token usage trend (one line per user)
 const trendLoading = ref(false)
 const userTrend = ref<LeaderboardTrendPoint[]>([])
+
+// ---- Subscription scope (admin only): per-user usage within a group/订阅 ----
+const isAdmin = computed(() => authStore.isAdmin)
+type Scope = 'platform' | number // 'platform' or a group id
+const scope = ref<Scope>('platform')
+const groups = ref<AdminGroup[]>([])
+const subLoading = ref(false)
+const subSubs = ref<UserSubscription[]>([])
+
+function subUserName(s: UserSubscription): string {
+  const u = s.user
+  return (u?.username || u?.email || `user#${s.user_id}`).trim() || `user#${s.user_id}`
+}
+
+// Per-user rows for the selected subscription, sorted by 订阅月 spend desc.
+const subRows = computed(() =>
+  subSubs.value
+    .map((s) => ({
+      userId: s.user_id,
+      name: subUserName(s),
+      today: s.daily_usage_usd ?? 0,
+      week: s.weekly_usage_usd ?? 0,
+      month: s.monthly_usage_usd ?? 0,
+    }))
+    .sort((a, b) => b.month - a.month)
+    .map((r, i) => ({ rank: i + 1, ...r }))
+)
+
+async function loadGroups() {
+  if (!isAdmin.value || groups.value.length) return
+  try {
+    groups.value = await groupsAPI.getAllIncludingInactive()
+  } catch (err) {
+    console.error('Failed to load groups:', err)
+  }
+}
+
+async function loadSubscription(groupId: number) {
+  subLoading.value = true
+  try {
+    const res = await subscriptionsAPI.list(1, 500, { group_id: groupId, status: 'active' })
+    subSubs.value = res.items ?? []
+  } catch (err) {
+    console.error('Failed to load subscription usage:', err)
+    subSubs.value = []
+  } finally {
+    subLoading.value = false
+  }
+}
+
+function onScopeChange() {
+  if (scope.value === 'platform') {
+    reload()
+  } else {
+    loadSubscription(scope.value as number)
+  }
+}
 
 const currentUserId = computed(() => authStore.user?.id)
 function isMe(entry: LeaderboardEntry): boolean {
@@ -373,5 +493,8 @@ function setPeriod(p: LeaderboardPeriod) {
   reload()
 }
 
-onMounted(reload)
+onMounted(() => {
+  loadGroups()
+  reload()
+})
 </script>
