@@ -607,6 +607,7 @@ var ProviderSet = wire.NewSet(
 	ProvideProxyExpiryService,
 	ProvideKasmClient,
 	ProvideRemoteSessionService,
+	NewAccountContributionService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,

@@ -349,8 +349,49 @@ export async function disconnectRemoteSession(
   return data
 }
 
+export interface ContributionPoolRecipient {
+  user_id: number
+  display_name: string
+  is_primary_owner: boolean
+}
+
+export interface ContributionPoolView {
+  account_id: number
+  pool_amount: number
+  recipients: ContributionPoolRecipient[]
+}
+
+export interface ContributionPoolAllocation {
+  user_id: number
+  amount: number
+}
+
+// Owner-only: the account's held contribution-reward pool + eligible recipients
+// (primary owner + co-owners).
+export async function getContributionPool(id: number): Promise<ContributionPoolView> {
+  const { data } = await apiClient.get<ContributionPoolView>(
+    `/accounts/pool/${id}/contribution-pool`,
+  )
+  return data
+}
+
+// Owner-only: distribute the held pool. mode='even' splits the whole pool evenly across
+// the owner set; otherwise pass explicit per-recipient allocations.
+export async function distributeContributionPool(
+  id: number,
+  payload: { mode?: 'even'; allocations?: ContributionPoolAllocation[] },
+): Promise<ContributionPoolView> {
+  const { data } = await apiClient.post<ContributionPoolView>(
+    `/accounts/pool/${id}/contribution-pool/distribute`,
+    payload,
+  )
+  return data
+}
+
 export const accountsAPI = {
   listPool,
+  getContributionPool,
+  distributeContributionPool,
   listProxies,
   testProxy,
   createOAuth,

@@ -9125,12 +9125,12 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
-	// Contribution reward: the account's owner set is its primary owner_user_id
-	// unioned with admin-assigned co-owners. Owners using their own (co-owned)
-	// account generate NO contribution reward — reward flows only when a NON-owner
-	// consumes the account, split evenly across ALL owners. (Single owner is the
-	// size-1 case: owner self-use → no reward.) The consumer is a non-owner iff
-	// removing them from the owner set does not shrink it.
+	// Contribution reward (Model B): reward flows only when a NON-owner consumes the
+	// account (owner set = primary owner_user_id ∪ admin-assigned co-owners; a consumer
+	// in that set — incl. co-owner self-use — earns NOTHING). The reward is HELD in the
+	// account's pool (account_contribution_pools), not credited to any user balance; the
+	// primary owner later distributes it to co-owners manually. Consumer is a non-owner
+	// iff removing them from the owner set does not shrink it.
 	ownerSet := p.Account.SurplusAIOwnerUserIDs()
 	if len(ownerSet) > 0 && len(excludeUserID(ownerSet, p.User.ID)) == len(ownerSet) {
 		if usageLog != nil && usageLog.AccountStatsCost != nil {
@@ -9138,18 +9138,12 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
 		rewardAmount := roundTo(p.Cost.ActualCost*(rewardRate/100), 8)
-		// Reward accrues entirely to the PRIMARY owner (no auto-split). The owner later
-		// distributes to co-owners manually (account-level). Co-owners are still in
-		// ownerSet (the check above), so co-owner self-use generates NO reward.
 		if rewardAmount > 0 && p.Account.OwnerUserID != nil && *p.Account.OwnerUserID > 0 {
-			primaryOwner := *p.Account.OwnerUserID
-			cmd.ContributionRewardShares = []ContributionRewardShare{{UserID: primaryOwner, Amount: rewardAmount}}
+			cmd.ContributionPoolAccountID = p.Account.ID
+			cmd.ContributionPoolAmount = rewardAmount
 			cmd.ContributionRewardRatePercent = rewardRate
-			cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
 			cmd.ContributionTotalCost = p.Cost.TotalCost
 			cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
-			cmd.ContributorUserID = primaryOwner
-			cmd.ContributionRewardAmount = rewardAmount
 		}
 	}
 

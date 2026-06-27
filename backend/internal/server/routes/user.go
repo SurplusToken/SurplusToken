@@ -108,6 +108,10 @@ func RegisterUserRoutes(
 			accounts.POST("/pool/:id/remote-session", h.AccountPool.RemoteSessionConnect)
 			accounts.GET("/pool/:id/remote-session/status", h.AccountPool.RemoteSessionStatus)
 			accounts.POST("/pool/:id/remote-session/disconnect", h.AccountPool.RemoteSessionDisconnect)
+
+			// 贡献奖励池（账号级)— 仅主 owner 可查看/分发给 owner 集合。
+			accounts.GET("/pool/:id/contribution-pool", h.AccountPool.GetContributionPool)
+			accounts.POST("/pool/:id/contribution-pool/distribute", h.AccountPool.DistributeContributionPool)
 		}
 
 		scheduledTests := authenticated.Group("/scheduled-test-plans")

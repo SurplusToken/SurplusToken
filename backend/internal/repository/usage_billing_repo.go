@@ -142,10 +142,15 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
-	// Contribution reward accrual. Prefer the per-owner split (multi-owner
-	// accounts); fall back to the legacy single contributor for back-compat.
-	// All accruals happen within the same transaction.
-	if len(cmd.ContributionRewardShares) > 0 {
+	// Contribution reward accrual (same transaction). Model B: hold the reward in the
+	// account's pool (account_contribution_pools) for later manual distribution. The
+	// legacy per-owner-split / single-contributor user accruals are kept as a fallback
+	// for back-compat (no longer set by buildUsageBillingCommand).
+	if cmd.ContributionPoolAccountID > 0 && cmd.ContributionPoolAmount > 0 {
+		if err := accrueUsageBillingContributionPool(ctx, tx, cmd.ContributionPoolAccountID, cmd.ContributionPoolAmount); err != nil {
+			return err
+		}
+	} else if len(cmd.ContributionRewardShares) > 0 {
 		for _, share := range cmd.ContributionRewardShares {
 			if share.UserID <= 0 || share.Amount <= 0 {
 				continue
@@ -161,6 +166,22 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	}
 
 	return nil
+}
+
+// accrueUsageBillingContributionPool adds a held reward to the account's pool
+// (Model B). The reward stays in the pool until the primary owner distributes it to
+// the account's owner set; it is NOT credited to any user's spendable balance here.
+func accrueUsageBillingContributionPool(ctx context.Context, tx *sql.Tx, accountID int64, amount float64) error {
+	if accountID <= 0 || amount <= 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO account_contribution_pools (account_id, pool_amount, updated_at)
+VALUES ($1, $2, NOW())
+ON CONFLICT (account_id) DO UPDATE
+SET pool_amount = account_contribution_pools.pool_amount + EXCLUDED.pool_amount,
+    updated_at = NOW()`, accountID, amount)
+	return err
 }
 
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {

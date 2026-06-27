@@ -396,6 +396,19 @@
               <div v-if="account.is_mine" class="flex items-center gap-1">
                 <button
                   type="button"
+                  class="relative flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                  :title="t('accountPool.pool.button')"
+                  @click="openPoolDialog(account)"
+                >
+                  <Icon name="gift" size="sm" :class="(poolAmounts.get(account.id) || 0) > 0 ? 'text-primary-600 dark:text-primary-400' : ''" />
+                  <span class="text-xs">{{ t('accountPool.pool.button') }}</span>
+                  <span
+                    v-if="(poolAmounts.get(account.id) || 0) > 0"
+                    class="absolute right-0 top-0 h-2 w-2 rounded-full bg-primary-500"
+                  ></span>
+                </button>
+                <button
+                  type="button"
                   class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
                   :disabled="savingIDs.has(account.id)"
                   @click="openScopeDialog(account)"
@@ -1020,6 +1033,115 @@
       </template>
     </BaseDialog>
 
+    <!-- Contribution reward pool (held-pool + manual distribute, Model B). -->
+    <BaseDialog
+      :show="poolDialog.show"
+      :title="t('accountPool.pool.title')"
+      width="wide"
+      @close="closePoolDialog"
+    >
+      <div v-if="poolDialog.loading" class="py-10 text-center text-sm text-gray-500 dark:text-dark-300">
+        {{ t('common.loading') }}
+      </div>
+      <div v-else class="space-y-5">
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ poolDialog.account?.name }}
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.pool.description') }}</p>
+            </div>
+            <div class="text-right">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.pool.held') }}</div>
+              <div class="font-mono text-lg font-semibold text-primary-600 dark:text-primary-400">
+                ${{ poolDialog.poolAmount.toFixed(6) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="poolDialog.poolAmount <= 0" class="py-6 text-center text-sm text-gray-500 dark:text-dark-300">
+          {{ t('accountPool.pool.empty') }}
+        </div>
+
+        <template v-else>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="btn btn-xs"
+              :class="poolDialog.mode === 'even' ? 'btn-primary' : 'btn-secondary'"
+              @click="poolDialog.mode = 'even'"
+            >
+              {{ t('accountPool.pool.modeEven') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs"
+              :class="poolDialog.mode === 'custom' ? 'btn-primary' : 'btn-secondary'"
+              @click="poolDialog.mode = 'custom'"
+            >
+              {{ t('accountPool.pool.modeCustom') }}
+            </button>
+          </div>
+
+          <div v-if="poolDialog.mode === 'even'" class="text-sm text-gray-600 dark:text-dark-200">
+            {{ t('accountPool.pool.evenHint', { count: poolDialog.recipients.length, each: (poolDialog.poolAmount / Math.max(poolDialog.recipients.length, 1)).toFixed(6) }) }}
+          </div>
+
+          <div class="space-y-2">
+            <div
+              v-for="r in poolDialog.recipients"
+              :key="r.user_id"
+              class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-700"
+            >
+              <div class="min-w-0 text-sm">
+                <span class="font-medium text-gray-900 dark:text-gray-100">{{ r.display_name }}</span>
+                <span v-if="r.is_primary_owner" class="ml-2 rounded bg-primary-50 px-1.5 py-0.5 text-[11px] text-primary-700 dark:bg-primary-900/20 dark:text-primary-300">
+                  {{ t('accountPool.pool.primaryOwner') }}
+                </span>
+              </div>
+              <div v-if="poolDialog.mode === 'custom'" class="flex items-center gap-1">
+                <span class="text-sm text-gray-400">$</span>
+                <input
+                  v-model="r.amount"
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  class="input w-32 text-right font-mono text-sm"
+                  placeholder="0"
+                />
+              </div>
+              <div v-else class="font-mono text-sm text-gray-600 dark:text-dark-200">
+                ${{ (poolDialog.poolAmount / Math.max(poolDialog.recipients.length, 1)).toFixed(6) }}
+              </div>
+            </div>
+          </div>
+
+          <div v-if="poolDialog.mode === 'custom'" class="flex justify-between text-sm" :class="poolCustomOver ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-dark-200'">
+            <span>{{ t('accountPool.pool.total') }}</span>
+            <span class="font-mono">${{ poolCustomTotal.toFixed(6) }} / ${{ poolDialog.poolAmount.toFixed(6) }}</span>
+          </div>
+        </template>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="closePoolDialog">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="poolDialog.distributing || poolDialog.poolAmount <= 0 || (poolDialog.mode === 'custom' && (poolCustomOver || poolCustomTotal <= 0))"
+            @click="distributePool"
+          >
+            {{ poolDialog.distributing ? t('accountPool.pool.distributing') : t('accountPool.pool.distribute') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <AccountStatsModal
       :show="showStats"
       :account="statsAccount"
@@ -1229,6 +1351,36 @@ const actionMenu = reactive<{
 })
 const showDeleteDialog = ref(false)
 const deletingAccount = ref<UserAccountPoolItem | null>(null)
+
+// Account-level contribution reward pool (held-pool + manual distribute, Model B).
+const poolAmounts = reactive<Map<number, number>>(new Map())
+interface PoolDialogRecipient {
+  user_id: number
+  display_name: string
+  is_primary_owner: boolean
+  amount: string
+}
+const poolDialog = reactive<{
+  show: boolean
+  account: UserAccountPoolItem | null
+  loading: boolean
+  distributing: boolean
+  poolAmount: number
+  mode: 'even' | 'custom'
+  recipients: PoolDialogRecipient[]
+}>({
+  show: false,
+  account: null,
+  loading: false,
+  distributing: false,
+  poolAmount: 0,
+  mode: 'even',
+  recipients: [],
+})
+const poolCustomTotal = computed(() =>
+  poolDialog.recipients.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0),
+)
+const poolCustomOver = computed(() => poolCustomTotal.value > poolDialog.poolAmount + 1e-9)
 const showStats = ref(false)
 const statsAccount = ref<UserAccountPoolItem | null>(null)
 const showTest = ref(false)
@@ -1982,10 +2134,96 @@ async function loadAccounts() {
     pagination.total = result.total
     pagination.page = result.page
     pagination.page_size = result.page_size
+    void loadPoolAmounts()
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.loadFailed')))
   } finally {
     loading.value = false
+  }
+}
+
+// Best-effort: fetch each owned account's held reward pool so the card can badge it.
+async function loadPoolAmounts() {
+  const mine = accounts.value.filter((a) => a.is_mine)
+  await Promise.all(
+    mine.map(async (a) => {
+      try {
+        const view = await accountsAPI.getContributionPool(a.id)
+        poolAmounts.set(a.id, view.pool_amount || 0)
+      } catch {
+        // ignore — pool badge is best-effort
+      }
+    }),
+  )
+}
+
+function openPoolDialog(account: UserAccountPoolItem) {
+  poolDialog.account = account
+  poolDialog.show = true
+  poolDialog.loading = true
+  poolDialog.distributing = false
+  poolDialog.mode = 'even'
+  poolDialog.recipients = []
+  poolDialog.poolAmount = 0
+  accountsAPI
+    .getContributionPool(account.id)
+    .then((view) => {
+      poolDialog.poolAmount = view.pool_amount || 0
+      poolAmounts.set(account.id, view.pool_amount || 0)
+      poolDialog.recipients = (view.recipients || []).map((r) => ({
+        user_id: r.user_id,
+        display_name: r.display_name || `#${r.user_id}`,
+        is_primary_owner: r.is_primary_owner,
+        amount: '',
+      }))
+    })
+    .catch((err: unknown) => {
+      appStore.showError(extractApiErrorMessage(err, t('accountPool.pool.loadFailed')))
+      poolDialog.show = false
+    })
+    .finally(() => {
+      poolDialog.loading = false
+    })
+}
+
+function closePoolDialog() {
+  poolDialog.show = false
+  poolDialog.account = null
+  poolDialog.recipients = []
+}
+
+async function distributePool() {
+  if (!poolDialog.account || poolDialog.distributing) return
+  if (poolDialog.poolAmount <= 0) return
+  const accountId = poolDialog.account.id
+  let payload: { mode?: 'even'; allocations?: { user_id: number; amount: number }[] }
+  if (poolDialog.mode === 'even') {
+    payload = { mode: 'even' }
+  } else {
+    const allocations = poolDialog.recipients
+      .map((r) => ({ user_id: r.user_id, amount: parseFloat(r.amount) || 0 }))
+      .filter((a) => a.amount > 0)
+    if (allocations.length === 0) {
+      appStore.showError(t('accountPool.pool.noAllocations'))
+      return
+    }
+    if (poolCustomOver.value) {
+      appStore.showError(t('accountPool.pool.overPool'))
+      return
+    }
+    payload = { allocations }
+  }
+  poolDialog.distributing = true
+  try {
+    const view = await accountsAPI.distributeContributionPool(accountId, payload)
+    poolAmounts.set(accountId, view.pool_amount || 0)
+    appStore.showSuccess(t('accountPool.pool.distributed'))
+    void loadContributionSummary()
+    closePoolDialog()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.pool.distributeFailed')))
+  } finally {
+    poolDialog.distributing = false
   }
 }
 

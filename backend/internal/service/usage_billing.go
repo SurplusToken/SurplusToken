@@ -54,6 +54,12 @@ type UsageBillingCommand struct {
 	// reward per share; the legacy single ContributorUserID/ContributionRewardAmount
 	// fields are kept for back-compat (single-owner accounts).
 	ContributionRewardShares []ContributionRewardShare
+
+	// Model B: contribution reward is HELD in the account's pool until the owner
+	// manually distributes it. When ContributionPoolAmount > 0 the apply step credits
+	// account_contribution_pools[ContributionPoolAccountID] instead of any user balance.
+	ContributionPoolAccountID int64
+	ContributionPoolAmount    float64
 }
 
 // ContributionRewardShare is one owner's slice of a contribution reward when an
