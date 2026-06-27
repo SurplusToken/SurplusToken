@@ -9138,22 +9138,18 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 		rewardRate := clampContributionRewardRate(p.ContributionRewardRatePercent)
 		rewardAmount := roundTo(p.Cost.ActualCost*(rewardRate/100), 8)
-		if rewardAmount > 0 {
-			perOwner := roundTo(rewardAmount/float64(len(ownerSet)), 8)
-			if perOwner > 0 {
-				shares := make([]ContributionRewardShare, 0, len(ownerSet))
-				for _, ownerID := range ownerSet {
-					shares = append(shares, ContributionRewardShare{UserID: ownerID, Amount: perOwner})
-				}
-				cmd.ContributionRewardShares = shares
-				cmd.ContributionRewardRatePercent = rewardRate
-				cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
-				cmd.ContributionTotalCost = p.Cost.TotalCost
-				cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
-				// Back-compat: mirror the first share onto the legacy single fields.
-				cmd.ContributorUserID = shares[0].UserID
-				cmd.ContributionRewardAmount = shares[0].Amount
-			}
+		// Reward accrues entirely to the PRIMARY owner (no auto-split). The owner later
+		// distributes to co-owners manually (account-level). Co-owners are still in
+		// ownerSet (the check above), so co-owner self-use generates NO reward.
+		if rewardAmount > 0 && p.Account.OwnerUserID != nil && *p.Account.OwnerUserID > 0 {
+			primaryOwner := *p.Account.OwnerUserID
+			cmd.ContributionRewardShares = []ContributionRewardShare{{UserID: primaryOwner, Amount: rewardAmount}}
+			cmd.ContributionRewardRatePercent = rewardRate
+			cmd.ContributionRewardFreezeHours = normalizeContributionFreezeHours(p.ContributionRewardFreezeHours)
+			cmd.ContributionTotalCost = p.Cost.TotalCost
+			cmd.ContributionAccountRateMultiplier = p.AccountRateMultiplier
+			cmd.ContributorUserID = primaryOwner
+			cmd.ContributionRewardAmount = rewardAmount
 		}
 	}
 
