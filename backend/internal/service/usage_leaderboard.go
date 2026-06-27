@@ -189,3 +189,28 @@ func (s *UsageService) GetUsageLeaderboard(ctx context.Context, period string, c
 
 	return resp, nil
 }
+
+// GetGroupUsageLeaderboard ranks users by spend within one group (订阅) for the period.
+// today/week are calendar-accurate; month is each user's subscription window ("订阅月").
+// Any authenticated user may call it (consistent with the open platform leaderboard).
+func (s *UsageService) GetGroupUsageLeaderboard(ctx context.Context, groupID int64, period string) (*UsageLeaderboardResponse, error) {
+	normalizedPeriod, since := leaderboardSince(period)
+
+	entries, err := s.usageRepo.GroupUsageLeaderboard(ctx, groupID, normalizedPeriod, since, usageLeaderboardLimit)
+	if err != nil {
+		return nil, fmt.Errorf("get group usage leaderboard: %w", err)
+	}
+
+	items := make([]UsageLeaderboardItem, 0, len(entries))
+	for i, e := range entries {
+		items = append(items, UsageLeaderboardItem{
+			Rank:        int64(i + 1),
+			UserID:      e.UserID,
+			DisplayName: leaderboardDisplayName(e.Username, e.Email, e.UserID),
+			TotalTokens: e.TotalTokens,
+			TotalCost:   e.TotalCost,
+		})
+	}
+
+	return &UsageLeaderboardResponse{Period: normalizedPeriod, Entries: items, Me: nil}, nil
+}

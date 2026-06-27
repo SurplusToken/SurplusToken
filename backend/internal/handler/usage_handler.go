@@ -397,6 +397,22 @@ func (h *UsageHandler) Leaderboard(c *gin.Context) {
 
 	period := c.DefaultQuery("period", "today")
 
+	// Optional group_id scopes the leaderboard to one group/订阅 (per-user usage within it).
+	if gidStr := c.Query("group_id"); gidStr != "" {
+		gid, perr := strconv.ParseInt(gidStr, 10, 64)
+		if perr != nil || gid <= 0 {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		groupResult, gerr := h.usageService.GetGroupUsageLeaderboard(c.Request.Context(), gid, period)
+		if gerr != nil {
+			response.ErrorFrom(c, gerr)
+			return
+		}
+		response.Success(c, groupResult)
+		return
+	}
+
 	result, err := h.usageService.GetUsageLeaderboard(c.Request.Context(), period, subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)

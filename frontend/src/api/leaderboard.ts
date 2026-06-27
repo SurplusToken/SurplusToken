@@ -33,10 +33,11 @@ export interface LeaderboardResponse {
  * @returns Leaderboard entries plus the current user's own ranking (may be null)
  */
 export async function getUsageLeaderboard(
-  period: LeaderboardPeriod = 'today'
+  period: LeaderboardPeriod = 'today',
+  groupId?: number
 ): Promise<LeaderboardResponse> {
   const { data } = await apiClient.get<LeaderboardResponse>('/usage/leaderboard', {
-    params: { period }
+    params: groupId ? { period, group_id: groupId } : { period }
   })
   return data
 }
