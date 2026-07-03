@@ -185,7 +185,7 @@
           </button>
 
           <button
-            v-if="!surplusAIOAuthOnly"
+            v-if="claudeApiKeyExposed"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -1016,7 +1016,14 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="!surplusAIOAuthOnly && form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <div
+        v-if="
+          (!surplusAIOAuthOnly || (claudeApiKeyExposed && form.platform === 'anthropic')) &&
+          form.type === 'apikey' &&
+          form.platform !== 'antigravity'
+        "
+        class="space-y-4"
+      >
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -3363,6 +3370,9 @@ interface TempUnschedRuleForm {
 
 // State
 const surplusAIOAuthOnly = true
+// Claude（Anthropic）平台的 Console API Key 接入方式对管理员开放；
+// 其余平台与高级接入方式（Bedrock / Vertex Service Account、OpenAI/Gemini API Key 等）维持 OAuth-only。
+const claudeApiKeyExposed = true
 const step = ref(1)
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
@@ -3706,6 +3716,9 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (claudeApiKeyExposed && form.platform === 'anthropic' && accountCategory.value === 'apikey') {
+    return false
+  }
   if (surplusAIOAuthOnly) {
     return true
   }
@@ -3778,7 +3791,8 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (surplusAIOAuthOnly) {
+    const claudeApiKeySelected = claudeApiKeyExposed && form.platform === 'anthropic' && category === 'apikey'
+    if (surplusAIOAuthOnly && !claudeApiKeySelected) {
       accountCategory.value = 'oauth-based'
       addMethod.value = 'oauth'
       antigravityAccountType.value = 'oauth'
@@ -4490,7 +4504,9 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
-  if (surplusAIOAuthOnly) {
+  const claudeApiKeySelected =
+    claudeApiKeyExposed && form.platform === 'anthropic' && accountCategory.value === 'apikey'
+  if (surplusAIOAuthOnly && !claudeApiKeySelected) {
     accountCategory.value = 'oauth-based'
     addMethod.value = 'oauth'
     antigravityAccountType.value = 'oauth'
