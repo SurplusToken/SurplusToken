@@ -606,7 +606,7 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 		updateExisting = *payload.UpdateExisting
 	}
 	credentialExtras := admin.SanitizeCodexImportCredentialExtras(payload.CredentialExtras)
-	seenIdentity := map[string]int{}
+	seenIdentity := map[string]admin.CodexSeenIdentity{}
 
 	for _, entry := range entries {
 		item, err := admin.NormalizeCodexImportEntry(entry)
@@ -641,7 +641,7 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 			})
 		}
 
-		if duplicateIndex, ok := admin.FirstSeenCodexIdentity(seenIdentity, item.IdentityKeys); ok {
+		if duplicateIndex, ok := admin.FirstSeenCodexIdentity(seenIdentity, item.IdentityKeys, item.UserID); ok {
 			message := fmt.Sprintf("与第 %d 条导入项重复，已跳过", duplicateIndex)
 			result.Skipped++
 			result.Items = append(result.Items, admin.CodexSessionImportItem{
@@ -657,9 +657,9 @@ func (h *AccountPoolHandler) importUserCodexSessions(
 			})
 			continue
 		}
-		admin.MarkCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index)
+		admin.MarkCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index, item.UserID)
 
-		if existing := index.Find(item.IdentityKeys); existing != nil {
+		if existing, _ := index.Find(item.IdentityKeys, item.UserID); existing != nil {
 			if !updateExisting {
 				message := "账号已存在，已跳过"
 				result.Skipped++

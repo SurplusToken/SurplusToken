@@ -2,16 +2,12 @@ package service
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
-
-// strconv64 formats an int64 as a base-10 string.
-func strconv64(v int64) string { return strconv.FormatInt(v, 10) }
 
 // normalizeKasmID strips dashes so the dashed form stored in remote_sessions
 // (returned by request_kasm) compares equal to the dash-less form get_kasms

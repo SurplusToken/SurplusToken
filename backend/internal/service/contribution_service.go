@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"math"
 	"time"
 
@@ -126,8 +125,4 @@ func normalizeContributionFreezeHours(hours int) int {
 		return ContributionRewardFreezeHoursMax
 	}
 	return hours
-}
-
-func isContributionQuotaEmpty(err error) bool {
-	return errors.Is(err, ErrContributionQuotaEmpty)
 }

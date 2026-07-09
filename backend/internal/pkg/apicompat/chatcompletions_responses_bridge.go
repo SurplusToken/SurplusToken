@@ -38,6 +38,9 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 	if len(req.ToolChoice) > 0 {
 		out.ToolChoice = responsesToolChoiceToChatToolChoice(req.ToolChoice)
 	}
+	if req.Text != nil {
+		out.ResponseFormat = responsesTextFormatToChatResponseFormat(req.Text.Format)
+	}
 
 	return out, nil
 }
@@ -737,6 +740,13 @@ func ChatCompletionsChunkToResponsesEvents(
 					copyCall.ID = generateItemID()
 				}
 				copyCall.Type = "function"
+				// Arguments are accumulated by the shared block below so the
+				// emitted delta and the stored value stay in sync. Some upstreams
+				// (e.g. GLM/Zhipu) pack id+name+arguments into the first tool_call
+				// chunk; without this reset the first chunk's arguments would be
+				// counted twice (once from this copy, once from the += below),
+				// producing a doubled, invalid JSON like {"a":1}{"a":1}.
+				copyCall.Function.Arguments = ""
 				state.ToolCalls[idx] = &copyCall
 				stored = &copyCall
 				itemID := generateItemID()
