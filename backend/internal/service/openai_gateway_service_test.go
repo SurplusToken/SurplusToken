@@ -90,7 +90,7 @@ func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx
 			result = append(result, acc)
 		}
 	}
-	return result, nil
+	return surplusAITestDefaultOAuthAccounts(result), nil
 }
 
 func (r groupAwareStubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
@@ -100,7 +100,7 @@ func (r groupAwareStubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx 
 			result = append(result, acc)
 		}
 	}
-	return result, nil
+	return surplusAITestDefaultOAuthAccounts(result), nil
 }
 
 type stubConcurrencyCache struct {

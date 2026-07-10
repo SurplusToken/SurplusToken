@@ -105,13 +105,15 @@ func TestBuildUsageBillingCommand_ContributionRewardUsesActualCost(t *testing.T)
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
 	}
-	if cmd.ContributorUserID != ownerID {
-		t.Fatalf("ContributorUserID = %d, want %d", cmd.ContributorUserID, ownerID)
+	// Model B holds the reward in the account's pool rather than crediting a
+	// single contributor directly (see usage_billing.go ContributionPoolAccountID).
+	if cmd.ContributionPoolAccountID != p.Account.ID {
+		t.Fatalf("ContributionPoolAccountID = %d, want %d", cmd.ContributionPoolAccountID, p.Account.ID)
 	}
 	// Contribution reward follows the consumer's actual charged cost, so group
 	// or user-specific group multipliers are reflected in contributor earnings.
-	if cmd.ContributionRewardAmount != 3.2 {
-		t.Fatalf("ContributionRewardAmount = %v, want 3.2", cmd.ContributionRewardAmount)
+	if cmd.ContributionPoolAmount != 3.2 {
+		t.Fatalf("ContributionPoolAmount = %v, want 3.2", cmd.ContributionPoolAmount)
 	}
 	if cmd.ContributionAccountStatsCost == nil || *cmd.ContributionAccountStatsCost != statsCost {
 		t.Fatalf("ContributionAccountStatsCost = %#v, want %v", cmd.ContributionAccountStatsCost, statsCost)
@@ -133,8 +135,8 @@ func TestBuildUsageBillingCommand_ContributionRewardTracksDiscountedActualCost(t
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
 	}
-	if cmd.ContributionRewardAmount != 2.0 {
-		t.Fatalf("ContributionRewardAmount = %v, want 2.0", cmd.ContributionRewardAmount)
+	if cmd.ContributionPoolAmount != 2.0 {
+		t.Fatalf("ContributionPoolAmount = %v, want 2.0", cmd.ContributionPoolAmount)
 	}
 }
 
@@ -153,7 +155,7 @@ func TestBuildUsageBillingCommand_SelfUseDoesNotReward(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
 	}
-	if cmd.ContributionRewardAmount != 0 || cmd.ContributorUserID != 0 {
-		t.Fatalf("self use should not reward, got owner=%d amount=%v", cmd.ContributorUserID, cmd.ContributionRewardAmount)
+	if cmd.ContributionPoolAmount != 0 || cmd.ContributionPoolAccountID != 0 {
+		t.Fatalf("self use should not reward, got pool_account=%d amount=%v", cmd.ContributionPoolAccountID, cmd.ContributionPoolAmount)
 	}
 }

@@ -63,9 +63,9 @@ func NewKasmClient(cfg *config.Config) *KasmClient {
 		return nil
 	}
 	return &KasmClient{
-		apiBase:    base,
-		apiKey:     strings.TrimSpace(cfg.Kasm.APIKey),
-		apiSecret:  strings.TrimSpace(cfg.Kasm.APISecret),
+		apiBase:       base,
+		apiKey:        strings.TrimSpace(cfg.Kasm.APIKey),
+		apiSecret:     strings.TrimSpace(cfg.Kasm.APISecret),
 		imageID:       strings.TrimSpace(cfg.Kasm.ImageID),
 		publicHost:    strings.TrimSpace(cfg.Kasm.PublicHost),
 		seedNamespace: strings.TrimSpace(cfg.Kasm.SeedNamespace),

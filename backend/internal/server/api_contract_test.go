@@ -763,6 +763,8 @@ func TestAPIContracts(t *testing.T) {
 						"api_base_url": "https://api.example.com",
 						"api_key_acl_trust_forwarded_ip": false,
 					"contact_info": "support",
+					"contribution_reward_rate": 80,
+					"contribution_reward_freeze_hours": 0,
 					"doc_url": "https://docs.example.com",
 					"auth_source_default_email_balance": 0,
 					"auth_source_default_email_concurrency": 5,
@@ -1037,6 +1039,8 @@ func TestAPIContracts(t *testing.T) {
 					"api_base_url": "",
 					"api_key_acl_trust_forwarded_ip": false,
 					"contact_info": "",
+					"contribution_reward_rate": 80,
+					"contribution_reward_freeze_hours": 0,
 					"doc_url": "",
 					"home_content": "",
 					"hide_ccs_import_button": false,
@@ -2399,6 +2403,14 @@ func (r *stubUsageLogRepo) GetUsageTrendWithFilters(ctx context.Context, startTi
 }
 
 func (r *stubUsageLogRepo) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) ([]usagestats.ModelStat, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GroupSubscriptionMonthStart(ctx context.Context, groupID int64) (start time.Time, found bool, err error) {
+	return time.Time{}, false, nil
+}
+
+func (r *stubUsageLogRepo) GroupUsageLeaderboard(ctx context.Context, groupID int64, since time.Time, limit int) ([]service.LeaderboardEntry, error) {
 	return nil, errors.New("not implemented")
 }
 

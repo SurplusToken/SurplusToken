@@ -62,6 +62,10 @@ func (s *accountPoolRepoStub) ListByPlatform(ctx context.Context, platform strin
 	return out, nil
 }
 
+func (s *accountPoolRepoStub) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
+	return nil, nil
+}
+
 func (s *accountPoolRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
 	if s.accountsByID == nil {
 		return nil, ErrAccountNotFound

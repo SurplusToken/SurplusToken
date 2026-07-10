@@ -31,22 +31,22 @@ type UserAccountPoolListFilters struct {
 }
 
 type UserAccountPoolItem struct {
-	ID                                 int64                  `json:"id"`
-	Name                               string                 `json:"name"`
-	Platform                           string                 `json:"platform"`
-	Type                               string                 `json:"type"`
-	PlanType                           string                 `json:"plan_type,omitempty"`
-	PrivacyMode                        string                 `json:"privacy_mode,omitempty"`
-	SubscriptionExpiresAt              string                 `json:"subscription_expires_at,omitempty"`
-	ProxyID                            *int64                 `json:"proxy_id,omitempty"`
-	Proxy                              *Proxy                 `json:"proxy,omitempty"`
-	Status                             string                 `json:"status"`
-	RateLimitResetAt                   *time.Time             `json:"rate_limit_reset_at,omitempty"`
-	OverloadUntil                      *time.Time             `json:"overload_until,omitempty"`
-	TempUnschedulableUntil             *time.Time             `json:"temp_unschedulable_until,omitempty"`
-	TempUnschedulableReason            string                 `json:"temp_unschedulable_reason,omitempty"`
-	Extra                              map[string]any         `json:"extra,omitempty"`
-	IsMine                             bool                   `json:"is_mine"`
+	ID                      int64          `json:"id"`
+	Name                    string         `json:"name"`
+	Platform                string         `json:"platform"`
+	Type                    string         `json:"type"`
+	PlanType                string         `json:"plan_type,omitempty"`
+	PrivacyMode             string         `json:"privacy_mode,omitempty"`
+	SubscriptionExpiresAt   string         `json:"subscription_expires_at,omitempty"`
+	ProxyID                 *int64         `json:"proxy_id,omitempty"`
+	Proxy                   *Proxy         `json:"proxy,omitempty"`
+	Status                  string         `json:"status"`
+	RateLimitResetAt        *time.Time     `json:"rate_limit_reset_at,omitempty"`
+	OverloadUntil           *time.Time     `json:"overload_until,omitempty"`
+	TempUnschedulableUntil  *time.Time     `json:"temp_unschedulable_until,omitempty"`
+	TempUnschedulableReason string         `json:"temp_unschedulable_reason,omitempty"`
+	Extra                   map[string]any `json:"extra,omitempty"`
+	IsMine                  bool           `json:"is_mine"`
 	// RemoteSeedReady is true when the account owner has completed remote-browser
 	// setup, exposed to the owner AND co-owners (Extra is owner-only) so the remote
 	// "连接" button shows for co-owners too. Requires co-owners hydrated on the account.
@@ -70,21 +70,21 @@ type UserAccountPoolItem struct {
 	ContributionFiveHourUsagePercent   *float64               `json:"contribution_5h_usage_percent,omitempty"`
 	ContributionWeeklyUsagePercent     *float64               `json:"contribution_weekly_usage_percent,omitempty"`
 	// Codex rolling-window reset timestamps (ISO8601), for the usage-bar countdown.
-	FiveHourResetsAt                   *string                `json:"five_hour_resets_at,omitempty"`
-	WeeklyResetsAt                     *string                `json:"weekly_resets_at,omitempty"`
-	ContributionProtectionBlocked      bool                   `json:"contribution_protection_blocked"`
-	ContributionProtectionReason       string                 `json:"contribution_protection_reason,omitempty"`
-	WindowCostLimit                    float64                `json:"window_cost_limit"`
-	WindowCostStickyReserve            float64                `json:"window_cost_sticky_reserve"`
-	CurrentWindowCost                  *float64               `json:"current_window_cost,omitempty"`
-	QuotaWeeklyLimit                   float64                `json:"quota_weekly_limit"`
-	QuotaWeeklyUsed                    float64                `json:"quota_weekly_used"`
-	QuotaWeeklyRemaining               float64                `json:"quota_weekly_remaining"`
-	QuotaWeeklyMinRemaining            float64                `json:"quota_weekly_min_remaining"`
-	WeeklyRemainingBelowPolicy         bool                   `json:"weekly_remaining_below_policy"`
-	CreatedAt                          time.Time              `json:"created_at"`
-	UpdatedAt                          time.Time              `json:"updated_at"`
-	WindowCostStart                    *time.Time             `json:"-"`
+	FiveHourResetsAt              *string    `json:"five_hour_resets_at,omitempty"`
+	WeeklyResetsAt                *string    `json:"weekly_resets_at,omitempty"`
+	ContributionProtectionBlocked bool       `json:"contribution_protection_blocked"`
+	ContributionProtectionReason  string     `json:"contribution_protection_reason,omitempty"`
+	WindowCostLimit               float64    `json:"window_cost_limit"`
+	WindowCostStickyReserve       float64    `json:"window_cost_sticky_reserve"`
+	CurrentWindowCost             *float64   `json:"current_window_cost,omitempty"`
+	QuotaWeeklyLimit              float64    `json:"quota_weekly_limit"`
+	QuotaWeeklyUsed               float64    `json:"quota_weekly_used"`
+	QuotaWeeklyRemaining          float64    `json:"quota_weekly_remaining"`
+	QuotaWeeklyMinRemaining       float64    `json:"quota_weekly_min_remaining"`
+	WeeklyRemainingBelowPolicy    bool       `json:"weekly_remaining_below_policy"`
+	CreatedAt                     time.Time  `json:"created_at"`
+	UpdatedAt                     time.Time  `json:"updated_at"`
+	WindowCostStart               *time.Time `json:"-"`
 }
 
 type userAccountPoolLister interface {

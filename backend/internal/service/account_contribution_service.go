@@ -8,10 +8,10 @@ import (
 
 // Account-contribution-pool errors (mapped to HTTP by response.ErrorFrom).
 var (
-	ErrContributionNotOwner        = infraerrors.Forbidden("CONTRIBUTION_NOT_OWNER", "only the account's primary owner can view/distribute its reward pool")
-	ErrContributionPoolEmpty       = infraerrors.BadRequest("CONTRIBUTION_POOL_EMPTY", "no reward in the pool to distribute")
+	ErrContributionNotOwner         = infraerrors.Forbidden("CONTRIBUTION_NOT_OWNER", "only the account's primary owner can view/distribute its reward pool")
+	ErrContributionPoolEmpty        = infraerrors.BadRequest("CONTRIBUTION_POOL_EMPTY", "no reward in the pool to distribute")
 	ErrContributionPoolInsufficient = infraerrors.BadRequest("CONTRIBUTION_POOL_INSUFFICIENT", "distribution exceeds the available pool")
-	ErrContributionBadRecipient    = infraerrors.BadRequest("CONTRIBUTION_BAD_RECIPIENT", "a recipient is not an owner of this account")
+	ErrContributionBadRecipient     = infraerrors.BadRequest("CONTRIBUTION_BAD_RECIPIENT", "a recipient is not an owner of this account")
 )
 
 // PoolAllocation is one recipient's slice of a pool distribution.
@@ -46,9 +46,9 @@ func NewAccountContributionService(accountSvc *AccountService, poolRepo AccountC
 
 // PoolRecipient is one eligible distribution recipient (an owner of the account).
 type PoolRecipient struct {
-	UserID         int64   `json:"user_id"`
-	DisplayName    string  `json:"display_name"`
-	IsPrimaryOwner bool    `json:"is_primary_owner"`
+	UserID         int64  `json:"user_id"`
+	DisplayName    string `json:"display_name"`
+	IsPrimaryOwner bool   `json:"is_primary_owner"`
 }
 
 // AccountContributionPoolView is the GET response.
