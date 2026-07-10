@@ -732,7 +732,6 @@ const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = [
   '/admin/redeem',
   '/admin/promo-codes',
   '/admin/affiliates',
-  '/admin/orders',
 ]
 
 function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
