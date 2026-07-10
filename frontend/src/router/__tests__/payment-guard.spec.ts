@@ -21,8 +21,9 @@ describe('payment route guard', () => {
     expect(restrictedBlock).not.toContain("'/payment/stripe-popup'")
   })
 
-  it('uses the shared payment feature flag for requiresPayment routes', () => {
-    expect(routerSource).toContain("import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'")
-    expect(routerSource).toContain('if (!isFeatureFlagEnabled(FeatureFlags.payment))')
+  it('only blocks requiresPayment routes on a confirmed payment_enabled=false, not a transient load failure', () => {
+    expect(routerSource).toContain('to.meta.requiresPayment &&')
+    expect(routerSource).toContain('appStore.publicSettingsLoaded &&')
+    expect(routerSource).toContain('appStore.cachedPublicSettings?.payment_enabled === false')
   })
 })
