@@ -273,7 +273,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		expiresAt = &t
 	}
 
-	credentials := cloneCredentials(req.Credentials)
+	credentials := shallowCopyMap(req.Credentials)
 	if req.ModelMapping != nil {
 		mapping := normalizeUserModelMapping(*req.ModelMapping)
 		if len(mapping) > 0 {
@@ -423,7 +423,7 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 	}
 
 	if req.ModelMapping != nil {
-		credentials := cloneCredentials(account.Credentials)
+		credentials := shallowCopyMap(account.Credentials)
 		mapping := normalizeUserModelMapping(*req.ModelMapping)
 		if len(mapping) > 0 {
 			credentials["model_mapping"] = mapping
@@ -553,7 +553,7 @@ func (s *AccountService) ApplyUserOAuthCredentials(ctx context.Context, userID, 
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
 
-	newCredentials := cloneCredentials(req.Credentials)
+	newCredentials := shallowCopyMap(req.Credentials)
 	for key, value := range account.Credentials {
 		if _, exists := newCredentials[key]; !exists {
 			newCredentials[key] = value
