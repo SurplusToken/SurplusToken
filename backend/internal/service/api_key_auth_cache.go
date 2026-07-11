@@ -52,6 +52,10 @@ type APIKeyAuthUserSnapshot struct {
 	// UserGroupRPMOverride 该 API Key 对应的 (user, group) 专属 RPM 覆盖值。
 	// nil = 无 override（回退到 group/user 级）；0 = 不限流；>0 = 专属上限。
 	UserGroupRPMOverride *int `json:"user_group_rpm_override,omitempty"`
+
+	// SharingRateMin/Max 用户愿意接受的贡献账号共享报价闭区间（两端可空=不限）。
+	SharingRateMin *float64 `json:"sharing_rate_min,omitempty"`
+	SharingRateMax *float64 `json:"sharing_rate_max,omitempty"`
 }
 
 // APIKeyAuthGroupSnapshot 分组快照

@@ -436,6 +436,8 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		LoadFactor:              account.LoadFactor,
 		Priority:                account.Priority,
 		RateMultiplier:          account.RateMultiplier,
+		SharingRateMultiplier:   account.SharingRateMultiplier,
+		SharingRateUpdatedAt:    account.SharingRateUpdatedAt,
 		Status:                  account.Status,
 		LastUsedAt:              account.LastUsedAt,
 		ExpiresAt:               account.ExpiresAt,
@@ -460,6 +462,10 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		// accounts. Without it the scheduler can evaluate the reserve (Extra is
 		// present) but cannot identify the owner, so owner-bypass never fires.
 		OwnerUserID: account.OwnerUserID,
+		// CoOwnerUserIDs must also ride along so IsSurplusAIOwner/the sharing-rate
+		// eligibility filter correctly bypass co-owners on this fast (Redis
+		// snapshot) scheduling path, not just the primary owner.
+		CoOwnerUserIDs: account.CoOwnerUserIDs,
 	}
 }
 

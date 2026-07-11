@@ -156,13 +156,24 @@ type UpdateAccountRequest struct {
 
 // AccountService 账号管理服务
 type AccountService struct {
-	accountRepo AccountRepository
-	groupRepo   GroupRepository
-	proxyRepo   ProxyRepository
+	accountRepo       AccountRepository
+	groupRepo         GroupRepository
+	proxyRepo         ProxyRepository
+	sharingRatePolicy SharingRatePolicy
 }
 
 type groupExistenceBatchChecker interface {
 	ExistsByIDs(ctx context.Context, ids []int64) (map[int64]bool, error)
+}
+
+// SharingRatePolicy is the narrow policy dependency AccountService needs for
+// the shared-account-rate marketplace: the admin-configurable dynamic
+// floor/cap an owner price change must additionally satisfy (on top of the
+// hard [0,5] range), and the minimum interval between two price changes on
+// the same account. Satisfied by *SettingService.
+type SharingRatePolicy interface {
+	GetSharingRateBounds(ctx context.Context) (floor, cap float64)
+	GetSharingRateOwnerCooldownMinutes(ctx context.Context) int
 }
 
 // NewAccountService 创建账号服务实例
@@ -175,6 +186,27 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 func (s *AccountService) SetProxyRepository(proxyRepo ProxyRepository) {
 	s.proxyRepo = proxyRepo
+}
+
+// SetSharingRatePolicy injects the shared-account-rate marketplace policy.
+// Optional: when nil, sharing-rate updates fall back to the hard [0,5] range
+// and the default owner cooldown.
+func (s *AccountService) SetSharingRatePolicy(policy SharingRatePolicy) {
+	s.sharingRatePolicy = policy
+}
+
+func (s *AccountService) sharingRateBounds(ctx context.Context) (float64, float64) {
+	if s.sharingRatePolicy == nil {
+		return SharingRateFloorDefault, SharingRateCapDefault
+	}
+	return s.sharingRatePolicy.GetSharingRateBounds(ctx)
+}
+
+func (s *AccountService) sharingRateCooldownMinutes(ctx context.Context) int {
+	if s.sharingRatePolicy == nil {
+		return SharingRateOwnerCooldownMinutesDefault
+	}
+	return s.sharingRatePolicy.GetSharingRateOwnerCooldownMinutes(ctx)
 }
 
 // Create 创建账号

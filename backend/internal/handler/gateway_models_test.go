@@ -137,6 +137,52 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 	require.Equal(t, []string{"gemini-2.5-flash"}, modelIDsForTest(got.Data))
 }
 
+func TestGatewayModels_SharingRangeFilteredToZeroDoesNotReturnDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(211)
+	ownerID := int64(10)
+	sharingRate := 2.0
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:                    1,
+						Platform:              service.PlatformOpenAI,
+						Type:                  service.AccountTypeOAuth,
+						Status:                service.StatusActive,
+						Schedulable:           true,
+						OwnerUserID:           &ownerID,
+						SharingRateMultiplier: &sharingRate,
+					},
+				},
+			},
+		},
+	)
+
+	acceptedMax := 1.0
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx := service.WithRequestingUserID(req.Context(), 20)
+	ctx = service.WithSharingRateAcceptedRange(ctx, nil, &acceptedMax)
+	ctx = service.WithSharingRangeFilterEnabled(ctx, true)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req.WithContext(ctx)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NotNil(t, got.Data)
+	require.Empty(t, got.Data)
+}
+
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

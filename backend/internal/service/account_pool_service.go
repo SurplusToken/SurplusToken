@@ -67,8 +67,13 @@ type UserAccountPoolItem struct {
 	ContributionWeeklyShareBudget      float64                `json:"contribution_weekly_share_budget"`
 	OthersWeeklySpend                  *float64               `json:"others_weekly_spend,omitempty"`
 	ContributionProbeFailurePolicy     string                 `json:"contribution_probe_failure_policy"`
-	ContributionFiveHourUsagePercent   *float64               `json:"contribution_5h_usage_percent,omitempty"`
-	ContributionWeeklyUsagePercent     *float64               `json:"contribution_weekly_usage_percent,omitempty"`
+	// SharingRateMultiplier 贡献账号共享市场报价倍率（存储值，非 Effective），
+	// 对所有消费者公开，用于市场浏览/筛选。
+	SharingRateMultiplier float64 `json:"sharing_rate_multiplier"`
+	// SharingRateUpdatedAt 共享报价最近一次变更时间，仅主 owner 可见（改价冷却倒计时用）。
+	SharingRateUpdatedAt             *time.Time `json:"sharing_rate_updated_at,omitempty"`
+	ContributionFiveHourUsagePercent *float64   `json:"contribution_5h_usage_percent,omitempty"`
+	ContributionWeeklyUsagePercent   *float64   `json:"contribution_weekly_usage_percent,omitempty"`
 	// Codex rolling-window reset timestamps (ISO8601), for the usage-bar countdown.
 	FiveHourResetsAt              *string    `json:"five_hour_resets_at,omitempty"`
 	WeeklyResetsAt                *string    `json:"weekly_resets_at,omitempty"`
@@ -89,6 +94,16 @@ type UserAccountPoolItem struct {
 
 type userAccountPoolLister interface {
 	ListUserAccountPoolWithFilters(ctx context.Context, params pagination.PaginationParams, platform, planType, search string) ([]Account, *pagination.PaginationResult, error)
+}
+
+// userAccountSharingRateUpdater is the narrow write path for the shared-account-rate
+// marketplace: a single conditional UPDATE that atomically checks owner/type/cooldown
+// and persists the new price, avoiding a read-then-write race between concurrent price
+// changes. Deliberately kept out of AccountRepository.Update (which would overwrite this
+// atomic write with a stale in-memory snapshot). Returns (false, nil) when the condition
+// doesn't match (cooldown not elapsed, wrong owner, wrong type, or deleted).
+type userAccountSharingRateUpdater interface {
+	UpdateUserAccountSharingRate(ctx context.Context, accountID, ownerUserID int64, rate float64, changedAt, cooldownCutoff time.Time) (bool, error)
 }
 
 type UserAccountPoolGroup struct {
@@ -130,6 +145,8 @@ type UpdateUserAccountScopeRequest struct {
 	ContributionShareMode              *string            `json:"contribution_share_mode"`
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+	// SharingRateMultiplier is the owner-set sharing-market price. nil = unchanged.
+	SharingRateMultiplier *float64 `json:"sharing_rate_multiplier"`
 }
 
 type UpdateUserAccountLimitsRequest struct {
@@ -492,6 +509,44 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 		}
 	}
 
+	// SharingRateMultiplier: primary-owner authorization is already guaranteed by
+	// getOwnedUserOAuthAccount above (co-owners fail there with ErrAccountOwnerRequired).
+	// Persisted via the atomic userAccountSharingRateUpdater below, never through the
+	// general accountRepo.Update path, so it's deliberately excluded from
+	// needsAccountUpdate.
+	if req.SharingRateMultiplier != nil {
+		rate := *req.SharingRateMultiplier
+		floor, cap := s.sharingRateBounds(ctx)
+		if err := ValidateSharingRateMultiplier(rate, floor, cap); err != nil {
+			return nil, err
+		}
+		rate = canonicalSharingRate(rate)
+		current := SharingRateMultiplierDefault
+		if account.SharingRateMultiplier != nil {
+			v := *account.SharingRateMultiplier
+			if !math.IsNaN(v) && v >= SharingRateMultiplierHardMin && v <= SharingRateMultiplierHardMax {
+				current = v
+			}
+		}
+		if rate != current {
+			updater, ok := s.accountRepo.(userAccountSharingRateUpdater)
+			if !ok {
+				return nil, fmt.Errorf("account repository does not support sharing rate updates")
+			}
+			changedAt := time.Now()
+			cooldownCutoff := changedAt.Add(-time.Duration(s.sharingRateCooldownMinutes(ctx)) * time.Minute)
+			updated, err := updater.UpdateUserAccountSharingRate(ctx, account.ID, userID, rate, changedAt, cooldownCutoff)
+			if err != nil {
+				return nil, fmt.Errorf("update user account sharing rate: %w", err)
+			}
+			if !updated {
+				return nil, ErrSharingRateCooldown
+			}
+			account.SharingRateMultiplier = &rate
+			account.SharingRateUpdatedAt = &changedAt
+		}
+	}
+
 	needsAccountUpdate := extraChanged || req.ProxyID != nil || req.ExpiresAt != nil || req.AutoPauseOnExpired != nil || req.Concurrency != nil
 	if needsAccountUpdate {
 		if err := s.accountRepo.Update(ctx, account); err != nil {
@@ -726,6 +781,13 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		windowCostStickyReserve = account.GetWindowCostStickyReserve()
 	}
 	protection := account.EvaluateContributionProtection()
+	sharingRateMultiplier := 1.0
+	if account.SharingRateMultiplier != nil {
+		v := *account.SharingRateMultiplier
+		if !math.IsNaN(v) && v >= SharingRateMultiplierHardMin && v <= SharingRateMultiplierHardMax {
+			sharingRateMultiplier = v
+		}
+	}
 	item := UserAccountPoolItem{
 		ID:                                 account.ID,
 		Name:                               account.Name,
@@ -754,6 +816,7 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		ContributionWeeklyShareBudget:      account.GetContributionWeeklyShareBudget(),
 		OthersWeeklySpend:                  account.OthersWeeklySpend,
 		ContributionProbeFailurePolicy:     account.GetContributionProbeFailurePolicy(),
+		SharingRateMultiplier:              sharingRateMultiplier,
 		ContributionFiveHourUsagePercent:   protection.FiveHourUsagePercent,
 		ContributionWeeklyUsagePercent:     protection.WeeklyUsagePercent,
 		ContributionProtectionBlocked:      protection.Blocked,
@@ -781,6 +844,7 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		item.Concurrency = account.Concurrency
 		item.GroupIDs = append([]int64(nil), account.GroupIDs...)
 		item.Extra = userVisibleAccountExtra(account.Extra)
+		item.SharingRateUpdatedAt = account.SharingRateUpdatedAt
 		if account.Proxy != nil {
 			proxy := *account.Proxy
 			proxy.Password = ""

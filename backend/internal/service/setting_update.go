@@ -51,6 +51,14 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Contex
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	if settings == nil {
+		return nil, infraerrors.BadRequest("INVALID_SYSTEM_SETTINGS", "settings are required")
+	}
+	if err := ValidateSharingRateSettings(settings.SharingRateFloor, settings.SharingRateCap, settings.SharingRateCooldownMinutes); err != nil {
+		return nil, err
+	}
+	settings.SharingRateFloor = canonicalSharingRate(settings.SharingRateFloor)
+	settings.SharingRateCap = canonicalSharingRate(settings.SharingRateCap)
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -301,6 +309,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyContributionRewardRate] = strconv.FormatFloat(settings.ContributionRewardRate, 'f', 8, 64)
 	settings.ContributionRewardFreezeHours = normalizeContributionFreezeHours(settings.ContributionRewardFreezeHours)
 	updates[SettingKeyContributionRewardFreezeHours] = strconv.Itoa(settings.ContributionRewardFreezeHours)
+	updates[SettingKeySharingPoolDisplayEnabled] = strconv.FormatBool(settings.SharingPoolDisplayEnabled)
+	updates[SettingKeySharingRangeFilterEnabled] = strconv.FormatBool(settings.SharingRangeFilterEnabled)
+	updates[SettingKeySharingPoolBillingEnabled] = strconv.FormatBool(settings.SharingPoolBillingEnabled)
+	updates[SettingKeySharingRateFloor] = strconv.FormatFloat(settings.SharingRateFloor, 'f', 4, 64)
+	updates[SettingKeySharingRateCap] = strconv.FormatFloat(settings.SharingRateCap, 'f', 4, 64)
+	updates[SettingKeySharingRateCooldownMinutes] = strconv.Itoa(settings.SharingRateCooldownMinutes)
 	updates[SettingKeyDefaultUserRPMLimit] = strconv.Itoa(settings.DefaultUserRPMLimit)
 	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
 	if err != nil {
@@ -511,6 +525,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		value:     settings.BackendModeEnabled,
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
+	s.refreshSharingRateSettingsCache(settings)
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 		fingerprintUnification:           settings.EnableFingerprintUnification,

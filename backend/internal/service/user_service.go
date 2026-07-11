@@ -17,6 +17,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"log/slog"
+	"math"
 	"net/url"
 	"sort"
 	"strconv"
@@ -138,6 +139,14 @@ type RedeemUserAdjustmentRepository interface {
 	ApplyRedeemConcurrencyAdjustment(ctx context.Context, id int64, delta int) error
 }
 
+// UserSharingRateRangeRepository provides a narrow write path for a user's
+// accepted sharing-price range. It is intentionally narrower than
+// UserRepository so that updating this low-stakes preference can never
+// clobber unrelated fields via a full User.Update race.
+type UserSharingRateRangeRepository interface {
+	UpdateSharingRateRange(ctx context.Context, userID int64, min, max *float64) error
+}
+
 type UserAuthIdentityRecord struct {
 	ProviderType    string
 	ProviderKey     string
@@ -235,17 +244,20 @@ type UserService struct {
 	settingRepo          SettingRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	billingCache         BillingCache
+	sharingRateRangeRepo UserSharingRateRangeRepository
 	lastActiveTouchL1    sync.Map
 	lastActiveTouchSF    singleflight.Group
 }
 
 // NewUserService 创建用户服务实例
 func NewUserService(userRepo UserRepository, settingRepo SettingRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCache BillingCache) *UserService {
+	sharingRateRangeRepo, _ := userRepo.(UserSharingRateRangeRepository)
 	return &UserService{
 		userRepo:             userRepo,
 		settingRepo:          settingRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		billingCache:         billingCache,
+		sharingRateRangeRepo: sharingRateRangeRepo,
 	}
 }
 
@@ -433,6 +445,73 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}
 	return updated, nil
+}
+
+// SharingRateRange is a user's accepted sharing-price closed interval
+// [Min, Max]. A nil bound is unbounded on that side.
+type SharingRateRange struct {
+	Min *float64
+	Max *float64
+}
+
+// GetSharingRateRange returns the given user's currently accepted
+// sharing-price range.
+func (s *UserService) GetSharingRateRange(ctx context.Context, userID int64) (SharingRateRange, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return SharingRateRange{}, fmt.Errorf("get user: %w", err)
+	}
+	return SharingRateRange{Min: user.SharingRateMin, Max: user.SharingRateMax}, nil
+}
+
+// UpdateSharingRateRange validates and persists the given user's accepted
+// sharing-price range [min, max], replacing it in full. Besides the hard
+// [0,5] range and min<=max (checked by ValidateSharingRateAcceptedRange),
+// each non-nil bound must also fall within the admin-configurable dynamic
+// cap: a bound above cap could never match any owner's price (owner prices
+// are themselves capped there), so allowing it would silently accept a
+// range the user could never actually benefit from.
+//
+// The write goes through the narrow sharingRateRangeRepo so it can never
+// clobber unrelated user fields via a full User.Update race. The auth cache
+// is only invalidated after a successful write, so a failed write can't
+// leave a stale cache entry.
+func (s *UserService) UpdateSharingRateRange(ctx context.Context, userID int64, min, max *float64) (SharingRateRange, error) {
+	if err := ValidateSharingRateAcceptedRange(min, max); err != nil {
+		return SharingRateRange{}, err
+	}
+	if min != nil {
+		value := canonicalSharingRate(*min)
+		min = &value
+	}
+	if max != nil {
+		value := canonicalSharingRate(*max)
+		max = &value
+	}
+
+	cap := SharingRateCapDefault
+	if s.settingRepo != nil {
+		if raw, err := s.settingRepo.GetValue(ctx, SettingKeySharingRateCap); err == nil {
+			if v, parseErr := strconv.ParseFloat(raw, 64); parseErr == nil &&
+				!math.IsNaN(v) && v >= SharingRateMultiplierHardMin && v <= SharingRateMultiplierHardMax {
+				cap = v
+			}
+		}
+	}
+	if (min != nil && *min > cap) || (max != nil && *max > cap) {
+		return SharingRateRange{}, ErrSharingRateOutOfRange
+	}
+
+	if s.sharingRateRangeRepo == nil {
+		return SharingRateRange{}, fmt.Errorf("sharing rate range repository not configured")
+	}
+	if err := s.sharingRateRangeRepo.UpdateSharingRateRange(ctx, userID, min, max); err != nil {
+		return SharingRateRange{}, err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
+	}
+	return SharingRateRange{Min: min, Max: max}, nil
 }
 
 func (s *UserService) updateProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*User, int, error) {

@@ -44,6 +44,35 @@ const (
 	ContributionRewardFreezeHoursMax     = 720
 )
 
+// Shared account rate marketplace settings. sharing_rate_multiplier is a hard
+// range [0,5] enforced at the DB (CHECK constraint) and validation layer; the
+// admin-configurable floor/cap further narrow that range for owner price
+// updates (they must stay within the hard range). All three feature flags
+// default to false/off so shipping this feature changes no default behavior.
+const (
+	SharingRateMultiplierDefault           = 1.0
+	SharingRateMultiplierHardMin           = 0.0
+	SharingRateMultiplierHardMax           = 5.0
+	SharingRateFloorDefault                = SharingRateMultiplierHardMin
+	SharingRateCapDefault                  = SharingRateMultiplierHardMax
+	SharingRateOwnerCooldownMinutesDefault = 10
+	SharingRateOwnerCooldownMinutesMax     = 1440 // 24h
+)
+
+const (
+	// SettingKeySharingPoolDisplayEnabled 控制前端是否展示共享报价市场相关 UI（列表报价列、区间设置卡片等）。
+	SettingKeySharingPoolDisplayEnabled = "sharing_pool_display_enabled"
+	// SettingKeySharingRangeFilterEnabled 控制调度/模型列表是否按消费者接受区间过滤贡献账号。
+	SettingKeySharingRangeFilterEnabled = "sharing_range_filter_enabled"
+	// SettingKeySharingPoolBillingEnabled 控制计费是否对外部消费者应用共享报价倍率并计提奖励。
+	SettingKeySharingPoolBillingEnabled = "sharing_pool_billing_enabled"
+	// SettingKeySharingRateFloor/Cap 是 owner 报价的动态软边界（必须落在硬范围 [0,5] 内）。
+	SettingKeySharingRateFloor = "sharing_rate_floor"
+	SettingKeySharingRateCap   = "sharing_rate_cap"
+	// SettingKeySharingRateCooldownMinutes 是 owner 相邻两次改价之间的最小间隔（分钟，0=不限制）。
+	SettingKeySharingRateCooldownMinutes = "sharing_rate_cooldown_minutes"
+)
+
 // Platform constants
 const (
 	PlatformAnthropic   = domain.PlatformAnthropic

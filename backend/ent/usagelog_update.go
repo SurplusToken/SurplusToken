@@ -569,6 +569,33 @@ func (_u *UsageLogUpdate) ClearAccountRateMultiplier() *UsageLogUpdate {
 	return _u
 }
 
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdate) SetSharingRateMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetSharingRateMultiplier()
+	_u.mutation.SetSharingRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSharingRateMultiplier sets the "sharing_rate_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableSharingRateMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetSharingRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMultiplier adds value to the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdate) AddSharingRateMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddSharingRateMultiplier(v)
+	return _u
+}
+
+// ClearSharingRateMultiplier clears the value of the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdate) ClearSharingRateMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearSharingRateMultiplier()
+	return _u
+}
+
 // SetBillingType sets the "billing_type" field.
 func (_u *UsageLogUpdate) SetBillingType(v int8) *UsageLogUpdate {
 	_u.mutation.ResetBillingType()
@@ -1207,6 +1234,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SharingRateMultiplier(); ok {
+		_spec.SetField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMultiplier(); ok {
+		_spec.AddField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)
@@ -2009,6 +2045,33 @@ func (_u *UsageLogUpdateOne) ClearAccountRateMultiplier() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) SetSharingRateMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetSharingRateMultiplier()
+	_u.mutation.SetSharingRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSharingRateMultiplier sets the "sharing_rate_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableSharingRateMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetSharingRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMultiplier adds value to the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) AddSharingRateMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddSharingRateMultiplier(v)
+	return _u
+}
+
+// ClearSharingRateMultiplier clears the value of the "sharing_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearSharingRateMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearSharingRateMultiplier()
+	return _u
+}
+
 // SetBillingType sets the "billing_type" field.
 func (_u *UsageLogUpdateOne) SetBillingType(v int8) *UsageLogUpdateOne {
 	_u.mutation.ResetBillingType()
@@ -2677,6 +2740,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SharingRateMultiplier(); ok {
+		_spec.SetField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMultiplier(); ok {
+		_spec.AddField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldSharingRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)

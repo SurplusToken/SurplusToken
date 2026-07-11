@@ -190,6 +190,11 @@ func AccountRateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldAccountRateMultiplier, v))
 }
 
+// SharingRateMultiplier applies equality check predicate on the "sharing_rate_multiplier" field. It's identical to SharingRateMultiplierEQ.
+func SharingRateMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldSharingRateMultiplier, v))
+}
+
 // BillingType applies equality check predicate on the "billing_type" field. It's identical to BillingTypeEQ.
 func BillingType(v int8) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldBillingType, v))
@@ -1513,6 +1518,56 @@ func AccountRateMultiplierIsNil() predicate.UsageLog {
 // AccountRateMultiplierNotNil applies the NotNil predicate on the "account_rate_multiplier" field.
 func AccountRateMultiplierNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldAccountRateMultiplier))
+}
+
+// SharingRateMultiplierEQ applies the EQ predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierNEQ applies the NEQ predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierIn applies the In predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldSharingRateMultiplier, vs...))
+}
+
+// SharingRateMultiplierNotIn applies the NotIn predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldSharingRateMultiplier, vs...))
+}
+
+// SharingRateMultiplierGT applies the GT predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierGTE applies the GTE predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierLT applies the LT predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierLTE applies the LTE predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierIsNil applies the IsNil predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldSharingRateMultiplier))
+}
+
+// SharingRateMultiplierNotNil applies the NotNil predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldSharingRateMultiplier))
 }
 
 // BillingTypeEQ applies the EQ predicate on the "billing_type" field.

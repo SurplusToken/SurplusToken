@@ -138,6 +138,7 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	ipAddress := "203.0.113.10"
 	accountRateMultiplier := 1.5
 	accountStatsCost := 0.21
+	sharingRateMultiplier := 2.0
 	log := &service.UsageLog{
 		RequestID:             "req_user_visible_billing",
 		Model:                 "gpt-5.4",
@@ -148,6 +149,7 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 		TotalCost:             0.10,
 		ActualCost:            0.08,
 		RateMultiplier:        0.8,
+		SharingRateMultiplier: &sharingRateMultiplier,
 		IPAddress:             &ipAddress,
 		AccountRateMultiplier: &accountRateMultiplier,
 		AccountStatsCost:      &accountStatsCost,
@@ -161,6 +163,8 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	require.Equal(t, 0.10, userDTO.TotalCost)
 	require.Equal(t, 0.08, userDTO.ActualCost)
 	require.Equal(t, 0.8, userDTO.RateMultiplier)
+	require.NotNil(t, userDTO.SharingRateMultiplier)
+	require.Equal(t, 2.0, *userDTO.SharingRateMultiplier)
 	require.NotNil(t, userDTO.IPAddress)
 	require.Equal(t, ipAddress, *userDTO.IPAddress)
 
@@ -169,6 +173,7 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 	require.NotContains(t, string(userJSON), "account_rate_multiplier")
 	require.NotContains(t, string(userJSON), "account_stats_cost")
 	require.NotContains(t, string(userJSON), "account_cost")
+	require.Contains(t, string(userJSON), `"sharing_rate_multiplier":2`)
 }
 
 func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *testing.T) {

@@ -151,6 +151,12 @@ type UpdateSettingsRequest struct {
 	AffiliateRebatePerInviteeCap              *float64                          `json:"affiliate_rebate_per_invitee_cap"`
 	ContributionRewardRate                    *float64                          `json:"contribution_reward_rate"`
 	ContributionRewardFreezeHours             *int                              `json:"contribution_reward_freeze_hours"`
+	SharingPoolDisplayEnabled                 *bool                             `json:"sharing_pool_display_enabled"`
+	SharingRangeFilterEnabled                 *bool                             `json:"sharing_range_filter_enabled"`
+	SharingPoolBillingEnabled                 *bool                             `json:"sharing_pool_billing_enabled"`
+	SharingRateFloor                          *float64                          `json:"sharing_rate_floor"`
+	SharingRateCap                            *float64                          `json:"sharing_rate_cap"`
+	SharingRateCooldownMinutes                *int                              `json:"sharing_rate_cooldown_minutes"`
 	DefaultUserRPMLimit                       int                               `json:"default_user_rpm_limit"`
 	DefaultSubscriptions                      []dto.DefaultSubscriptionSetting  `json:"default_subscriptions"`
 	AuthSourceDefaultEmailBalance             *float64                          `json:"auth_source_default_email_balance"`
@@ -412,6 +418,30 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if contributionRewardFreezeHours > service.ContributionRewardFreezeHoursMax {
 		contributionRewardFreezeHours = service.ContributionRewardFreezeHoursMax
+	}
+	sharingPoolDisplayEnabled := previousSettings.SharingPoolDisplayEnabled
+	if req.SharingPoolDisplayEnabled != nil {
+		sharingPoolDisplayEnabled = *req.SharingPoolDisplayEnabled
+	}
+	sharingRangeFilterEnabled := previousSettings.SharingRangeFilterEnabled
+	if req.SharingRangeFilterEnabled != nil {
+		sharingRangeFilterEnabled = *req.SharingRangeFilterEnabled
+	}
+	sharingPoolBillingEnabled := previousSettings.SharingPoolBillingEnabled
+	if req.SharingPoolBillingEnabled != nil {
+		sharingPoolBillingEnabled = *req.SharingPoolBillingEnabled
+	}
+	sharingRateFloor := previousSettings.SharingRateFloor
+	if req.SharingRateFloor != nil {
+		sharingRateFloor = *req.SharingRateFloor
+	}
+	sharingRateCap := previousSettings.SharingRateCap
+	if req.SharingRateCap != nil {
+		sharingRateCap = *req.SharingRateCap
+	}
+	sharingRateCooldownMinutes := previousSettings.SharingRateCooldownMinutes
+	if req.SharingRateCooldownMinutes != nil {
+		sharingRateCooldownMinutes = *req.SharingRateCooldownMinutes
 	}
 	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
 	if req.TableDefaultPageSize <= 0 {
@@ -1303,6 +1333,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateRebatePerInviteeCap:           affiliateRebatePerInviteeCap,
 		ContributionRewardRate:                 contributionRewardRate,
 		ContributionRewardFreezeHours:          contributionRewardFreezeHours,
+		SharingPoolDisplayEnabled:              sharingPoolDisplayEnabled,
+		SharingRangeFilterEnabled:              sharingRangeFilterEnabled,
+		SharingPoolBillingEnabled:              sharingPoolBillingEnabled,
+		SharingRateFloor:                       sharingRateFloor,
+		SharingRateCap:                         sharingRateCap,
+		SharingRateCooldownMinutes:             sharingRateCooldownMinutes,
 		DefaultUserRPMLimit:                    req.DefaultUserRPMLimit,
 		DefaultSubscriptions:                   defaultSubscriptions,
 		EnableModelFallback:                    req.EnableModelFallback,
@@ -1812,6 +1848,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateRebatePerInviteeCap:                           updatedSettings.AffiliateRebatePerInviteeCap,
 		ContributionRewardRate:                                 updatedSettings.ContributionRewardRate,
 		ContributionRewardFreezeHours:                          updatedSettings.ContributionRewardFreezeHours,
+		SharingPoolDisplayEnabled:                              updatedSettings.SharingPoolDisplayEnabled,
+		SharingRangeFilterEnabled:                              updatedSettings.SharingRangeFilterEnabled,
+		SharingPoolBillingEnabled:                              updatedSettings.SharingPoolBillingEnabled,
+		SharingRateFloor:                                       updatedSettings.SharingRateFloor,
+		SharingRateCap:                                         updatedSettings.SharingRateCap,
+		SharingRateCooldownMinutes:                             updatedSettings.SharingRateCooldownMinutes,
 		DefaultUserRPMLimit:                                    updatedSettings.DefaultUserRPMLimit,
 		DefaultSubscriptions:                                   updatedDefaultSubscriptions,
 		EnableModelFallback:                                    updatedSettings.EnableModelFallback,

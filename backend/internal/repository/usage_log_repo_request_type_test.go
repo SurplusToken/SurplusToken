@@ -66,6 +66,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.ActualCost,
 			log.RateMultiplier,
 			log.AccountRateMultiplier,
+			log.SharingRateMultiplier,
 			log.BillingType,
 			int16(service.RequestTypeWSV2),
 			true,
@@ -152,6 +153,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.ActualCost,
 			log.RateMultiplier,
 			log.AccountRateMultiplier,
+			log.SharingRateMultiplier,
 			log.BillingType,
 			int16(service.RequestTypeSync),
 			false,
@@ -265,13 +267,30 @@ func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
 		CreatedAt:          time.Date(2025, 1, 6, 12, 0, 0, 0, time.UTC),
 	})
 
-	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[34])
-	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[35])
-	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[36])
-	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[37])
-	breakdownJSON, ok := prepared.args[38].(string)
+	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[35])
+	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[36])
+	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[37])
+	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[38])
+	breakdownJSON, ok := prepared.args[39].(string)
 	require.True(t, ok)
 	require.JSONEq(t, `{"1K":1,"4K":1}`, breakdownJSON)
+}
+
+func TestPrepareUsageLogInsert_PersistsSharingRateMultiplier(t *testing.T) {
+	sharingRate := 0.85
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:                1,
+		APIKeyID:              2,
+		AccountID:             3,
+		RequestID:             "req-sharing-rate",
+		Model:                 "gpt-5",
+		RequestedModel:        "gpt-5",
+		SharingRateMultiplier: &sharingRate,
+		CreatedAt:             time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC),
+	})
+
+	require.Same(t, &sharingRate, prepared.args[25])
+	require.Equal(t, sharingRate, *prepared.args[25].(*float64))
 }
 
 func TestCoalesceTrimmedString(t *testing.T) {
@@ -791,6 +810,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.0, 0.0, 0.0, 0.0, 0.8, 0.8,
 			1.0,
 			sql.NullFloat64{},
+			sql.NullFloat64{}, // sharing_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeSync),
 			false,
@@ -862,6 +882,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.9,               // actual_cost
 			1.0,               // rate_multiplier
 			sql.NullFloat64{}, // account_rate_multiplier
+			sql.NullFloat64{}, // sharing_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeWSV2),
 			false, // legacy stream
@@ -917,6 +938,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
 			sql.NullFloat64{},
+			sql.NullFloat64{}, // sharing_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeUnknown),
 			true,
@@ -972,6 +994,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
 			sql.NullFloat64{},
+			sql.NullFloat64{}, // sharing_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeSync),
 			false,
@@ -1006,4 +1029,105 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.Equal(t, "priority", *log.ServiceTier)
 	})
 
+	t.Run("sharing_rate_multiplier_is_scanned", func(t *testing.T) {
+		now := time.Now().UTC()
+		log, err := scanUsageLog(usageLogScannerStub{values: []any{
+			int64(5), int64(14), int64(24), int64(34),
+			sql.NullString{Valid: true, String: "req-sharing-rate"},
+			"gpt-5",
+			sql.NullString{Valid: true, String: "gpt-5"},
+			sql.NullString{}, // upstream_model
+			sql.NullInt64{},  // group_id
+			sql.NullInt64{},  // subscription_id
+			1, 2, 3, 4, 5, 6,
+			0, 0.0, // image_output_tokens, image_output_cost
+			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
+			1.0, // rate_multiplier
+			sql.NullFloat64{Valid: true, Float64: 1.2},  // account_rate_multiplier
+			sql.NullFloat64{Valid: true, Float64: 0.85}, // sharing_rate_multiplier
+			int16(service.BillingTypeBalance),
+			int16(service.RequestTypeSync),
+			false,
+			false,
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			0,
+			sql.NullString{}, // image_size
+			sql.NullString{}, // image_input_size
+			sql.NullString{}, // image_output_size
+			sql.NullString{}, // image_size_source
+			sql.NullString{}, // image_size_breakdown
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
+			sql.NullString{}, // service_tier
+			sql.NullString{}, // reasoning_effort
+			sql.NullString{}, // inbound_endpoint
+			sql.NullString{}, // upstream_endpoint
+			false,
+			sql.NullInt64{},   // channel_id
+			sql.NullString{},  // model_mapping_chain
+			sql.NullString{},  // billing_tier
+			sql.NullString{},  // billing_mode
+			sql.NullFloat64{}, // account_stats_cost
+			now,
+		}})
+		require.NoError(t, err)
+		require.NotNil(t, log.AccountRateMultiplier)
+		require.Equal(t, 1.2, *log.AccountRateMultiplier)
+		require.NotNil(t, log.SharingRateMultiplier)
+		require.Equal(t, 0.85, *log.SharingRateMultiplier)
+	})
+
+	t.Run("nil_sharing_rate_multiplier_scans_as_nil", func(t *testing.T) {
+		now := time.Now().UTC()
+		log, err := scanUsageLog(usageLogScannerStub{values: []any{
+			int64(6), int64(15), int64(25), int64(35),
+			sql.NullString{Valid: true, String: "req-no-sharing-rate"},
+			"gpt-5",
+			sql.NullString{Valid: true, String: "gpt-5"},
+			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullInt64{},
+			1, 2, 3, 4, 5, 6,
+			0, 0.0,
+			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
+			1.0,
+			sql.NullFloat64{},
+			sql.NullFloat64{},
+			int16(service.BillingTypeBalance),
+			int16(service.RequestTypeSync),
+			false,
+			false,
+			sql.NullInt64{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			0,
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			0,
+			sql.NullString{},
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			false,
+			sql.NullInt64{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullFloat64{},
+			now,
+		}})
+		require.NoError(t, err)
+		require.Nil(t, log.AccountRateMultiplier)
+		require.Nil(t, log.SharingRateMultiplier)
+	})
 }

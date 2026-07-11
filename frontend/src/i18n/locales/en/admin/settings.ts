@@ -14,6 +14,21 @@ export default {
         payment: 'Payment',
       },
       features: {
+        sharingRateMarketplace: {
+          title: 'Shared Account Rate Marketplace',
+          description: 'Control owner price display, user range filtering, and price-based billing independently. All three switches default to off.',
+          displayEnabled: 'Show rate marketplace',
+          displayEnabledHint: 'Show account prices and accepted ranges in the account pool and profile.',
+          filterEnabled: 'Filter by accepted range',
+          filterEnabledHint: 'Only schedule shared accounts priced within the user’s accepted range.',
+          billingEnabled: 'Enable rate billing and rewards',
+          billingEnabledHint: 'Charge external consumers and calculate contribution rewards using the account price.',
+          floor: 'Minimum account rate',
+          cap: 'Maximum account rate',
+          cooldown: 'Price cooldown (minutes)',
+          boundsError: 'Rate bounds must be between 0 and 5, and the minimum cannot exceed the maximum.',
+          cooldownError: 'Price cooldown must be a whole number from 0 to 1440 minutes.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Periodically probe configured channels and surface availability / latency to users. Turning it off stops the scheduler and returns an empty list on the user page.',

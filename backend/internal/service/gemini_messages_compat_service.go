@@ -214,9 +214,16 @@ func (s *GeminiMessagesCompatService) tryStickySessionHit(
 		return nil
 	}
 
-	// 检查账号是否需要清理粘性会话
-	// Check if sticky session should be cleared
-	if shouldClearStickySession(account, requestedModel) {
+	// 检查账号是否需要清理粘性会话；同时按当前请求上下文重验共享市场报价范围——
+	// getSchedulableAccount 直接按 ID 取账号，不经过 listSchedulableAccountsOnce 的
+	// filterSurplusAISchedulableAccounts，越界的贡献账号必须解绑后继续正常重选，
+	// 而不是被当作其他类型的账号不可用错误处理。
+	// Check if sticky session should be cleared; also re-validate the sharing-rate
+	// range against the current request context — getSchedulableAccount fetches
+	// directly by ID and never passes through listSchedulableAccountsOnce's
+	// filterSurplusAISchedulableAccounts, so an out-of-range contributed account
+	// must be unbound here and fall through to normal reselection.
+	if shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account) {
 		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
 		return nil
 	}

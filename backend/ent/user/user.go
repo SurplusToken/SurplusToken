@@ -63,6 +63,10 @@ const (
 	FieldTotalRecharged = "total_recharged"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
+	// FieldSharingRateMin holds the string denoting the sharing_rate_min field in the database.
+	FieldSharingRateMin = "sharing_rate_min"
+	// FieldSharingRateMax holds the string denoting the sharing_rate_max field in the database.
+	FieldSharingRateMax = "sharing_rate_max"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -218,6 +222,8 @@ var Columns = []string{
 	FieldBalanceNotifyExtraEmails,
 	FieldTotalRecharged,
 	FieldRpmLimit,
+	FieldSharingRateMin,
+	FieldSharingRateMax,
 }
 
 var (
@@ -418,6 +424,16 @@ func ByTotalRecharged(opts ...sql.OrderTermOption) OrderOption {
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
+}
+
+// BySharingRateMin orders the results by the sharing_rate_min field.
+func BySharingRateMin(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSharingRateMin, opts...).ToFunc()
+}
+
+// BySharingRateMax orders the results by the sharing_rate_max field.
+func BySharingRateMax(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSharingRateMax, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

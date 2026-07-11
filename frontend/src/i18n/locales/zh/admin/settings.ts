@@ -14,6 +14,21 @@ export default {
         payment: '支付设置',
       },
       features: {
+        sharingRateMarketplace: {
+          title: '共享账号倍率市场',
+          description: '控制账号报价展示、用户接受区间过滤和按报价计费。三个开关相互独立，默认均关闭。',
+          displayEnabled: '展示倍率市场',
+          displayEnabledHint: '在账号池和个人资料中展示报价与接受区间。',
+          filterEnabled: '启用接受区间过滤',
+          filterEnabledHint: '调度共享账号时，仅选择报价位于用户接受区间内的账号。',
+          billingEnabled: '启用倍率计费与奖励',
+          billingEnabledHint: '外部用户使用共享账号时，按账号报价计算扣费和贡献奖励。',
+          floor: '最低报价倍率',
+          cap: '最高报价倍率',
+          cooldown: '改价冷却（分钟）',
+          boundsError: '报价上下限必须位于 0 到 5 之间，且最低值不能高于最高值。',
+          cooldownError: '改价冷却必须是 0 到 1440 之间的整数分钟。',
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '定期对配置的渠道发起健康检查，向用户展示可用性与延迟。关闭后调度器停止扫描，用户端列表为空。',

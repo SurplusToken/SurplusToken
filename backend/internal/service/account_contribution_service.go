@@ -2,6 +2,12 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -12,12 +18,33 @@ var (
 	ErrContributionPoolEmpty        = infraerrors.BadRequest("CONTRIBUTION_POOL_EMPTY", "no reward in the pool to distribute")
 	ErrContributionPoolInsufficient = infraerrors.BadRequest("CONTRIBUTION_POOL_INSUFFICIENT", "distribution exceeds the available pool")
 	ErrContributionBadRecipient     = infraerrors.BadRequest("CONTRIBUTION_BAD_RECIPIENT", "a recipient is not an owner of this account")
+	ErrContributionBadAllocation    = infraerrors.BadRequest("CONTRIBUTION_BAD_ALLOCATION", "allocations must contain unique positive recipients and finite positive amounts")
+	ErrContributionOwnerSetChanged  = infraerrors.Conflict("CONTRIBUTION_OWNER_SET_CHANGED", "the account owner set changed during distribution; retry the request")
 )
 
 // PoolAllocation is one recipient's slice of a pool distribution.
 type PoolAllocation struct {
-	UserID int64
-	Amount float64
+	UserID int64   `json:"user_id"`
+	Amount float64 `json:"amount"`
+}
+
+// PoolDistributionRequest is the repository boundary for one idempotent pool
+// distribution. The repository revalidates ownership and the current owner set
+// under the same transaction that debits the pool.
+type PoolDistributionRequest struct {
+	AccountID          int64
+	RequesterUserID    int64
+	IdempotencyKey     string
+	RequestFingerprint string
+	Mode               string
+	Allocations        []PoolAllocation
+}
+
+// PoolDistributionResult reports whether this call applied a new distribution
+// or replayed a previously committed request with the same idempotency key.
+type PoolDistributionResult struct {
+	Replayed    bool
+	TotalAmount float64
 }
 
 // AccountContributionPoolRepository persists per-account held reward pools and applies
@@ -27,9 +54,10 @@ type AccountContributionPoolRepository interface {
 	GetPool(ctx context.Context, accountID int64) (float64, error)
 	// ResolveDisplayNames maps user ids to a display name (username, else email, else "").
 	ResolveDisplayNames(ctx context.Context, userIDs []int64) (map[int64]string, error)
-	// Distribute atomically debits the pool and credits each recipient's contribution
-	// balance (available immediately, no freeze), writing a ledger row per recipient.
-	Distribute(ctx context.Context, accountID int64, allocations []PoolAllocation) error
+	// Distribute atomically revalidates the primary owner and owner set, deduplicates
+	// the request, debits the pool, and credits recipients (available immediately,
+	// no freeze), writing both distribution and pool-ledger records.
+	Distribute(ctx context.Context, req PoolDistributionRequest) (*PoolDistributionResult, error)
 }
 
 // AccountContributionService implements the account-level "reward pool + 分发" feature:
@@ -117,62 +145,67 @@ func (s *AccountContributionService) GetAccountPool(ctx context.Context, request
 	return &AccountContributionPoolView{AccountID: accountID, PoolAmount: pool, Recipients: recipients}, nil
 }
 
-// DistributeAccountPool distributes the pool to the owner set (owner-only). mode=="even"
-// splits the whole pool equally across all owners; otherwise the explicit allocations are
-// used (each recipient must be an owner, amount>0, sum<=pool). No freeze — recipients can
-// use/transfer the credited contribution balance immediately.
-func (s *AccountContributionService) DistributeAccountPool(ctx context.Context, requesterID, accountID int64, mode string, allocations []PoolAllocation) error {
-	_, owners, err := s.ownerSetFor(ctx, requesterID, accountID)
+// DistributeAccountPool distributes held rewards to the current owner set. The
+// service validates and canonicalizes the request; all state-dependent checks
+// and mutations happen atomically in the repository.
+func (s *AccountContributionService) DistributeAccountPool(ctx context.Context, requesterID, accountID int64, idempotencyKey, mode string, allocations []PoolAllocation) error {
+	key, err := NormalizeIdempotencyKey(idempotencyKey)
 	if err != nil {
 		return err
 	}
-	ownerSet := make(map[int64]struct{}, len(owners))
-	for _, id := range owners {
-		ownerSet[id] = struct{}{}
+	if key == "" {
+		return ErrIdempotencyKeyRequired
 	}
 
+	mode = strings.TrimSpace(mode)
+	if mode != "even" && mode != "custom" {
+		return ErrContributionPoolDistributionModeInvalid
+	}
+
+	clean := make([]PoolAllocation, 0, len(allocations))
 	if mode == "even" {
-		pool, err := s.poolRepo.GetPool(ctx, accountID)
-		if err != nil {
-			return err
-		}
-		if pool <= 0 || len(owners) == 0 {
-			return ErrContributionPoolEmpty
-		}
-		per := roundTo(pool/float64(len(owners)), 8)
-		if per <= 0 {
-			return ErrContributionPoolEmpty
-		}
-		allocations = make([]PoolAllocation, 0, len(owners))
-		var assigned float64
-		for i, id := range owners {
-			amt := per
-			if i == len(owners)-1 {
-				// last recipient absorbs the rounding remainder so the pool clears exactly.
-				amt = roundTo(pool-assigned, 8)
-			}
-			if amt <= 0 {
-				continue
-			}
-			assigned += amt
-			allocations = append(allocations, PoolAllocation{UserID: id, Amount: amt})
+		if len(allocations) != 0 {
+			return ErrContributionBadAllocation
 		}
 	} else {
-		clean := make([]PoolAllocation, 0, len(allocations))
-		for _, a := range allocations {
-			if a.Amount <= 0 {
-				continue
-			}
-			if _, ok := ownerSet[a.UserID]; !ok {
-				return ErrContributionBadRecipient
-			}
-			clean = append(clean, PoolAllocation{UserID: a.UserID, Amount: roundTo(a.Amount, 8)})
+		if len(allocations) == 0 {
+			return ErrContributionBadAllocation
 		}
-		if len(clean) == 0 {
-			return ErrContributionPoolEmpty
+		seen := make(map[int64]struct{}, len(allocations))
+		for _, allocation := range allocations {
+			if allocation.UserID <= 0 || allocation.Amount <= 0 || math.IsNaN(allocation.Amount) || math.IsInf(allocation.Amount, 0) {
+				return ErrContributionBadAllocation
+			}
+			if _, duplicate := seen[allocation.UserID]; duplicate {
+				return ErrContributionBadAllocation
+			}
+			seen[allocation.UserID] = struct{}{}
+			amount := roundTo(allocation.Amount, 8)
+			if amount <= 0 || math.IsInf(amount, 0) {
+				return ErrContributionBadAllocation
+			}
+			clean = append(clean, PoolAllocation{UserID: allocation.UserID, Amount: amount})
 		}
-		allocations = clean
+		sort.Slice(clean, func(i, j int) bool { return clean[i].UserID < clean[j].UserID })
 	}
 
-	return s.poolRepo.Distribute(ctx, accountID, allocations)
+	fingerprint := poolDistributionFingerprint(mode, clean)
+	_, err = s.poolRepo.Distribute(ctx, PoolDistributionRequest{
+		AccountID:          accountID,
+		RequesterUserID:    requesterID,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
+		Mode:               mode,
+		Allocations:        clean,
+	})
+	return err
+}
+
+func poolDistributionFingerprint(mode string, allocations []PoolAllocation) string {
+	canonical := mode
+	for _, allocation := range allocations {
+		canonical += fmt.Sprintf("|%d:%.8f", allocation.UserID, allocation.Amount)
+	}
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
 }

@@ -563,6 +563,12 @@ export default {
       refreshTokenSuccess: '令牌已刷新',
       privacySetSuccess: '隐私设置已更新',
     },
+    sharingRate: {
+      label: '共享报价倍率',
+      bounds: '可设置范围：{floor}x - {cap}x',
+      cooldown: '报价仍在冷却期，约 {minutes} 分钟后可修改；其他共享设置仍可保存。',
+      invalid: '报价倍率必须位于 {floor}x 到 {cap}x 之间。',
+    },
     remote: {
       setup: '设置远程登录',
       relogin: '重新登录',
@@ -684,6 +690,7 @@ export default {
       platform: '平台',
       accountType: '账号类型',
       owner: '归属',
+      sharingRate: '报价倍率',
       status: '状态',
       scheduling: '调度',
       concurrency: '并发数',
@@ -856,6 +863,20 @@ export default {
     passwordTooShort: '密码至少需要 8 个字符',
     passwordChangeSuccess: '密码修改成功',
     passwordChangeFailed: '密码修改失败',
+    sharingRateRange: {
+      title: '可接受的共享账号倍率',
+      description: '设置调度共享账号时可接受的闭区间；留空一侧表示该方向不设限制。',
+      minimum: '最低倍率',
+      maximum: '最高倍率',
+      unbounded: '不限制',
+      marketBounds: '当前账号报价范围为 {floor}x - {cap}x。',
+      filterDisabled: '筛选未启用',
+      outOfRange: '倍率必须位于 0 到 {cap} 之间，或留空表示不限制。',
+      invalidOrder: '最低倍率不能高于最高倍率。',
+      loadFailed: '倍率范围加载失败',
+      saveFailed: '倍率范围保存失败',
+      saveSuccess: '倍率范围已保存',
+    },
     // TOTP 2FA
     totp: {
       title: '双因素认证 (2FA)',

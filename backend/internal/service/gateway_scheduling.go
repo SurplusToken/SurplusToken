@@ -959,6 +959,11 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 			}
 			filtered = append(filtered, acc)
 		}
+		// Marketplace owner-bypass/sharing-rate eligibility filter, mirroring the
+		// single-platform branch below — previously only applied there, so the
+		// mixed-DB fallback (schedulerSnapshot disabled or bucket cache miss)
+		// could return a contributed account outside the requester's accepted range.
+		filtered = filterSurplusAISchedulableAccounts(ctx, filtered)
 		slog.Debug("account_scheduling_list_mixed",
 			"group_id", derefGroupID(groupID),
 			"platform", platform,
@@ -1400,6 +1405,30 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	return account, nil
 }
 
+// stickyAccountSharingIneligible reports whether a sticky-bound account has
+// fallen outside the requesting consumer's accepted sharing-rate range since
+// the binding was created (e.g. the owner repriced it, or the requester's
+// accepted range / the marketplace filter toggle changed since). System
+// accounts and owner/co-owner self-use are always eligible — this only ever
+// rejects an external consumer's now-stale sticky binding to a contributed
+// account.
+//
+// Shared by every gateway service's legacy per-ID sticky lookup
+// (GatewayService.selectAccountForModelWithPlatform / selectAccountWithMixedScheduling,
+// GeminiMessagesCompatService.tryStickySessionHit): they all fetch the sticky
+// account directly by ID (getSchedulableAccount) and never pass through the
+// corresponding listSchedulableAccounts*'s filterSurplusAISchedulableAccounts,
+// so they must re-check eligibility here before honoring the binding.
+func stickyAccountSharingIneligible(ctx context.Context, account *Account) bool {
+	if account == nil {
+		return false
+	}
+	requesterID := RequestingUserIDFromContext(ctx)
+	filterEnabled := SharingRangeFilterEnabledFromContext(ctx)
+	acceptedMin, acceptedMax := SharingRateAcceptedRangeFromContext(ctx)
+	return !account.IsSharingEligibleForConsumer(requesterID, acceptedMin, acceptedMax, filterEnabled)
+}
+
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
 	if account == nil || s.schedulerSnapshot == nil {
 		return account, nil
@@ -1760,7 +1789,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
 					if err == nil {
-						clearSticky := shouldClearStickySession(account, requestedModel)
+						clearSticky := shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
@@ -1879,7 +1908,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
 				if err == nil {
-					clearSticky := shouldClearStickySession(account, requestedModel)
+					clearSticky := shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
@@ -2018,7 +2047,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
 					if err == nil {
-						clearSticky := shouldClearStickySession(account, requestedModel)
+						clearSticky := shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
@@ -2139,7 +2168,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
 				if err == nil {
-					clearSticky := shouldClearStickySession(account, requestedModel)
+					clearSticky := shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}

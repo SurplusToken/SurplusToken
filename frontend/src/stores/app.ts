@@ -368,6 +368,12 @@ export const useAppStore = defineStore('app', () => {
         risk_control_enabled: false,
         service_quota_enabled: false,
         affiliate_enabled: false,
+        sharing_pool_display_enabled: false,
+        sharing_range_filter_enabled: false,
+        sharing_pool_billing_enabled: false,
+        sharing_rate_floor: 0,
+        sharing_rate_cap: 5,
+        sharing_rate_cooldown_minutes: 10,
         allow_user_view_error_requests: false,
       })
     }

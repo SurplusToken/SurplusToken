@@ -82,6 +82,47 @@ func TestSettingHandler_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t 
 	require.True(t, resp.Data.ForceEmailOnThirdPartySignup)
 }
 
+func TestSettingHandler_GetPublicSettings_ExposesSharingRateSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingKeySharingPoolDisplayEnabled:  "true",
+			service.SettingKeySharingRangeFilterEnabled:  "false",
+			service.SettingKeySharingPoolBillingEnabled:  "true",
+			service.SettingKeySharingRateFloor:           "0",
+			service.SettingKeySharingRateCap:             "2.75",
+			service.SettingKeySharingRateCooldownMinutes: "0",
+		},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			SharingPoolDisplayEnabled  bool    `json:"sharing_pool_display_enabled"`
+			SharingRangeFilterEnabled  bool    `json:"sharing_range_filter_enabled"`
+			SharingPoolBillingEnabled  bool    `json:"sharing_pool_billing_enabled"`
+			SharingRateFloor           float64 `json:"sharing_rate_floor"`
+			SharingRateCap             float64 `json:"sharing_rate_cap"`
+			SharingRateCooldownMinutes int     `json:"sharing_rate_cooldown_minutes"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.True(t, resp.Data.SharingPoolDisplayEnabled)
+	require.False(t, resp.Data.SharingRangeFilterEnabled)
+	require.True(t, resp.Data.SharingPoolBillingEnabled)
+	require.Equal(t, 0.0, resp.Data.SharingRateFloor)
+	require.Equal(t, 2.75, resp.Data.SharingRateCap)
+	require.Equal(t, 0, resp.Data.SharingRateCooldownMinutes)
+}
+
 func TestSettingHandler_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{

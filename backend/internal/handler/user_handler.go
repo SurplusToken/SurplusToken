@@ -72,6 +72,67 @@ func (h *UserHandler) GetMyPlatformQuotas(c *gin.Context) {
 	response.Success(c, map[string]any{"platform_quotas": out})
 }
 
+// sharingRateRangeResponse represents the current user's accepted sharing-price
+// closed interval [Min, Max]. A nil bound is unbounded on that side.
+type sharingRateRangeResponse struct {
+	Min *float64 `json:"min"`
+	Max *float64 `json:"max"`
+}
+
+// UpdateSharingRateRangeRequest represents a full replacement of the current
+// user's accepted sharing-price range. Both keys must be present in the
+// request body (missing vs. explicit null is distinguished via
+// dto.NullableFloat64Field) so a partial payload can't silently leave the
+// other bound unspecified.
+type UpdateSharingRateRangeRequest struct {
+	Min dto.NullableFloat64Field `json:"min"`
+	Max dto.NullableFloat64Field `json:"max"`
+}
+
+// GetSharingRateRange returns the current user's accepted sharing-price range.
+// GET /api/v1/user/sharing-rate-range
+func (h *UserHandler) GetSharingRateRange(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	rng, err := h.userService.GetSharingRateRange(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sharingRateRangeResponse{Min: rng.Min, Max: rng.Max})
+}
+
+// UpdateSharingRateRange replaces the current user's accepted sharing-price range.
+// PUT /api/v1/user/sharing-rate-range
+func (h *UserHandler) UpdateSharingRateRange(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var req UpdateSharingRateRangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if !req.Min.Set || !req.Max.Set {
+		response.BadRequest(c, "min and max are both required (use null to clear a bound)")
+		return
+	}
+
+	rng, err := h.userService.UpdateSharingRateRange(c.Request.Context(), subject.UserID, req.Min.Value, req.Max.Value)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sharingRateRangeResponse{Min: rng.Min, Max: rng.Max})
+}
+
 // ChangePasswordRequest represents the change password request payload
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password" binding:"required"`

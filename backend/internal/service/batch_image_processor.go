@@ -83,6 +83,9 @@ func (p *BatchImageProviderProcessor) Process(ctx context.Context, batchID strin
 	if err != nil {
 		return BatchImageProcessResult{}, err
 	}
+	if !isBatchImageSystemAccount(account) {
+		return p.failTerminalJob(ctx, job, "CONTRIBUTED_ACCOUNT_NOT_ALLOWED", "batch image processing is not allowed on contributed accounts", "job_failed", nil)
+	}
 	if !provider.SupportsAccount(account) {
 		return BatchImageProcessResult{}, ErrBatchImageProviderUnsupportedAccount
 	}
@@ -145,19 +148,7 @@ func (p *BatchImageProviderProcessor) Process(ctx context.Context, batchID strin
 			code = "PROVIDER_BATCH_FAILED"
 		}
 		msg := truncateBatchImageMessage(status.ErrorMessage, batchImageMaxErrorMessageLength)
-		if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
-			EventType:    "job_failed",
-			EventPayload: map[string]any{"provider_state": status.RawState, "error_code": code},
-			ErrorCode:    batchImageStringPtr(code),
-			ErrorMessage: batchImageOptionalStringPtr(msg),
-		}); err != nil {
-			return BatchImageProcessResult{}, err
-		}
-		job.Status = BatchImageJobStatusFailed
-		if err := p.releaseTerminalHold(ctx, job); err != nil {
-			return BatchImageProcessResult{}, err
-		}
-		return BatchImageProcessResult{Terminal: true}, nil
+		return p.failTerminalJob(ctx, job, code, msg, "job_failed", map[string]any{"provider_state": status.RawState})
 	case BatchProviderStateCancelled:
 		if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusCancelled, BatchImageTransitionOptions{
 			EventType:    "job_failed",
@@ -199,20 +190,7 @@ func (p *BatchImageProviderProcessor) indexAndSettle(ctx context.Context, job *B
 			code = "DUPLICATE_CUSTOM_ID_IN_OUTPUT"
 		}
 		msg := truncateBatchImageMessage(err.Error(), batchImageMaxErrorMessageLength)
-		transitionErr := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
-			EventType:    "indexing_failed",
-			EventPayload: map[string]any{"error_code": code},
-			ErrorCode:    batchImageStringPtr(code),
-			ErrorMessage: batchImageOptionalStringPtr(msg),
-		})
-		if transitionErr != nil {
-			return BatchImageProcessResult{}, transitionErr
-		}
-		job.Status = BatchImageJobStatusFailed
-		if err := p.releaseTerminalHold(ctx, job); err != nil {
-			return BatchImageProcessResult{}, err
-		}
-		return BatchImageProcessResult{Terminal: true}, nil
+		return p.failTerminalJob(ctx, job, code, msg, "indexing_failed", nil)
 	}
 
 	if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusSettling, BatchImageTransitionOptions{
@@ -226,6 +204,30 @@ func (p *BatchImageProviderProcessor) indexAndSettle(ctx context.Context, job *B
 		return BatchImageProcessResult{}, err
 	}
 	return BatchImageProcessResult{RequeueAfter: time.Millisecond}, nil
+}
+
+// failTerminalJob transitions job to failed with the given error code/message,
+// then releases its balance hold and reports it as a terminal result — the
+// shared failure semantics reused by every terminal-fail path in Process so
+// the worker never requeues a job that is already done.
+func (p *BatchImageProviderProcessor) failTerminalJob(ctx context.Context, job *BatchImageJob, code, message, eventType string, eventPayload map[string]any) (BatchImageProcessResult, error) {
+	if eventPayload == nil {
+		eventPayload = map[string]any{}
+	}
+	eventPayload["error_code"] = code
+	if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
+		EventType:    eventType,
+		EventPayload: eventPayload,
+		ErrorCode:    batchImageStringPtr(code),
+		ErrorMessage: batchImageOptionalStringPtr(message),
+	}); err != nil {
+		return BatchImageProcessResult{}, err
+	}
+	job.Status = BatchImageJobStatusFailed
+	if err := p.releaseTerminalHold(ctx, job); err != nil {
+		return BatchImageProcessResult{}, err
+	}
+	return BatchImageProcessResult{Terminal: true}, nil
 }
 
 func (p *BatchImageProviderProcessor) releaseTerminalHold(ctx context.Context, job *BatchImageJob) error {

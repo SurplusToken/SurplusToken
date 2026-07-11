@@ -107,6 +107,13 @@ func (UsageLog) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
 
+		// sharing_rate_multiplier: 计费时使用的账号共享报价倍率快照（NULL 表示按 1.0 处理，
+		// 即非共享消费或历史行）
+		field.Float("sharing_rate_multiplier").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+
 		// 其他字段
 		field.Int8("billing_type").
 			Default(0),

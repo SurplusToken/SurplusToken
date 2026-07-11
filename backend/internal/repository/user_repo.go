@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
@@ -24,6 +25,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
+	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 )
 
@@ -32,7 +34,10 @@ type userRepository struct {
 	sql    sqlExecutor
 }
 
-var _ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
+var (
+	_ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
+	_ service.UserSharingRateRangeRepository = (*userRepository)(nil)
+)
 
 func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserRepository {
 	return newUserRepositoryWithSQL(client, sqlDB)
@@ -227,6 +232,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	}
 	oldEmail := existing.Email
 
+	// Sharing-rate bounds are deliberately excluded: their narrow update method
+	// is the sole writer, so a concurrent profile/admin update cannot restore a
+	// stale range loaded earlier with the rest of the user.
 	updateOp := txClient.User.UpdateOneID(userIn.ID).
 		SetEmail(userIn.Email).
 		SetUsername(userIn.Username).
@@ -393,6 +401,33 @@ func (r *userRepository) Delete(ctx context.Context, id int64) error {
 
 // deleteUser 在给定 client（可能是外部事务 client）上删除用户及其身份关联记录，自身不开启/提交事务。
 func (r *userRepository) deleteUser(ctx context.Context, exec *dbent.Client, id int64) error {
+	userQuery := exec.User.Query().Where(dbuser.IDEQ(id), dbuser.DeletedAtIsNil())
+	if exec.Driver().Dialect() == dialect.Postgres {
+		userQuery = userQuery.ForUpdate()
+	}
+	if _, err := userQuery.Only(ctx); err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+
+	// A contributed account's primary owner is the only user allowed to manage
+	// and distribute its held reward pool. Never soft-delete that principal while
+	// a live account still points at it; the admin must transfer/delete accounts
+	// explicitly so funds cannot become permanently inaccessible.
+	hasOwnedAccounts, err := exec.Account.Query().
+		Where(dbaccount.OwnerUserIDEQ(id), dbaccount.DeletedAtIsNil()).
+		Exist(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	if hasOwnedAccounts {
+		return service.ErrUserDeleteBlockedAccountOwnership
+	}
+	// Co-owner membership does not own the account lifecycle. Remove it in the
+	// same transaction so future even distributions cannot target a deleted user.
+	if _, err := exec.ExecContext(ctx, `DELETE FROM account_co_owners WHERE user_id = $1`, id); err != nil {
+		return err
+	}
+
 	identityIDs, err := exec.AuthIdentity.Query().
 		Where(authidentity.UserIDEQ(id)).
 		IDs(ctx)
@@ -1183,6 +1218,28 @@ func (r *userRepository) DisableTotp(ctx context.Context, userID int64) error {
 		ClearTotpSecretEncrypted().
 		Save(ctx)
 	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	return nil
+}
+
+// UpdateSharingRateRange 更新用户接受的贡献账号共享报价闭区间。仅写
+// sharing_rate_min/max 两列，不触碰其余字段，避免与并发的 profile 更新
+// 互相覆盖。
+func (r *userRepository) UpdateSharingRateRange(ctx context.Context, userID int64, min, max *float64) error {
+	client := clientFromContext(ctx, r.client)
+	update := client.User.UpdateOneID(userID)
+	if min == nil {
+		update = update.ClearSharingRateMin()
+	} else {
+		update = update.SetSharingRateMin(*min)
+	}
+	if max == nil {
+		update = update.ClearSharingRateMax()
+	} else {
+		update = update.SetSharingRateMax(*max)
+	}
+	if _, err := update.Save(ctx); err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
 	return nil

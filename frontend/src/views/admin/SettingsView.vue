@@ -5842,8 +5842,95 @@
         </div>
         <!-- /Tab: Login Agreement -->
 
-	        <!-- Tab: Features (功能开关) -->
+        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
+
+        <div class="card" data-testid="sharing-rate-marketplace-settings">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.sharingRateMarketplace.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.sharingRateMarketplace.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.sharingRateMarketplace.displayEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.sharingRateMarketplace.displayEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.sharing_pool_display_enabled" />
+            </div>
+
+            <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-5 dark:border-dark-700">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.sharingRateMarketplace.filterEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.sharingRateMarketplace.filterEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.sharing_range_filter_enabled" />
+            </div>
+
+            <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-5 dark:border-dark-700">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.sharingRateMarketplace.billingEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.sharingRateMarketplace.billingEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.sharing_pool_billing_enabled" />
+            </div>
+
+            <div class="grid gap-4 border-t border-gray-100 pt-5 sm:grid-cols-3 dark:border-dark-700">
+              <label class="block">
+                <span class="input-label">{{ t('admin.settings.features.sharingRateMarketplace.floor') }}</span>
+                <input
+                  v-model.number="form.sharing_rate_floor"
+                  data-testid="sharing-rate-floor"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.0001"
+                  class="input"
+                />
+              </label>
+              <label class="block">
+                <span class="input-label">{{ t('admin.settings.features.sharingRateMarketplace.cap') }}</span>
+                <input
+                  v-model.number="form.sharing_rate_cap"
+                  data-testid="sharing-rate-cap"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.0001"
+                  class="input"
+                />
+              </label>
+              <label class="block">
+                <span class="input-label">{{ t('admin.settings.features.sharingRateMarketplace.cooldown') }}</span>
+                <input
+                  v-model.number="form.sharing_rate_cooldown_minutes"
+                  data-testid="sharing-rate-cooldown"
+                  type="number"
+                  min="0"
+                  max="1440"
+                  step="1"
+                  class="input"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
 
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -8350,6 +8437,13 @@ const form = reactive<SettingsForm>({
   available_channels_enabled: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
+  // Shared account rate marketplace
+  sharing_pool_display_enabled: false,
+  sharing_range_filter_enabled: false,
+  sharing_pool_billing_enabled: false,
+  sharing_rate_floor: 0,
+  sharing_rate_cap: 5,
+  sharing_rate_cooldown_minutes: 10,
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
@@ -9358,6 +9452,37 @@ async function saveSettings() {
     form.table_default_page_size = normalizedTableDefaultPageSize;
     form.table_page_size_options = normalizedTablePageSizeOptions;
 
+    const rawSharingRateFloor = form.sharing_rate_floor as unknown;
+    const rawSharingRateCap = form.sharing_rate_cap as unknown;
+    const rawSharingRateCooldownMinutes = form.sharing_rate_cooldown_minutes as unknown;
+    const sharingRateFloor = Number(rawSharingRateFloor);
+    const sharingRateCap = Number(rawSharingRateCap);
+    const sharingRateCooldownMinutes = Number(rawSharingRateCooldownMinutes);
+    if (
+      rawSharingRateFloor === "" ||
+      rawSharingRateCap === "" ||
+      !Number.isFinite(sharingRateFloor) ||
+      !Number.isFinite(sharingRateCap) ||
+      sharingRateFloor < 0 ||
+      sharingRateCap > 5 ||
+      sharingRateFloor > sharingRateCap
+    ) {
+      appStore.showError(t("admin.settings.features.sharingRateMarketplace.boundsError"));
+      return;
+    }
+    if (
+      rawSharingRateCooldownMinutes === "" ||
+      !Number.isInteger(sharingRateCooldownMinutes) ||
+      sharingRateCooldownMinutes < 0 ||
+      sharingRateCooldownMinutes > 1440
+    ) {
+      appStore.showError(t("admin.settings.features.sharingRateMarketplace.cooldownError"));
+      return;
+    }
+    form.sharing_rate_floor = sharingRateFloor;
+    form.sharing_rate_cap = sharingRateCap;
+    form.sharing_rate_cooldown_minutes = sharingRateCooldownMinutes;
+
     const normalizedLoginAgreementDocuments =
       normalizeLoginAgreementDocumentsForSave();
     if (form.login_agreement_enabled && normalizedLoginAgreementDocuments.length === 0) {
@@ -9731,6 +9856,13 @@ async function saveSettings() {
       available_channels_enabled: form.available_channels_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
+      // Shared account rate marketplace
+      sharing_pool_display_enabled: form.sharing_pool_display_enabled,
+      sharing_range_filter_enabled: form.sharing_range_filter_enabled,
+      sharing_pool_billing_enabled: form.sharing_pool_billing_enabled,
+      sharing_rate_floor: form.sharing_rate_floor,
+      sharing_rate_cap: form.sharing_rate_cap,
+      sharing_rate_cooldown_minutes: form.sharing_rate_cooldown_minutes,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
     };
 

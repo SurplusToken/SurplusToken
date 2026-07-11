@@ -2306,6 +2306,9 @@ type AccountMutation struct {
 	addpriority                 *int
 	rate_multiplier             *float64
 	addrate_multiplier          *float64
+	sharing_rate_multiplier     *float64
+	addsharing_rate_multiplier  *float64
+	sharing_rate_updated_at     *time.Time
 	status                      *string
 	error_message               *string
 	last_used_at                *time.Time
@@ -3213,6 +3216,111 @@ func (m *AccountMutation) AddedRateMultiplier() (r float64, exists bool) {
 func (m *AccountMutation) ResetRateMultiplier() {
 	m.rate_multiplier = nil
 	m.addrate_multiplier = nil
+}
+
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (m *AccountMutation) SetSharingRateMultiplier(f float64) {
+	m.sharing_rate_multiplier = &f
+	m.addsharing_rate_multiplier = nil
+}
+
+// SharingRateMultiplier returns the value of the "sharing_rate_multiplier" field in the mutation.
+func (m *AccountMutation) SharingRateMultiplier() (r float64, exists bool) {
+	v := m.sharing_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSharingRateMultiplier returns the old "sharing_rate_multiplier" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldSharingRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSharingRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSharingRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSharingRateMultiplier: %w", err)
+	}
+	return oldValue.SharingRateMultiplier, nil
+}
+
+// AddSharingRateMultiplier adds f to the "sharing_rate_multiplier" field.
+func (m *AccountMutation) AddSharingRateMultiplier(f float64) {
+	if m.addsharing_rate_multiplier != nil {
+		*m.addsharing_rate_multiplier += f
+	} else {
+		m.addsharing_rate_multiplier = &f
+	}
+}
+
+// AddedSharingRateMultiplier returns the value that was added to the "sharing_rate_multiplier" field in this mutation.
+func (m *AccountMutation) AddedSharingRateMultiplier() (r float64, exists bool) {
+	v := m.addsharing_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSharingRateMultiplier resets all changes to the "sharing_rate_multiplier" field.
+func (m *AccountMutation) ResetSharingRateMultiplier() {
+	m.sharing_rate_multiplier = nil
+	m.addsharing_rate_multiplier = nil
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (m *AccountMutation) SetSharingRateUpdatedAt(t time.Time) {
+	m.sharing_rate_updated_at = &t
+}
+
+// SharingRateUpdatedAt returns the value of the "sharing_rate_updated_at" field in the mutation.
+func (m *AccountMutation) SharingRateUpdatedAt() (r time.Time, exists bool) {
+	v := m.sharing_rate_updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSharingRateUpdatedAt returns the old "sharing_rate_updated_at" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldSharingRateUpdatedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSharingRateUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSharingRateUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSharingRateUpdatedAt: %w", err)
+	}
+	return oldValue.SharingRateUpdatedAt, nil
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (m *AccountMutation) ClearSharingRateUpdatedAt() {
+	m.sharing_rate_updated_at = nil
+	m.clearedFields[account.FieldSharingRateUpdatedAt] = struct{}{}
+}
+
+// SharingRateUpdatedAtCleared returns if the "sharing_rate_updated_at" field was cleared in this mutation.
+func (m *AccountMutation) SharingRateUpdatedAtCleared() bool {
+	_, ok := m.clearedFields[account.FieldSharingRateUpdatedAt]
+	return ok
+}
+
+// ResetSharingRateUpdatedAt resets all changes to the "sharing_rate_updated_at" field.
+func (m *AccountMutation) ResetSharingRateUpdatedAt() {
+	m.sharing_rate_updated_at = nil
+	delete(m.clearedFields, account.FieldSharingRateUpdatedAt)
 }
 
 // SetStatus sets the "status" field.
@@ -4210,7 +4318,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 34)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4258,6 +4366,12 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
+	}
+	if m.sharing_rate_multiplier != nil {
+		fields = append(fields, account.FieldSharingRateMultiplier)
+	}
+	if m.sharing_rate_updated_at != nil {
+		fields = append(fields, account.FieldSharingRateUpdatedAt)
 	}
 	if m.status != nil {
 		fields = append(fields, account.FieldStatus)
@@ -4347,6 +4461,10 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.Priority()
 	case account.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case account.FieldSharingRateMultiplier:
+		return m.SharingRateMultiplier()
+	case account.FieldSharingRateUpdatedAt:
+		return m.SharingRateUpdatedAt()
 	case account.FieldStatus:
 		return m.Status()
 	case account.FieldErrorMessage:
@@ -4420,6 +4538,10 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldPriority(ctx)
 	case account.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case account.FieldSharingRateMultiplier:
+		return m.OldSharingRateMultiplier(ctx)
+	case account.FieldSharingRateUpdatedAt:
+		return m.OldSharingRateUpdatedAt(ctx)
 	case account.FieldStatus:
 		return m.OldStatus(ctx)
 	case account.FieldErrorMessage:
@@ -4573,6 +4695,20 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRateMultiplier(v)
 		return nil
+	case account.FieldSharingRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSharingRateMultiplier(v)
+		return nil
+	case account.FieldSharingRateUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSharingRateUpdatedAt(v)
+		return nil
 	case account.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -4711,6 +4847,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
 	}
+	if m.addsharing_rate_multiplier != nil {
+		fields = append(fields, account.FieldSharingRateMultiplier)
+	}
 	return fields
 }
 
@@ -4731,6 +4870,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPriority()
 	case account.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case account.FieldSharingRateMultiplier:
+		return m.AddedSharingRateMultiplier()
 	}
 	return nil, false
 }
@@ -4782,6 +4923,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRateMultiplier(v)
 		return nil
+	case account.FieldSharingRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSharingRateMultiplier(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Account numeric field %s", name)
 }
@@ -4807,6 +4955,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
+	}
+	if m.FieldCleared(account.FieldSharingRateUpdatedAt) {
+		fields = append(fields, account.FieldSharingRateUpdatedAt)
 	}
 	if m.FieldCleared(account.FieldErrorMessage) {
 		fields = append(fields, account.FieldErrorMessage)
@@ -4875,6 +5026,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
+		return nil
+	case account.FieldSharingRateUpdatedAt:
+		m.ClearSharingRateUpdatedAt()
 		return nil
 	case account.FieldErrorMessage:
 		m.ClearErrorMessage()
@@ -4967,6 +5121,12 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case account.FieldSharingRateMultiplier:
+		m.ResetSharingRateMultiplier()
+		return nil
+	case account.FieldSharingRateUpdatedAt:
+		m.ResetSharingRateUpdatedAt()
 		return nil
 	case account.FieldStatus:
 		m.ResetStatus()
@@ -42418,6 +42578,8 @@ type UsageLogMutation struct {
 	addrate_multiplier          *float64
 	account_rate_multiplier     *float64
 	addaccount_rate_multiplier  *float64
+	sharing_rate_multiplier     *float64
+	addsharing_rate_multiplier  *float64
 	billing_type                *int8
 	addbilling_type             *int8
 	stream                      *bool
@@ -43946,6 +44108,76 @@ func (m *UsageLogMutation) ResetAccountRateMultiplier() {
 	delete(m.clearedFields, usagelog.FieldAccountRateMultiplier)
 }
 
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (m *UsageLogMutation) SetSharingRateMultiplier(f float64) {
+	m.sharing_rate_multiplier = &f
+	m.addsharing_rate_multiplier = nil
+}
+
+// SharingRateMultiplier returns the value of the "sharing_rate_multiplier" field in the mutation.
+func (m *UsageLogMutation) SharingRateMultiplier() (r float64, exists bool) {
+	v := m.sharing_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSharingRateMultiplier returns the old "sharing_rate_multiplier" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldSharingRateMultiplier(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSharingRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSharingRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSharingRateMultiplier: %w", err)
+	}
+	return oldValue.SharingRateMultiplier, nil
+}
+
+// AddSharingRateMultiplier adds f to the "sharing_rate_multiplier" field.
+func (m *UsageLogMutation) AddSharingRateMultiplier(f float64) {
+	if m.addsharing_rate_multiplier != nil {
+		*m.addsharing_rate_multiplier += f
+	} else {
+		m.addsharing_rate_multiplier = &f
+	}
+}
+
+// AddedSharingRateMultiplier returns the value that was added to the "sharing_rate_multiplier" field in this mutation.
+func (m *UsageLogMutation) AddedSharingRateMultiplier() (r float64, exists bool) {
+	v := m.addsharing_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSharingRateMultiplier clears the value of the "sharing_rate_multiplier" field.
+func (m *UsageLogMutation) ClearSharingRateMultiplier() {
+	m.sharing_rate_multiplier = nil
+	m.addsharing_rate_multiplier = nil
+	m.clearedFields[usagelog.FieldSharingRateMultiplier] = struct{}{}
+}
+
+// SharingRateMultiplierCleared returns if the "sharing_rate_multiplier" field was cleared in this mutation.
+func (m *UsageLogMutation) SharingRateMultiplierCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldSharingRateMultiplier]
+	return ok
+}
+
+// ResetSharingRateMultiplier resets all changes to the "sharing_rate_multiplier" field.
+func (m *UsageLogMutation) ResetSharingRateMultiplier() {
+	m.sharing_rate_multiplier = nil
+	m.addsharing_rate_multiplier = nil
+	delete(m.clearedFields, usagelog.FieldSharingRateMultiplier)
+}
+
 // SetBillingType sets the "billing_type" field.
 func (m *UsageLogMutation) SetBillingType(i int8) {
 	m.billing_type = &i
@@ -44993,7 +45225,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 44)
+	fields := make([]string, 0, 45)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -45074,6 +45306,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.account_rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
+	}
+	if m.sharing_rate_multiplier != nil {
+		fields = append(fields, usagelog.FieldSharingRateMultiplier)
 	}
 	if m.billing_type != nil {
 		fields = append(fields, usagelog.FieldBillingType)
@@ -45188,6 +45423,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.RateMultiplier()
 	case usagelog.FieldAccountRateMultiplier:
 		return m.AccountRateMultiplier()
+	case usagelog.FieldSharingRateMultiplier:
+		return m.SharingRateMultiplier()
 	case usagelog.FieldBillingType:
 		return m.BillingType()
 	case usagelog.FieldStream:
@@ -45285,6 +45522,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldRateMultiplier(ctx)
 	case usagelog.FieldAccountRateMultiplier:
 		return m.OldAccountRateMultiplier(ctx)
+	case usagelog.FieldSharingRateMultiplier:
+		return m.OldSharingRateMultiplier(ctx)
 	case usagelog.FieldBillingType:
 		return m.OldBillingType(ctx)
 	case usagelog.FieldStream:
@@ -45517,6 +45756,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetAccountRateMultiplier(v)
 		return nil
+	case usagelog.FieldSharingRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSharingRateMultiplier(v)
+		return nil
 	case usagelog.FieldBillingType:
 		v, ok := value.(int8)
 		if !ok {
@@ -45689,6 +45935,9 @@ func (m *UsageLogMutation) AddedFields() []string {
 	if m.addaccount_rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
 	}
+	if m.addsharing_rate_multiplier != nil {
+		fields = append(fields, usagelog.FieldSharingRateMultiplier)
+	}
 	if m.addbilling_type != nil {
 		fields = append(fields, usagelog.FieldBillingType)
 	}
@@ -45745,6 +45994,8 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedRateMultiplier()
 	case usagelog.FieldAccountRateMultiplier:
 		return m.AddedAccountRateMultiplier()
+	case usagelog.FieldSharingRateMultiplier:
+		return m.AddedSharingRateMultiplier()
 	case usagelog.FieldBillingType:
 		return m.AddedBillingType()
 	case usagelog.FieldDurationMs:
@@ -45871,6 +46122,13 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddAccountRateMultiplier(v)
 		return nil
+	case usagelog.FieldSharingRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSharingRateMultiplier(v)
+		return nil
 	case usagelog.FieldBillingType:
 		v, ok := value.(int8)
 		if !ok {
@@ -45948,6 +46206,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldAccountRateMultiplier) {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
 	}
+	if m.FieldCleared(usagelog.FieldSharingRateMultiplier) {
+		fields = append(fields, usagelog.FieldSharingRateMultiplier)
+	}
 	if m.FieldCleared(usagelog.FieldDurationMs) {
 		fields = append(fields, usagelog.FieldDurationMs)
 	}
@@ -46021,6 +46282,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ClearAccountRateMultiplier()
+		return nil
+	case usagelog.FieldSharingRateMultiplier:
+		m.ClearSharingRateMultiplier()
 		return nil
 	case usagelog.FieldDurationMs:
 		m.ClearDurationMs()
@@ -46143,6 +46407,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ResetAccountRateMultiplier()
+		return nil
+	case usagelog.FieldSharingRateMultiplier:
+		m.ResetSharingRateMultiplier()
 		return nil
 	case usagelog.FieldBillingType:
 		m.ResetBillingType()
@@ -46381,6 +46648,10 @@ type UserMutation struct {
 	addtotal_recharged            *float64
 	rpm_limit                     *int
 	addrpm_limit                  *int
+	sharing_rate_min              *float64
+	addsharing_rate_min           *float64
+	sharing_rate_max              *float64
+	addsharing_rate_max           *float64
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -47587,6 +47858,146 @@ func (m *UserMutation) ResetRpmLimit() {
 	m.addrpm_limit = nil
 }
 
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (m *UserMutation) SetSharingRateMin(f float64) {
+	m.sharing_rate_min = &f
+	m.addsharing_rate_min = nil
+}
+
+// SharingRateMin returns the value of the "sharing_rate_min" field in the mutation.
+func (m *UserMutation) SharingRateMin() (r float64, exists bool) {
+	v := m.sharing_rate_min
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSharingRateMin returns the old "sharing_rate_min" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldSharingRateMin(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSharingRateMin is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSharingRateMin requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSharingRateMin: %w", err)
+	}
+	return oldValue.SharingRateMin, nil
+}
+
+// AddSharingRateMin adds f to the "sharing_rate_min" field.
+func (m *UserMutation) AddSharingRateMin(f float64) {
+	if m.addsharing_rate_min != nil {
+		*m.addsharing_rate_min += f
+	} else {
+		m.addsharing_rate_min = &f
+	}
+}
+
+// AddedSharingRateMin returns the value that was added to the "sharing_rate_min" field in this mutation.
+func (m *UserMutation) AddedSharingRateMin() (r float64, exists bool) {
+	v := m.addsharing_rate_min
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (m *UserMutation) ClearSharingRateMin() {
+	m.sharing_rate_min = nil
+	m.addsharing_rate_min = nil
+	m.clearedFields[user.FieldSharingRateMin] = struct{}{}
+}
+
+// SharingRateMinCleared returns if the "sharing_rate_min" field was cleared in this mutation.
+func (m *UserMutation) SharingRateMinCleared() bool {
+	_, ok := m.clearedFields[user.FieldSharingRateMin]
+	return ok
+}
+
+// ResetSharingRateMin resets all changes to the "sharing_rate_min" field.
+func (m *UserMutation) ResetSharingRateMin() {
+	m.sharing_rate_min = nil
+	m.addsharing_rate_min = nil
+	delete(m.clearedFields, user.FieldSharingRateMin)
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (m *UserMutation) SetSharingRateMax(f float64) {
+	m.sharing_rate_max = &f
+	m.addsharing_rate_max = nil
+}
+
+// SharingRateMax returns the value of the "sharing_rate_max" field in the mutation.
+func (m *UserMutation) SharingRateMax() (r float64, exists bool) {
+	v := m.sharing_rate_max
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSharingRateMax returns the old "sharing_rate_max" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldSharingRateMax(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSharingRateMax is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSharingRateMax requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSharingRateMax: %w", err)
+	}
+	return oldValue.SharingRateMax, nil
+}
+
+// AddSharingRateMax adds f to the "sharing_rate_max" field.
+func (m *UserMutation) AddSharingRateMax(f float64) {
+	if m.addsharing_rate_max != nil {
+		*m.addsharing_rate_max += f
+	} else {
+		m.addsharing_rate_max = &f
+	}
+}
+
+// AddedSharingRateMax returns the value that was added to the "sharing_rate_max" field in this mutation.
+func (m *UserMutation) AddedSharingRateMax() (r float64, exists bool) {
+	v := m.addsharing_rate_max
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (m *UserMutation) ClearSharingRateMax() {
+	m.sharing_rate_max = nil
+	m.addsharing_rate_max = nil
+	m.clearedFields[user.FieldSharingRateMax] = struct{}{}
+}
+
+// SharingRateMaxCleared returns if the "sharing_rate_max" field was cleared in this mutation.
+func (m *UserMutation) SharingRateMaxCleared() bool {
+	_, ok := m.clearedFields[user.FieldSharingRateMax]
+	return ok
+}
+
+// ResetSharingRateMax resets all changes to the "sharing_rate_max" field.
+func (m *UserMutation) ResetSharingRateMax() {
+	m.sharing_rate_max = nil
+	m.addsharing_rate_max = nil
+	delete(m.clearedFields, user.FieldSharingRateMax)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *UserMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -48323,7 +48734,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -48396,6 +48807,12 @@ func (m *UserMutation) Fields() []string {
 	if m.rpm_limit != nil {
 		fields = append(fields, user.FieldRpmLimit)
 	}
+	if m.sharing_rate_min != nil {
+		fields = append(fields, user.FieldSharingRateMin)
+	}
+	if m.sharing_rate_max != nil {
+		fields = append(fields, user.FieldSharingRateMax)
+	}
 	return fields
 }
 
@@ -48452,6 +48869,10 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.TotalRecharged()
 	case user.FieldRpmLimit:
 		return m.RpmLimit()
+	case user.FieldSharingRateMin:
+		return m.SharingRateMin()
+	case user.FieldSharingRateMax:
+		return m.SharingRateMax()
 	}
 	return nil, false
 }
@@ -48509,6 +48930,10 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldTotalRecharged(ctx)
 	case user.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
+	case user.FieldSharingRateMin:
+		return m.OldSharingRateMin(ctx)
+	case user.FieldSharingRateMax:
+		return m.OldSharingRateMax(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -48686,6 +49111,20 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRpmLimit(v)
 		return nil
+	case user.FieldSharingRateMin:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSharingRateMin(v)
+		return nil
+	case user.FieldSharingRateMax:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSharingRateMax(v)
+		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
 }
@@ -48712,6 +49151,12 @@ func (m *UserMutation) AddedFields() []string {
 	if m.addrpm_limit != nil {
 		fields = append(fields, user.FieldRpmLimit)
 	}
+	if m.addsharing_rate_min != nil {
+		fields = append(fields, user.FieldSharingRateMin)
+	}
+	if m.addsharing_rate_max != nil {
+		fields = append(fields, user.FieldSharingRateMax)
+	}
 	return fields
 }
 
@@ -48732,6 +49177,10 @@ func (m *UserMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedTotalRecharged()
 	case user.FieldRpmLimit:
 		return m.AddedRpmLimit()
+	case user.FieldSharingRateMin:
+		return m.AddedSharingRateMin()
+	case user.FieldSharingRateMax:
+		return m.AddedSharingRateMax()
 	}
 	return nil, false
 }
@@ -48783,6 +49232,20 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRpmLimit(v)
 		return nil
+	case user.FieldSharingRateMin:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSharingRateMin(v)
+		return nil
+	case user.FieldSharingRateMax:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSharingRateMax(v)
+		return nil
 	}
 	return fmt.Errorf("unknown User numeric field %s", name)
 }
@@ -48808,6 +49271,12 @@ func (m *UserMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(user.FieldBalanceNotifyThreshold) {
 		fields = append(fields, user.FieldBalanceNotifyThreshold)
+	}
+	if m.FieldCleared(user.FieldSharingRateMin) {
+		fields = append(fields, user.FieldSharingRateMin)
+	}
+	if m.FieldCleared(user.FieldSharingRateMax) {
+		fields = append(fields, user.FieldSharingRateMax)
 	}
 	return fields
 }
@@ -48840,6 +49309,12 @@ func (m *UserMutation) ClearField(name string) error {
 		return nil
 	case user.FieldBalanceNotifyThreshold:
 		m.ClearBalanceNotifyThreshold()
+		return nil
+	case user.FieldSharingRateMin:
+		m.ClearSharingRateMin()
+		return nil
+	case user.FieldSharingRateMax:
+		m.ClearSharingRateMax()
 		return nil
 	}
 	return fmt.Errorf("unknown User nullable field %s", name)
@@ -48920,6 +49395,12 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldRpmLimit:
 		m.ResetRpmLimit()
+		return nil
+	case user.FieldSharingRateMin:
+		m.ResetSharingRateMin()
+		return nil
+	case user.FieldSharingRateMax:
+		m.ResetSharingRateMax()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

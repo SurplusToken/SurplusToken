@@ -157,6 +157,16 @@ type SystemSettings struct {
 	DefaultUserRPMLimit           int
 	DefaultSubscriptions          []DefaultSubscriptionSetting
 
+	// Shared account rate marketplace: three independent feature flags (all
+	// default false so shipping the schema/backend changes no behavior until
+	// explicitly enabled), plus owner price floor/cap/cooldown.
+	SharingPoolDisplayEnabled  bool
+	SharingRangeFilterEnabled  bool
+	SharingPoolBillingEnabled  bool
+	SharingRateFloor           float64
+	SharingRateCap             float64
+	SharingRateCooldownMinutes int
+
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
 	FallbackModelAnthropic   string `json:"fallback_model_anthropic"`
@@ -331,6 +341,13 @@ type PublicSettings struct {
 
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
+
+	SharingPoolDisplayEnabled  bool    `json:"sharing_pool_display_enabled"`
+	SharingRangeFilterEnabled  bool    `json:"sharing_range_filter_enabled"`
+	SharingPoolBillingEnabled  bool    `json:"sharing_pool_billing_enabled"`
+	SharingRateFloor           float64 `json:"sharing_rate_floor"`
+	SharingRateCap             float64 `json:"sharing_rate_cap"`
+	SharingRateCooldownMinutes int     `json:"sharing_rate_cooldown_minutes"`
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`

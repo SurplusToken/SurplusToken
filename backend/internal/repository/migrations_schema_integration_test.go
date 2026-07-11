@@ -132,6 +132,24 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// user_allowed_groups: created_at should be timestamptz
 	requireColumn(t, tx, "user_allowed_groups", "created_at", "timestamp with time zone", 0, false)
+
+	// Shared account rate marketplace (migration 174): sharing_rate_multiplier is an
+	// independent pricing axis from rate_multiplier.
+	requireColumn(t, tx, "accounts", "sharing_rate_multiplier", "numeric", 0, false)
+	requireColumn(t, tx, "accounts", "sharing_rate_updated_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "users", "sharing_rate_min", "numeric", 0, true)
+	requireColumn(t, tx, "users", "sharing_rate_max", "numeric", 0, true)
+	requireColumn(t, tx, "usage_logs", "sharing_rate_multiplier", "numeric", 0, true)
+	requireColumn(t, tx, "shared_account_marketplace_migration_issues", "issue_type", "character varying", 60, false)
+
+	requireColumn(t, tx, "account_contribution_pool_ledger", "direction", "character varying", 20, false)
+	requireColumn(t, tx, "account_contribution_pool_ledger", "distribution_id", "bigint", 0, true)
+	requireIndex(t, tx, "account_contribution_pool_ledger", "idx_account_contribution_pool_ledger_accrue_request")
+	requireIndex(t, tx, "account_contribution_pool_ledger", "idx_account_contribution_pool_ledger_opening")
+	requireColumn(t, tx, "account_contribution_pool_distributions", "idempotency_key", "character varying", 128, false)
+	requireColumn(t, tx, "account_contribution_pool_distributions", "request_fingerprint", "character varying", 64, false)
+	requireColumn(t, tx, "account_contribution_pool_distributions", "allocations", "jsonb", 0, false)
+	requireIndex(t, tx, "account_contribution_pool_distributions", "idx_account_contribution_pool_distributions_idem")
 }
 
 func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) {

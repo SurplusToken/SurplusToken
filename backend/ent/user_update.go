@@ -432,6 +432,60 @@ func (_u *UserUpdate) AddRpmLimit(v int) *UserUpdate {
 	return _u
 }
 
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (_u *UserUpdate) SetSharingRateMin(v float64) *UserUpdate {
+	_u.mutation.ResetSharingRateMin()
+	_u.mutation.SetSharingRateMin(v)
+	return _u
+}
+
+// SetNillableSharingRateMin sets the "sharing_rate_min" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableSharingRateMin(v *float64) *UserUpdate {
+	if v != nil {
+		_u.SetSharingRateMin(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMin adds value to the "sharing_rate_min" field.
+func (_u *UserUpdate) AddSharingRateMin(v float64) *UserUpdate {
+	_u.mutation.AddSharingRateMin(v)
+	return _u
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (_u *UserUpdate) ClearSharingRateMin() *UserUpdate {
+	_u.mutation.ClearSharingRateMin()
+	return _u
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (_u *UserUpdate) SetSharingRateMax(v float64) *UserUpdate {
+	_u.mutation.ResetSharingRateMax()
+	_u.mutation.SetSharingRateMax(v)
+	return _u
+}
+
+// SetNillableSharingRateMax sets the "sharing_rate_max" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableSharingRateMax(v *float64) *UserUpdate {
+	if v != nil {
+		_u.SetSharingRateMax(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMax adds value to the "sharing_rate_max" field.
+func (_u *UserUpdate) AddSharingRateMax(v float64) *UserUpdate {
+	_u.mutation.AddSharingRateMax(v)
+	return _u
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (_u *UserUpdate) ClearSharingRateMax() *UserUpdate {
+	_u.mutation.ClearSharingRateMax()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *UserUpdate) AddAPIKeyIDs(ids ...int64) *UserUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -1098,6 +1152,24 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SharingRateMin(); ok {
+		_spec.SetField(user.FieldSharingRateMin, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMin(); ok {
+		_spec.AddField(user.FieldSharingRateMin, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMinCleared() {
+		_spec.ClearField(user.FieldSharingRateMin, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SharingRateMax(); ok {
+		_spec.SetField(user.FieldSharingRateMax, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMax(); ok {
+		_spec.AddField(user.FieldSharingRateMax, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMaxCleared() {
+		_spec.ClearField(user.FieldSharingRateMax, field.TypeFloat64)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2108,6 +2180,60 @@ func (_u *UserUpdateOne) AddRpmLimit(v int) *UserUpdateOne {
 	return _u
 }
 
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (_u *UserUpdateOne) SetSharingRateMin(v float64) *UserUpdateOne {
+	_u.mutation.ResetSharingRateMin()
+	_u.mutation.SetSharingRateMin(v)
+	return _u
+}
+
+// SetNillableSharingRateMin sets the "sharing_rate_min" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableSharingRateMin(v *float64) *UserUpdateOne {
+	if v != nil {
+		_u.SetSharingRateMin(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMin adds value to the "sharing_rate_min" field.
+func (_u *UserUpdateOne) AddSharingRateMin(v float64) *UserUpdateOne {
+	_u.mutation.AddSharingRateMin(v)
+	return _u
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (_u *UserUpdateOne) ClearSharingRateMin() *UserUpdateOne {
+	_u.mutation.ClearSharingRateMin()
+	return _u
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (_u *UserUpdateOne) SetSharingRateMax(v float64) *UserUpdateOne {
+	_u.mutation.ResetSharingRateMax()
+	_u.mutation.SetSharingRateMax(v)
+	return _u
+}
+
+// SetNillableSharingRateMax sets the "sharing_rate_max" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableSharingRateMax(v *float64) *UserUpdateOne {
+	if v != nil {
+		_u.SetSharingRateMax(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMax adds value to the "sharing_rate_max" field.
+func (_u *UserUpdateOne) AddSharingRateMax(v float64) *UserUpdateOne {
+	_u.mutation.AddSharingRateMax(v)
+	return _u
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (_u *UserUpdateOne) ClearSharingRateMax() *UserUpdateOne {
+	_u.mutation.ClearSharingRateMax()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *UserUpdateOne) AddAPIKeyIDs(ids ...int64) *UserUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -2804,6 +2930,24 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SharingRateMin(); ok {
+		_spec.SetField(user.FieldSharingRateMin, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMin(); ok {
+		_spec.AddField(user.FieldSharingRateMin, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMinCleared() {
+		_spec.ClearField(user.FieldSharingRateMin, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SharingRateMax(); ok {
+		_spec.SetField(user.FieldSharingRateMax, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMax(); ok {
+		_spec.AddField(user.FieldSharingRateMax, field.TypeFloat64, value)
+	}
+	if _u.mutation.SharingRateMaxCleared() {
+		_spec.ClearField(user.FieldSharingRateMax, field.TypeFloat64)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

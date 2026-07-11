@@ -123,6 +123,7 @@ type updateUserAccountScopePayload struct {
 	ContributionShareMode              *string            `json:"contribution_share_mode"`
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+	SharingRateMultiplier              *float64           `json:"sharing_rate_multiplier"`
 }
 
 type testUserAccountPayload struct {
@@ -865,6 +866,7 @@ func (h *AccountPoolHandler) UpdateScope(c *gin.Context) {
 		ContributionShareMode:              payload.ContributionShareMode,
 		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
 		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+		SharingRateMultiplier:              payload.SharingRateMultiplier,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

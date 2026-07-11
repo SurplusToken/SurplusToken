@@ -457,6 +457,12 @@ const baseSettingsResponse = {
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [],
+  sharing_pool_display_enabled: false,
+  sharing_range_filter_enabled: false,
+  sharing_pool_billing_enabled: false,
+  sharing_rate_floor: 0,
+  sharing_rate_cap: 5,
+  sharing_rate_cooldown_minutes: 10,
   // 平台限额嵌套字段（新后端契约）
   default_platform_quotas: {
     anthropic:   { daily: null, weekly: null, monthly: null },
@@ -504,6 +510,16 @@ async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
 
   expect(securityTabButton).toBeDefined();
   await securityTabButton?.trigger("click");
+  await flushPromises();
+}
+
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
   await flushPromises();
 }
 
@@ -897,6 +913,52 @@ describe("admin SettingsView payment visible method controls", () => {
     // supported_types should be normalized to an empty array, not null
     expect(Array.isArray(receivedProviders[0].supported_types)).toBe(true);
     expect(receivedProviders[0].supported_types).toEqual([]);
+  });
+
+  it("loads and saves all shared account rate marketplace settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      sharing_pool_display_enabled: true,
+      sharing_range_filter_enabled: true,
+      sharing_pool_billing_enabled: true,
+      sharing_rate_floor: 0.25,
+      sharing_rate_cap: 3.5,
+      sharing_rate_cooldown_minutes: 30,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    expect(wrapper.get('[data-testid="sharing-rate-marketplace-settings"]').exists()).toBe(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+      sharing_pool_display_enabled: true,
+      sharing_range_filter_enabled: true,
+      sharing_pool_billing_enabled: true,
+      sharing_rate_floor: 0.25,
+      sharing_rate_cap: 3.5,
+      sharing_rate_cooldown_minutes: 30,
+    });
+  });
+
+  it("rejects invalid shared account rate bounds before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    await wrapper.get('[data-testid="sharing-rate-floor"]').setValue("4");
+    await wrapper.get('[data-testid="sharing-rate-cap"]').setValue("2");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      "admin.settings.features.sharingRateMarketplace.boundsError",
+    );
   });
 });
 

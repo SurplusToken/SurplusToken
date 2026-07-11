@@ -4,6 +4,7 @@ package repository
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -162,4 +163,29 @@ func TestBuildSchedulerMetadataAccount_KeepsSparkShadowRoutingIdentity(t *testin
 	require.Equal(t, map[string]any{"gpt-5.3-codex-spark": "gpt-5.3-codex-spark"}, got.Credentials["model_mapping"])
 	require.Equal(t, map[string]any{"gpt-5.4": "gpt-5.4-openai-compact"}, got.Credentials["compact_model_mapping"])
 	require.Nil(t, got.Credentials["access_token"])
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsSharingRateAndCoOwners(t *testing.T) {
+	ownerID := int64(10)
+	sharingRate := 2.5
+	updatedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	account := service.Account{
+		ID:                    42,
+		Platform:              service.PlatformAnthropic,
+		Type:                  service.AccountTypeOAuth,
+		OwnerUserID:           &ownerID,
+		CoOwnerUserIDs:        []int64{20, 30},
+		SharingRateMultiplier: &sharingRate,
+		SharingRateUpdatedAt:  &updatedAt,
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.NotNil(t, got.OwnerUserID)
+	require.Equal(t, ownerID, *got.OwnerUserID)
+	require.Equal(t, []int64{20, 30}, got.CoOwnerUserIDs)
+	require.NotNil(t, got.SharingRateMultiplier)
+	require.Equal(t, sharingRate, *got.SharingRateMultiplier)
+	require.NotNil(t, got.SharingRateUpdatedAt)
+	require.True(t, updatedAt.Equal(*got.SharingRateUpdatedAt))
 }

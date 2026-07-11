@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 14 // v14: include group video pricing fields
+const apiKeyAuthSnapshotVersion = 15 // v15: include user sharing_rate_min/max (shared account rate marketplace)
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -235,6 +235,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			SharingRateMin:             apiKey.User.SharingRateMin,
+			SharingRateMax:             apiKey.User.SharingRateMax,
 		},
 	}
 
@@ -326,6 +328,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			TotalRecharged:             snapshot.User.TotalRecharged,
 			RPMLimit:                   snapshot.User.RPMLimit,
 			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
+			SharingRateMin:             snapshot.User.SharingRateMin,
+			SharingRateMax:             snapshot.User.SharingRateMax,
 		},
 	}
 	if snapshot.Group != nil {

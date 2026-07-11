@@ -94,6 +94,8 @@ export interface User {
   balance_notify_enabled: boolean
   balance_notify_threshold: number | null
   balance_notify_extra_emails: NotifyEmailEntry[]
+  sharing_rate_min?: number | null
+  sharing_rate_max?: number | null
   subscriptions?: UserSubscription[] // User's active subscriptions
   last_active_at?: string | null
   created_at: string
@@ -259,6 +261,12 @@ export interface PublicSettings {
   available_channels_enabled: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
+  sharing_pool_display_enabled: boolean
+  sharing_range_filter_enabled: boolean
+  sharing_pool_billing_enabled: boolean
+  sharing_rate_floor: number
+  sharing_rate_cap: number
+  sharing_rate_cooldown_minutes: number
   allow_user_view_error_requests?: boolean
 }
 
@@ -1046,6 +1054,8 @@ export interface UserAccountPoolItem {
   contribution_5h_reserve_percent: number
   contribution_weekly_reserve_percent: number
   contribution_probe_failure_policy: 'continue' | 'pause' | 'local'
+  sharing_rate_multiplier: number
+  sharing_rate_updated_at?: string | null
   contribution_5h_usage_percent?: number | null
   contribution_weekly_usage_percent?: number | null
   five_hour_resets_at?: string | null

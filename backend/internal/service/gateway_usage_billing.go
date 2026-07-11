@@ -65,18 +65,20 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
-	Cost                          *CostBreakdown
-	User                          *User
-	APIKey                        *APIKey
-	Account                       *Account
-	Subscription                  *UserSubscription
-	RequestPayloadHash            string
-	IsSubscriptionBill            bool
-	AccountRateMultiplier         float64
-	APIKeyService                 APIKeyQuotaUpdater
-	Platform                      string // 来自 APIKey 关联 Group 的平台标识
-	ContributionRewardRatePercent float64
-	ContributionRewardFreezeHours int
+	Cost                              *CostBreakdown
+	User                              *User
+	APIKey                            *APIKey
+	Account                           *Account
+	Subscription                      *UserSubscription
+	RequestPayloadHash                string
+	IsSubscriptionBill                bool
+	AccountRateMultiplier             float64
+	APIKeyService                     APIKeyQuotaUpdater
+	Platform                          string // 来自 APIKey 关联 Group 的平台标识
+	ContributionEligible              bool
+	ContributionSharingRateMultiplier float64
+	ContributionRewardRatePercent     float64
+	ContributionRewardFreezeHours     int
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -307,14 +309,12 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
-	// Contribution reward (Model B): reward flows only when a NON-owner consumes the
-	// account (owner set = primary owner_user_id ∪ admin-assigned co-owners; a consumer
-	// in that set — incl. co-owner self-use — earns NOTHING). The reward is HELD in the
-	// account's pool (account_contribution_pools), not credited to any user balance; the
-	// primary owner later distributes it to co-owners manually. Consumer is a non-owner
-	// iff removing them from the owner set does not shrink it.
-	ownerSet := p.Account.SurplusAIOwnerUserIDs()
-	if len(ownerSet) > 0 && len(excludeUserID(ownerSet, p.User.ID)) == len(ownerSet) {
+	// Contribution eligibility is resolved before this command is built. That
+	// resolution authoritatively hydrates an empty co-owner snapshot and excludes
+	// subscriptions and all owner self-use.
+	if p.ContributionEligible && !p.IsSubscriptionBill {
+		cmd.ContributionEligible = true
+		cmd.ContributionSharingRateMultiplier = p.ContributionSharingRateMultiplier
 		if usageLog != nil && usageLog.AccountStatsCost != nil {
 			cmd.ContributionAccountStatsCost = usageLog.AccountStatsCost
 		}
@@ -751,11 +751,22 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
 	}
+	sharingBillingEnabled := s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx)
+	sharingDecision := applySharingRateBilling(
+		ctx,
+		cost,
+		account,
+		user,
+		isSubscriptionBilling,
+		sharingBillingEnabled,
+		s.accountRepo,
+	)
 
 	// 创建使用日志
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+	usageLog.SharingRateMultiplier = sharingDecision.UsageSharingRateMultiplier
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
@@ -789,28 +800,25 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 	requestID := usageLog.RequestID
-	// Contribution reward splits across the FULL owner set (primary + co-owners);
-	// hydrate co-owners (the scheduler-selected account may carry only the primary
-	// owner) so each co-owner gets their share instead of all going to the primary.
-	if account != nil && account.OwnerUserID != nil && *account.OwnerUserID > 0 && len(account.CoOwnerUserIDs) == 0 {
-		if coOwners, cErr := s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, account.ID); cErr == nil && len(coOwners) > 0 {
-			account.CoOwnerUserIDs = coOwners
-		}
+	contributorUserID := int64(0)
+	if sharingDecision.ContributionEligible {
+		contributorUserID = usageBillingContributorUserID(account, user)
 	}
-	contributorUserID := usageBillingContributorUserID(account, user)
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-		Cost:                          cost,
-		User:                          user,
-		APIKey:                        apiKey,
-		Account:                       account,
-		Subscription:                  subscription,
-		RequestPayloadHash:            resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-		IsSubscriptionBill:            isSubscriptionBilling,
-		AccountRateMultiplier:         accountRateMultiplier,
-		APIKeyService:                 input.APIKeyService,
-		Platform:                      quotaPlatform,
-		ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx, contributorUserID),
-		ContributionRewardFreezeHours: s.contributionRewardFreezeHours(ctx),
+		Cost:                              cost,
+		User:                              user,
+		APIKey:                            apiKey,
+		Account:                           account,
+		Subscription:                      subscription,
+		RequestPayloadHash:                resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+		IsSubscriptionBill:                isSubscriptionBilling,
+		AccountRateMultiplier:             accountRateMultiplier,
+		APIKeyService:                     input.APIKeyService,
+		Platform:                          quotaPlatform,
+		ContributionEligible:              sharingDecision.ContributionEligible,
+		ContributionSharingRateMultiplier: sharingDecision.ContributionSharingRateMultiplier,
+		ContributionRewardRatePercent:     s.contributionRewardRatePercent(ctx, contributorUserID),
+		ContributionRewardFreezeHours:     s.contributionRewardFreezeHours(ctx),
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {

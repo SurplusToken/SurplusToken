@@ -277,6 +277,68 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
 }
 
+func TestAPIKeyService_SnapshotRoundTrip_PreservesSharingRateMinMax(t *testing.T) {
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
+	min := 0.5
+	max := 2.5
+	apiKey := &APIKey{
+		ID:     1,
+		UserID: 2,
+		Key:    "k-sharing-rate",
+		Status: StatusActive,
+		User: &User{
+			ID:             2,
+			Status:         StatusActive,
+			Role:           RoleUser,
+			Balance:        10,
+			Concurrency:    3,
+			SharingRateMin: &min,
+			SharingRateMax: &max,
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
+	require.NotNil(t, snapshot.User.SharingRateMin)
+	require.NotNil(t, snapshot.User.SharingRateMax)
+	require.Equal(t, min, *snapshot.User.SharingRateMin)
+	require.Equal(t, max, *snapshot.User.SharingRateMax)
+
+	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
+	require.NotNil(t, roundTrip)
+	require.NotNil(t, roundTrip.User)
+	require.NotNil(t, roundTrip.User.SharingRateMin)
+	require.NotNil(t, roundTrip.User.SharingRateMax)
+	require.Equal(t, min, *roundTrip.User.SharingRateMin)
+	require.Equal(t, max, *roundTrip.User.SharingRateMax)
+}
+
+func TestAPIKeyService_SnapshotRoundTrip_PreservesNilSharingRateMinMax(t *testing.T) {
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
+	apiKey := &APIKey{
+		ID:     1,
+		UserID: 2,
+		Key:    "k-sharing-rate-nil",
+		Status: StatusActive,
+		User: &User{
+			ID:          2,
+			Status:      StatusActive,
+			Role:        RoleUser,
+			Balance:     10,
+			Concurrency: 3,
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	require.Nil(t, snapshot.User.SharingRateMin)
+	require.Nil(t, snapshot.User.SharingRateMax)
+
+	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
+	require.NotNil(t, roundTrip.User)
+	require.Nil(t, roundTrip.User.SharingRateMin)
+	require.Nil(t, roundTrip.User.SharingRateMax)
+}
+
 func TestAPIKeyService_GetByKey_IgnoresLegacyAuthCacheSnapshotWithoutMessagesDispatchConfig(t *testing.T) {
 	cache := &authCacheStub{}
 	var repoCalls int32

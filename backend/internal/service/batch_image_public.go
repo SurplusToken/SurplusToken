@@ -968,10 +968,38 @@ func (s *BatchImagePublicService) listCandidateAccounts(ctx context.Context, gro
 	if s.AccountRepo == nil {
 		return nil, ErrBatchImageNoAccountAvailable
 	}
+	var accounts []Account
+	var err error
 	if groupID != nil && *groupID > 0 {
-		return s.AccountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
+		accounts, err = s.AccountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
+	} else {
+		accounts, err = s.AccountRepo.ListSchedulableByPlatform(ctx, platform)
 	}
-	return s.AccountRepo.ListSchedulableByPlatform(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	return filterBatchImageSystemAccounts(accounts), nil
+}
+
+// isBatchImageSystemAccount reports whether account is a strict system account
+// eligible for batch image scheduling. Batch image is a shared-cost feature
+// that must never run on user-contributed accounts, so any non-nil
+// owner_user_id (including a stray zero value) excludes the account.
+func isBatchImageSystemAccount(account *Account) bool {
+	return account != nil && account.OwnerUserID == nil
+}
+
+// filterBatchImageSystemAccounts keeps only strict system accounts, applied
+// uniformly regardless of whether the candidates came from a group-scoped or
+// platform-wide lookup so ListModels and Submit share one selection surface.
+func filterBatchImageSystemAccounts(accounts []Account) []Account {
+	out := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if isBatchImageSystemAccount(&accounts[i]) {
+			out = append(out, accounts[i])
+		}
+	}
+	return out
 }
 
 func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Context, groupID *int64) error {

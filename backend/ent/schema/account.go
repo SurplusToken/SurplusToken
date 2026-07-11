@@ -118,6 +118,19 @@ func (Account) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
 
+		// sharing_rate_multiplier: 贡献账号的共享市场报价倍率，独立于 rate_multiplier。
+		// 仅在外部消费者（非系统账号、非 owner/co-owner 自用）实际计费时生效；
+		// 系统账号与 owner/co-owner 自用固定按 1.0 处理。硬范围 [0,5]，默认 1.0。
+		field.Float("sharing_rate_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0),
+
+		// sharing_rate_updated_at: 共享报价最近一次变更时间，用于 owner 改价冷却判定（NULL 表示从未改价）
+		field.Time("sharing_rate_updated_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+
 		// status: 账户状态，如 "active", "error", "disabled"
 		field.String("status").
 			MaxLen(20).

@@ -53,6 +53,8 @@ vi.mock('@/stores/app', () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
     showWarning: vi.fn(),
+    cachedPublicSettings: null,
+    fetchPublicSettings: vi.fn().mockResolvedValue(null),
   }),
 }))
 

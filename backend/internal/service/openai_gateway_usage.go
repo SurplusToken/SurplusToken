@@ -231,6 +231,16 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
 	}
+	sharingBillingEnabled := s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx)
+	sharingDecision := applySharingRateBilling(
+		ctx,
+		cost,
+		account,
+		user,
+		isSubscriptionBilling,
+		sharingBillingEnabled,
+		s.accountRepo,
+	)
 
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
@@ -249,28 +259,29 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	usageLog := &UsageLog{
-		UserID:              user.ID,
-		APIKeyID:            apiKey.ID,
-		AccountID:           account.ID,
-		RequestID:           requestID,
-		Model:               result.Model,
-		RequestedModel:      requestedModel,
-		UpstreamModel:       optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
-		ServiceTier:         result.ServiceTier,
-		ReasoningEffort:     result.ReasoningEffort,
-		InboundEndpoint:     optionalTrimmedStringPtr(input.InboundEndpoint),
-		UpstreamEndpoint:    optionalTrimmedStringPtr(input.UpstreamEndpoint),
-		InputTokens:         actualInputTokens,
-		OutputTokens:        result.Usage.OutputTokens,
-		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:     result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:   result.Usage.ImageOutputTokens,
-		ImageCount:          result.ImageCount,
-		ImageSize:           optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:      optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:     optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
-		ImageSizeBreakdown:  result.ImageSizeBreakdown,
+		UserID:                user.ID,
+		APIKeyID:              apiKey.ID,
+		AccountID:             account.ID,
+		RequestID:             requestID,
+		Model:                 result.Model,
+		RequestedModel:        requestedModel,
+		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
+		ServiceTier:           result.ServiceTier,
+		ReasoningEffort:       result.ReasoningEffort,
+		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
+		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		InputTokens:           actualInputTokens,
+		OutputTokens:          result.Usage.OutputTokens,
+		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+		CacheReadTokens:       result.Usage.CacheReadInputTokens,
+		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		ImageCount:            result.ImageCount,
+		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:       optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown:    result.ImageSizeBreakdown,
+		SharingRateMultiplier: sharingDecision.UsageSharingRateMultiplier,
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
@@ -361,32 +372,26 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 
-	// Contribution reward splits evenly across the FULL owner set (primary owner +
-	// admin-assigned co-owners). The scheduler-selected account often carries only the
-	// primary owner (the cache doesn't project co-owners), which would send the entire
-	// reward to the primary owner. Hydrate co-owners here (post-response path) so each
-	// co-owner gets their share.
-	if account != nil && account.OwnerUserID != nil && *account.OwnerUserID > 0 && len(account.CoOwnerUserIDs) == 0 {
-		if coOwners, cErr := s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, account.ID); cErr == nil && len(coOwners) > 0 {
-			account.CoOwnerUserIDs = coOwners
-		}
+	contributorUserID := int64(0)
+	if sharingDecision.ContributionEligible {
+		contributorUserID = usageBillingContributorUserID(account, user)
 	}
-
-	contributorUserID := usageBillingContributorUserID(account, user)
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-			Cost:                          cost,
-			User:                          user,
-			APIKey:                        apiKey,
-			Account:                       account,
-			Subscription:                  subscription,
-			RequestPayloadHash:            resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-			IsSubscriptionBill:            isSubscriptionBilling,
-			AccountRateMultiplier:         accountRateMultiplier,
-			APIKeyService:                 input.APIKeyService,
-			Platform:                      quotaPlatform,
-			ContributionRewardRatePercent: s.contributionRewardRatePercent(ctx, contributorUserID),
-			ContributionRewardFreezeHours: s.contributionRewardFreezeHours(ctx),
+			Cost:                              cost,
+			User:                              user,
+			APIKey:                            apiKey,
+			Account:                           account,
+			Subscription:                      subscription,
+			RequestPayloadHash:                resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			IsSubscriptionBill:                isSubscriptionBilling,
+			AccountRateMultiplier:             accountRateMultiplier,
+			APIKeyService:                     input.APIKeyService,
+			Platform:                          quotaPlatform,
+			ContributionEligible:              sharingDecision.ContributionEligible,
+			ContributionSharingRateMultiplier: sharingDecision.ContributionSharingRateMultiplier,
+			ContributionRewardRatePercent:     s.contributionRewardRatePercent(ctx, contributorUserID),
+			ContributionRewardFreezeHours:     s.contributionRewardFreezeHours(ctx),
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()

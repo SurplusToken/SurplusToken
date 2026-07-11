@@ -15,8 +15,36 @@ import (
 )
 
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
-func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
-	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, cfg))
+//
+// settingServices 是可选的尾部变长参数（而非普通可选指针），只为了让现有的
+// 3 参数调用点（主要是测试）不必改动就能继续编译；生产装配传入第 4 个参数。
+func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config, settingServices ...*service.SettingService) APIKeyAuthMiddleware {
+	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, cfg, firstSettingService(settingServices...)))
+}
+
+// firstSettingService 从尾部变长参数中取出可选的 SettingService，未传入时返回 nil。
+func firstSettingService(settingServices ...*service.SettingService) *service.SettingService {
+	if len(settingServices) > 0 {
+		return settingServices[0]
+	}
+	return nil
+}
+
+// setAuthRequestContext 统一注入鉴权成功后下游调度/计费/权限判断所需的
+// request-scoped 上下文：请求用户 ID（ctxkey.UserID 与 service.WithRequestingUserID
+// 两处历史遗留的双写）、该用户可接受的贡献账号共享报价区间，以及
+// sharing_range_filter_enabled 开关。settingService 为 nil 时按未启用处理，
+// 保持鉴权行为向后兼容（详见 service.SharingRangeFilterEnabledFromContext 的默认值语义）。
+func setAuthRequestContext(c *gin.Context, apiKey *service.APIKey, settingService *service.SettingService) {
+	if c == nil || apiKey == nil || apiKey.User == nil {
+		return
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
+	ctx = service.WithRequestingUserID(ctx, apiKey.User.ID)
+	ctx = service.WithSharingRateAcceptedRange(ctx, apiKey.User.SharingRateMin, apiKey.User.SharingRateMax)
+	filterEnabled := settingService != nil && settingService.IsSharingRangeFilterEnabled(ctx)
+	ctx = service.WithSharingRangeFilterEnabled(ctx, filterEnabled)
+	c.Request = c.Request.WithContext(ctx)
 }
 
 // apiKeyAuthWithSubscription API Key认证中间件（支持订阅验证）
@@ -26,7 +54,7 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 //   - 计费执行（Billing Enforcement）：过期/配额/订阅/余额检查 —— skipBilling 时整块跳过
 //
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
-func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config, settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 
@@ -126,8 +154,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if abortIfAPIKeyGroupNotAllowed(c, apiKey) {
 			return
 		}
-		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
-		c.Request = c.Request.WithContext(ctx)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -138,7 +164,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				Concurrency: apiKey.User.Concurrency,
 			})
 			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
-			c.Request = c.Request.WithContext(service.WithRequestingUserID(c.Request.Context(), apiKey.User.ID))
+			setAuthRequestContext(c, apiKey, settingService)
 			setGroupContext(c, apiKey.Group)
 			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 			c.Next()
@@ -237,7 +263,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			Concurrency: apiKey.User.Concurrency,
 		})
 		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
-		c.Request = c.Request.WithContext(service.WithRequestingUserID(c.Request.Context(), apiKey.User.ID))
+		setAuthRequestContext(c, apiKey, settingService)
 		setGroupContext(c, apiKey.Group)
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 

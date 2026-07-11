@@ -650,6 +650,14 @@ export interface SystemSettings {
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
 
+  // Shared account rate marketplace
+  sharing_pool_display_enabled: boolean;
+  sharing_range_filter_enabled: boolean;
+  sharing_pool_billing_enabled: boolean;
+  sharing_rate_floor: number;
+  sharing_rate_cap: number;
+  sharing_rate_cooldown_minutes: number;
+
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
@@ -912,6 +920,14 @@ export interface UpdateSettingsRequest {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;
+
+  // Shared account rate marketplace
+  sharing_pool_display_enabled?: boolean;
+  sharing_range_filter_enabled?: boolean;
+  sharing_pool_billing_enabled?: boolean;
+  sharing_rate_floor?: number;
+  sharing_rate_cap?: number;
+  sharing_rate_cooldown_minutes?: number;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;

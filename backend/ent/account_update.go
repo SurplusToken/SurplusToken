@@ -295,6 +295,47 @@ func (_u *AccountUpdate) AddRateMultiplier(v float64) *AccountUpdate {
 	return _u
 }
 
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (_u *AccountUpdate) SetSharingRateMultiplier(v float64) *AccountUpdate {
+	_u.mutation.ResetSharingRateMultiplier()
+	_u.mutation.SetSharingRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSharingRateMultiplier sets the "sharing_rate_multiplier" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableSharingRateMultiplier(v *float64) *AccountUpdate {
+	if v != nil {
+		_u.SetSharingRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMultiplier adds value to the "sharing_rate_multiplier" field.
+func (_u *AccountUpdate) AddSharingRateMultiplier(v float64) *AccountUpdate {
+	_u.mutation.AddSharingRateMultiplier(v)
+	return _u
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (_u *AccountUpdate) SetSharingRateUpdatedAt(v time.Time) *AccountUpdate {
+	_u.mutation.SetSharingRateUpdatedAt(v)
+	return _u
+}
+
+// SetNillableSharingRateUpdatedAt sets the "sharing_rate_updated_at" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableSharingRateUpdatedAt(v *time.Time) *AccountUpdate {
+	if v != nil {
+		_u.SetSharingRateUpdatedAt(*v)
+	}
+	return _u
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (_u *AccountUpdate) ClearSharingRateUpdatedAt() *AccountUpdate {
+	_u.mutation.ClearSharingRateUpdatedAt()
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *AccountUpdate) SetStatus(v string) *AccountUpdate {
 	_u.mutation.SetStatus(v)
@@ -904,6 +945,18 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(account.FieldRateMultiplier, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.SharingRateMultiplier(); ok {
+		_spec.SetField(account.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMultiplier(); ok {
+		_spec.AddField(account.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SharingRateUpdatedAt(); ok {
+		_spec.SetField(account.FieldSharingRateUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SharingRateUpdatedAtCleared() {
+		_spec.ClearField(account.FieldSharingRateUpdatedAt, field.TypeTime)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)
 	}
@@ -1468,6 +1521,47 @@ func (_u *AccountUpdateOne) SetNillableRateMultiplier(v *float64) *AccountUpdate
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *AccountUpdateOne) AddRateMultiplier(v float64) *AccountUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (_u *AccountUpdateOne) SetSharingRateMultiplier(v float64) *AccountUpdateOne {
+	_u.mutation.ResetSharingRateMultiplier()
+	_u.mutation.SetSharingRateMultiplier(v)
+	return _u
+}
+
+// SetNillableSharingRateMultiplier sets the "sharing_rate_multiplier" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableSharingRateMultiplier(v *float64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetSharingRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddSharingRateMultiplier adds value to the "sharing_rate_multiplier" field.
+func (_u *AccountUpdateOne) AddSharingRateMultiplier(v float64) *AccountUpdateOne {
+	_u.mutation.AddSharingRateMultiplier(v)
+	return _u
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (_u *AccountUpdateOne) SetSharingRateUpdatedAt(v time.Time) *AccountUpdateOne {
+	_u.mutation.SetSharingRateUpdatedAt(v)
+	return _u
+}
+
+// SetNillableSharingRateUpdatedAt sets the "sharing_rate_updated_at" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableSharingRateUpdatedAt(v *time.Time) *AccountUpdateOne {
+	if v != nil {
+		_u.SetSharingRateUpdatedAt(*v)
+	}
+	return _u
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (_u *AccountUpdateOne) ClearSharingRateUpdatedAt() *AccountUpdateOne {
+	_u.mutation.ClearSharingRateUpdatedAt()
 	return _u
 }
 
@@ -2109,6 +2203,18 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(account.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SharingRateMultiplier(); ok {
+		_spec.SetField(account.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSharingRateMultiplier(); ok {
+		_spec.AddField(account.FieldSharingRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SharingRateUpdatedAt(); ok {
+		_spec.SetField(account.FieldSharingRateUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SharingRateUpdatedAtCleared() {
+		_spec.ClearField(account.FieldSharingRateUpdatedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)

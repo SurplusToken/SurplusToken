@@ -175,6 +175,16 @@ func RpmLimit(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
 }
 
+// SharingRateMin applies equality check predicate on the "sharing_rate_min" field. It's identical to SharingRateMinEQ.
+func SharingRateMin(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSharingRateMin, v))
+}
+
+// SharingRateMax applies equality check predicate on the "sharing_rate_max" field. It's identical to SharingRateMaxEQ.
+func SharingRateMax(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSharingRateMax, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldCreatedAt, v))
@@ -1383,6 +1393,106 @@ func RpmLimitLT(v int) predicate.User {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldRpmLimit, v))
+}
+
+// SharingRateMinEQ applies the EQ predicate on the "sharing_rate_min" field.
+func SharingRateMinEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSharingRateMin, v))
+}
+
+// SharingRateMinNEQ applies the NEQ predicate on the "sharing_rate_min" field.
+func SharingRateMinNEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldSharingRateMin, v))
+}
+
+// SharingRateMinIn applies the In predicate on the "sharing_rate_min" field.
+func SharingRateMinIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldIn(FieldSharingRateMin, vs...))
+}
+
+// SharingRateMinNotIn applies the NotIn predicate on the "sharing_rate_min" field.
+func SharingRateMinNotIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldSharingRateMin, vs...))
+}
+
+// SharingRateMinGT applies the GT predicate on the "sharing_rate_min" field.
+func SharingRateMinGT(v float64) predicate.User {
+	return predicate.User(sql.FieldGT(FieldSharingRateMin, v))
+}
+
+// SharingRateMinGTE applies the GTE predicate on the "sharing_rate_min" field.
+func SharingRateMinGTE(v float64) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldSharingRateMin, v))
+}
+
+// SharingRateMinLT applies the LT predicate on the "sharing_rate_min" field.
+func SharingRateMinLT(v float64) predicate.User {
+	return predicate.User(sql.FieldLT(FieldSharingRateMin, v))
+}
+
+// SharingRateMinLTE applies the LTE predicate on the "sharing_rate_min" field.
+func SharingRateMinLTE(v float64) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldSharingRateMin, v))
+}
+
+// SharingRateMinIsNil applies the IsNil predicate on the "sharing_rate_min" field.
+func SharingRateMinIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldSharingRateMin))
+}
+
+// SharingRateMinNotNil applies the NotNil predicate on the "sharing_rate_min" field.
+func SharingRateMinNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldSharingRateMin))
+}
+
+// SharingRateMaxEQ applies the EQ predicate on the "sharing_rate_max" field.
+func SharingRateMaxEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxNEQ applies the NEQ predicate on the "sharing_rate_max" field.
+func SharingRateMaxNEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxIn applies the In predicate on the "sharing_rate_max" field.
+func SharingRateMaxIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldIn(FieldSharingRateMax, vs...))
+}
+
+// SharingRateMaxNotIn applies the NotIn predicate on the "sharing_rate_max" field.
+func SharingRateMaxNotIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldSharingRateMax, vs...))
+}
+
+// SharingRateMaxGT applies the GT predicate on the "sharing_rate_max" field.
+func SharingRateMaxGT(v float64) predicate.User {
+	return predicate.User(sql.FieldGT(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxGTE applies the GTE predicate on the "sharing_rate_max" field.
+func SharingRateMaxGTE(v float64) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxLT applies the LT predicate on the "sharing_rate_max" field.
+func SharingRateMaxLT(v float64) predicate.User {
+	return predicate.User(sql.FieldLT(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxLTE applies the LTE predicate on the "sharing_rate_max" field.
+func SharingRateMaxLTE(v float64) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldSharingRateMax, v))
+}
+
+// SharingRateMaxIsNil applies the IsNil predicate on the "sharing_rate_max" field.
+func SharingRateMaxIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldSharingRateMax))
+}
+
+// SharingRateMaxNotNil applies the NotNil predicate on the "sharing_rate_max" field.
+func SharingRateMaxNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldSharingRateMax))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

@@ -354,6 +354,34 @@ func (_c *UserCreate) SetNillableRpmLimit(v *int) *UserCreate {
 	return _c
 }
 
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (_c *UserCreate) SetSharingRateMin(v float64) *UserCreate {
+	_c.mutation.SetSharingRateMin(v)
+	return _c
+}
+
+// SetNillableSharingRateMin sets the "sharing_rate_min" field if the given value is not nil.
+func (_c *UserCreate) SetNillableSharingRateMin(v *float64) *UserCreate {
+	if v != nil {
+		_c.SetSharingRateMin(*v)
+	}
+	return _c
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (_c *UserCreate) SetSharingRateMax(v float64) *UserCreate {
+	_c.mutation.SetSharingRateMax(v)
+	return _c
+}
+
+// SetNillableSharingRateMax sets the "sharing_rate_max" field if the given value is not nil.
+func (_c *UserCreate) SetNillableSharingRateMax(v *float64) *UserCreate {
+	if v != nil {
+		_c.SetSharingRateMax(*v)
+	}
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *UserCreate) AddAPIKeyIDs(ids ...int64) *UserCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -867,6 +895,14 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
+	}
+	if value, ok := _c.mutation.SharingRateMin(); ok {
+		_spec.SetField(user.FieldSharingRateMin, field.TypeFloat64, value)
+		_node.SharingRateMin = &value
+	}
+	if value, ok := _c.mutation.SharingRateMax(); ok {
+		_spec.SetField(user.FieldSharingRateMax, field.TypeFloat64, value)
+		_node.SharingRateMax = &value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1480,6 +1516,54 @@ func (u *UserUpsert) AddRpmLimit(v int) *UserUpsert {
 	return u
 }
 
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (u *UserUpsert) SetSharingRateMin(v float64) *UserUpsert {
+	u.Set(user.FieldSharingRateMin, v)
+	return u
+}
+
+// UpdateSharingRateMin sets the "sharing_rate_min" field to the value that was provided on create.
+func (u *UserUpsert) UpdateSharingRateMin() *UserUpsert {
+	u.SetExcluded(user.FieldSharingRateMin)
+	return u
+}
+
+// AddSharingRateMin adds v to the "sharing_rate_min" field.
+func (u *UserUpsert) AddSharingRateMin(v float64) *UserUpsert {
+	u.Add(user.FieldSharingRateMin, v)
+	return u
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (u *UserUpsert) ClearSharingRateMin() *UserUpsert {
+	u.SetNull(user.FieldSharingRateMin)
+	return u
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (u *UserUpsert) SetSharingRateMax(v float64) *UserUpsert {
+	u.Set(user.FieldSharingRateMax, v)
+	return u
+}
+
+// UpdateSharingRateMax sets the "sharing_rate_max" field to the value that was provided on create.
+func (u *UserUpsert) UpdateSharingRateMax() *UserUpsert {
+	u.SetExcluded(user.FieldSharingRateMax)
+	return u
+}
+
+// AddSharingRateMax adds v to the "sharing_rate_max" field.
+func (u *UserUpsert) AddSharingRateMax(v float64) *UserUpsert {
+	u.Add(user.FieldSharingRateMax, v)
+	return u
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (u *UserUpsert) ClearSharingRateMax() *UserUpsert {
+	u.SetNull(user.FieldSharingRateMax)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1928,6 +2012,62 @@ func (u *UserUpsertOne) AddRpmLimit(v int) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateRpmLimit() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (u *UserUpsertOne) SetSharingRateMin(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSharingRateMin(v)
+	})
+}
+
+// AddSharingRateMin adds v to the "sharing_rate_min" field.
+func (u *UserUpsertOne) AddSharingRateMin(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.AddSharingRateMin(v)
+	})
+}
+
+// UpdateSharingRateMin sets the "sharing_rate_min" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateSharingRateMin() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSharingRateMin()
+	})
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (u *UserUpsertOne) ClearSharingRateMin() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearSharingRateMin()
+	})
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (u *UserUpsertOne) SetSharingRateMax(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSharingRateMax(v)
+	})
+}
+
+// AddSharingRateMax adds v to the "sharing_rate_max" field.
+func (u *UserUpsertOne) AddSharingRateMax(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.AddSharingRateMax(v)
+	})
+}
+
+// UpdateSharingRateMax sets the "sharing_rate_max" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateSharingRateMax() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSharingRateMax()
+	})
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (u *UserUpsertOne) ClearSharingRateMax() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearSharingRateMax()
 	})
 }
 
@@ -2545,6 +2685,62 @@ func (u *UserUpsertBulk) AddRpmLimit(v int) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateRpmLimit() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetSharingRateMin sets the "sharing_rate_min" field.
+func (u *UserUpsertBulk) SetSharingRateMin(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSharingRateMin(v)
+	})
+}
+
+// AddSharingRateMin adds v to the "sharing_rate_min" field.
+func (u *UserUpsertBulk) AddSharingRateMin(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.AddSharingRateMin(v)
+	})
+}
+
+// UpdateSharingRateMin sets the "sharing_rate_min" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateSharingRateMin() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSharingRateMin()
+	})
+}
+
+// ClearSharingRateMin clears the value of the "sharing_rate_min" field.
+func (u *UserUpsertBulk) ClearSharingRateMin() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearSharingRateMin()
+	})
+}
+
+// SetSharingRateMax sets the "sharing_rate_max" field.
+func (u *UserUpsertBulk) SetSharingRateMax(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSharingRateMax(v)
+	})
+}
+
+// AddSharingRateMax adds v to the "sharing_rate_max" field.
+func (u *UserUpsertBulk) AddSharingRateMax(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.AddSharingRateMax(v)
+	})
+}
+
+// UpdateSharingRateMax sets the "sharing_rate_max" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateSharingRateMax() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSharingRateMax()
+	})
+}
+
+// ClearSharingRateMax clears the value of the "sharing_rate_max" field.
+func (u *UserUpsertBulk) ClearSharingRateMax() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearSharingRateMax()
 	})
 }
 

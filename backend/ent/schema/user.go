@@ -115,6 +115,16 @@ func (User) Fields() []ent.Field {
 		// 用户级每分钟请求数上限（0 = 不限制）。仅当所在分组未设置 rpm_limit 时作为兜底生效。
 		field.Int("rpm_limit").
 			Default(0),
+
+		// sharing_rate_min/max: 用户愿意接受的贡献账号共享报价闭区间（两端可空，均空表示不过滤）
+		field.Float("sharing_rate_min").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Optional().
+			Nillable(),
+		field.Float("sharing_rate_max").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Optional().
+			Nillable(),
 	}
 }
 

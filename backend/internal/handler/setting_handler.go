@@ -102,6 +102,13 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		RiskControlEnabled: settings.RiskControlEnabled,
 
+		SharingPoolDisplayEnabled:  settings.SharingPoolDisplayEnabled,
+		SharingRangeFilterEnabled:  settings.SharingRangeFilterEnabled,
+		SharingPoolBillingEnabled:  settings.SharingPoolBillingEnabled,
+		SharingRateFloor:           settings.SharingRateFloor,
+		SharingRateCap:             settings.SharingRateCap,
+		SharingRateCooldownMinutes: settings.SharingRateCooldownMinutes,
+
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 	})
 }

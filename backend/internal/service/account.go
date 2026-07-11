@@ -7,6 +7,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -35,15 +36,21 @@ type Account struct {
 	Priority                int
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
-	RateMultiplier     *float64
-	LoadFactor         *int // 调度负载因子；nil 表示使用 Concurrency
-	Status             string
-	ErrorMessage       string
-	LastUsedAt         *time.Time
-	ExpiresAt          *time.Time
-	AutoPauseOnExpired bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	RateMultiplier *float64
+	// SharingRateMultiplier 贡献账号共享市场报价倍率，独立于 RateMultiplier。
+	// 仅在外部消费者实际使用贡献账号时生效；系统账号与 owner/co-owner 自用固定按 1.0。
+	// nil 表示旧缓存缺字段，按 1.0 处理；硬范围 [0,5]，0 合法（免费）。
+	SharingRateMultiplier *float64
+	// SharingRateUpdatedAt 共享报价最近一次变更时间，用于 owner 改价冷却判定。
+	SharingRateUpdatedAt *time.Time
+	LoadFactor           *int // 调度负载因子；nil 表示使用 Concurrency
+	Status               string
+	ErrorMessage         string
+	LastUsedAt           *time.Time
+	ExpiresAt            *time.Time
+	AutoPauseOnExpired   bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 
 	Schedulable bool
 
@@ -142,6 +149,79 @@ func (a *Account) BillingRateMultiplier() float64 {
 		return 1.0
 	}
 	return *a.RateMultiplier
+}
+
+// EffectiveSharingRateMultiplier returns the sharing-market price multiplier
+// that applies when consumerUserID uses this account.
+//
+//   - System accounts (no owner) and owner/co-owner self-use are always 1.0 —
+//     the marketplace price only applies to an external consumer of a
+//     contributed account.
+//   - nil/NaN/Inf/negative/greater-than-hard-cap stored values default to 1.0
+//     (defensive against corrupt data); 0 is a legitimate free price.
+func (a *Account) EffectiveSharingRateMultiplier(consumerUserID int64) float64 {
+	if a == nil || !a.IsUserContributed() {
+		return 1.0
+	}
+	if a.IsSurplusAIOwner(consumerUserID) {
+		return 1.0
+	}
+	if a.SharingRateMultiplier == nil {
+		return 1.0
+	}
+	rate := *a.SharingRateMultiplier
+	if math.IsNaN(rate) || rate < SharingRateMultiplierHardMin || rate > SharingRateMultiplierHardMax {
+		return 1.0
+	}
+	return rate
+}
+
+// IsSharingEligibleForConsumer reports whether this account may be scheduled
+// for consumerUserID under the shared account rate marketplace's accepted
+// price range filter.
+//
+//   - When filterEnabled is false the marketplace filter is fully inert
+//     (matches pre-feature behavior).
+//   - System accounts and owner/co-owner self-use are always eligible — the
+//     accepted range only gates external consumption of a contributed account.
+//   - A nil range bound is unbounded on that side; both nil means "accept any
+//     price". The comparison is a closed interval (endpoints included).
+func (a *Account) IsSharingEligibleForConsumer(consumerUserID int64, acceptedMin, acceptedMax *float64, filterEnabled bool) bool {
+	if a == nil {
+		return false
+	}
+	if !filterEnabled || !a.IsUserContributed() || a.IsSurplusAIOwner(consumerUserID) {
+		return true
+	}
+	// Fail closed on structurally-corrupt inputs once the filter is actually
+	// gating an external consumer: a stored rate outside the hard [0,5] range
+	// (including NaN/Inf) must never be silently coerced to the permissive 1.0
+	// default that EffectiveSharingRateMultiplier applies for display/billing
+	// purposes. nil (unset) and 0 (free) remain legitimate and pass through.
+	if a.SharingRateMultiplier != nil {
+		rate := *a.SharingRateMultiplier
+		if math.IsNaN(rate) || rate < SharingRateMultiplierHardMin || rate > SharingRateMultiplierHardMax {
+			return false
+		}
+	}
+	// A NaN/Inf accepted bound is corrupt consumer-side data, not a
+	// legitimate "unbounded" signal (that's what a nil bound means) — treat
+	// it as untrustworthy and fail closed rather than let NaN comparisons
+	// silently no-op the filter.
+	if acceptedMin != nil && (math.IsNaN(*acceptedMin) || math.IsInf(*acceptedMin, 0)) {
+		return false
+	}
+	if acceptedMax != nil && (math.IsNaN(*acceptedMax) || math.IsInf(*acceptedMax, 0)) {
+		return false
+	}
+	rate := a.EffectiveSharingRateMultiplier(consumerUserID)
+	if acceptedMin != nil && rate < *acceptedMin {
+		return false
+	}
+	if acceptedMax != nil && rate > *acceptedMax {
+		return false
+	}
+	return true
 }
 
 func (a *Account) EffectiveLoadFactor() int {
@@ -273,6 +353,63 @@ func RequestingUserIDFromContext(ctx context.Context) int64 {
 	return 0
 }
 
+// sharingRateAcceptedRange carries the requesting consumer's accepted sharing
+// price closed interval, sourced once from the cached auth snapshot by the API
+// key auth middleware. Either bound may be nil (unbounded on that side).
+type sharingRateAcceptedRange struct {
+	Min *float64
+	Max *float64
+}
+
+type sharingRateAcceptedRangeContextKeyType struct{}
+
+var sharingRateAcceptedRangeContextKey = sharingRateAcceptedRangeContextKeyType{}
+
+// WithSharingRateAcceptedRange records the requesting consumer's accepted
+// sharing-rate range so downstream scheduling/model-list filtering can reject
+// contributed accounts priced outside it without an extra DB round trip.
+func WithSharingRateAcceptedRange(ctx context.Context, min, max *float64) context.Context {
+	return context.WithValue(ctx, sharingRateAcceptedRangeContextKey, sharingRateAcceptedRange{Min: min, Max: max})
+}
+
+// SharingRateAcceptedRangeFromContext returns the requesting consumer's
+// accepted sharing-rate range, or (nil, nil) — i.e. unbounded — if unset.
+func SharingRateAcceptedRangeFromContext(ctx context.Context) (min, max *float64) {
+	if ctx == nil {
+		return nil, nil
+	}
+	if v, ok := ctx.Value(sharingRateAcceptedRangeContextKey).(sharingRateAcceptedRange); ok {
+		return v.Min, v.Max
+	}
+	return nil, nil
+}
+
+type sharingRangeFilterEnabledContextKeyType struct{}
+
+var sharingRangeFilterEnabledContextKey = sharingRangeFilterEnabledContextKeyType{}
+
+// WithSharingRangeFilterEnabled records whether the sharing_range_filter_enabled
+// setting is currently on, computed once per request by the auth middleware
+// (cached setting read) and threaded through every scheduling/model-list path.
+func WithSharingRangeFilterEnabled(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, sharingRangeFilterEnabledContextKey, enabled)
+}
+
+// SharingRangeFilterEnabledFromContext reports whether the sharing-rate range
+// filter is enabled for the current request. Defaults to false (filter
+// inert / no behavior change) when unset, so any call path that is not
+// explicitly wired to set this value safely falls back to pre-feature
+// behavior instead of failing open on filtering.
+func SharingRangeFilterEnabledFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	if v, ok := ctx.Value(sharingRangeFilterEnabledContextKey).(bool); ok {
+		return v
+	}
+	return false
+}
+
 // IsSurplusAIOwner reports whether userID is an owner of this account. The owner
 // set is the single primary owner_user_id unioned with the admin-assigned
 // co-owners (account_co_owners), hydrated into CoOwnerUserIDs at load time.
@@ -346,6 +483,8 @@ func filterSurplusAISchedulableAccounts(ctx context.Context, accounts []Account)
 		return accounts
 	}
 	requesterID := RequestingUserIDFromContext(ctx)
+	filterEnabled := SharingRangeFilterEnabledFromContext(ctx)
+	acceptedMin, acceptedMax := SharingRateAcceptedRangeFromContext(ctx)
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
 		if !account.IsSurplusAISchedulableType() || !account.IsSchedulable() {
@@ -354,6 +493,9 @@ func filterSurplusAISchedulableAccounts(ctx context.Context, accounts []Account)
 		// Owners always retain access to their own contributed account, so they
 		// bypass contribution reserve protection. Non-owners are gated by it.
 		if !account.IsSurplusAIOwner(requesterID) && !account.IsSurplusAIContributionProtectionSchedulable() {
+			continue
+		}
+		if !account.IsSharingEligibleForConsumer(requesterID, acceptedMin, acceptedMax, filterEnabled) {
 			continue
 		}
 		filtered = append(filtered, account)

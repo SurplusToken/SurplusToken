@@ -317,6 +317,66 @@ func TestBatchImageProviderProcessor_StatusFlow(t *testing.T) {
 	})
 }
 
+func TestBatchImageProviderProcessor_RejectsContributedAccount(t *testing.T) {
+	ctx := context.Background()
+	accountID := int64(10)
+	providerJob := "providers/job"
+	apiKeyID := int64(22)
+	holdAmount := 0.5
+	ownerID := int64(9)
+	zeroOwner := int64(0)
+
+	newContributedJob := func(batchID string) *BatchImageJob {
+		return &BatchImageJob{
+			BatchID:         batchID,
+			Status:          BatchImageJobStatusSubmitted,
+			Provider:        "fake",
+			AccountID:       &accountID,
+			ProviderJobName: &providerJob,
+			UserID:          11,
+			APIKeyID:        &apiKeyID,
+			EstimatedCost:   holdAmount,
+			HoldAmount:      &holdAmount,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		account *Account
+	}{
+		{name: "nil account", account: nil},
+		{name: "owner user id set", account: &Account{ID: accountID, OwnerUserID: &ownerID}},
+		{name: "owner user id points to zero", account: &Account{ID: accountID, OwnerUserID: &zeroOwner}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeBatchImageRepository()
+			batchID := "imgbatch_contributed_" + tt.name
+			repo.jobs[batchID] = newContributedJob(batchID)
+			provider := &fakeProcessorProvider{}
+			billing := &fakeBatchImageBillingRepo{}
+			processor := &BatchImageProviderProcessor{
+				Repo:             repo,
+				ProviderRegistry: NewBatchImageProviderRegistry(provider),
+				AccountResolver:  &fakeBatchImageAccountResolver{account: tt.account},
+				Indexer:          &BatchImageResultIndexer{Repo: repo},
+				BillingRepo:      billing,
+			}
+
+			got, err := processor.Process(ctx, batchID)
+			require.NoError(t, err)
+			require.True(t, got.Terminal)
+			require.False(t, provider.getCalled)
+			require.False(t, provider.openResultCalled)
+			require.Equal(t, BatchImageJobStatusFailed, repo.jobs[batchID].Status)
+			require.Equal(t, "CONTRIBUTED_ACCOUNT_NOT_ALLOWED", batchImageDerefString(repo.jobs[batchID].LastErrorCode))
+			require.Contains(t, repo.events[batchID], "job_failed")
+			require.Len(t, billing.releases, 1)
+			require.Equal(t, BatchImageReleaseRequestID(batchID), billing.releases[0].RequestID)
+		})
+	}
+}
+
 func TestCanTransitionBatchImageJob_PR5DirectIndexing(t *testing.T) {
 	require.True(t, CanTransitionBatchImageJob(BatchImageJobStatusSubmitted, BatchImageJobStatusIndexing))
 	require.True(t, CanTransitionBatchImageJob(BatchImageJobStatusSubmitted, BatchImageJobStatusFailed))

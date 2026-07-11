@@ -48,6 +48,10 @@ const (
 	FieldPriority = "priority"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldSharingRateMultiplier holds the string denoting the sharing_rate_multiplier field in the database.
+	FieldSharingRateMultiplier = "sharing_rate_multiplier"
+	// FieldSharingRateUpdatedAt holds the string denoting the sharing_rate_updated_at field in the database.
+	FieldSharingRateUpdatedAt = "sharing_rate_updated_at"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldErrorMessage holds the string denoting the error_message field in the database.
@@ -149,6 +153,8 @@ var Columns = []string{
 	FieldLoadFactor,
 	FieldPriority,
 	FieldRateMultiplier,
+	FieldSharingRateMultiplier,
+	FieldSharingRateUpdatedAt,
 	FieldStatus,
 	FieldErrorMessage,
 	FieldLastUsedAt,
@@ -213,6 +219,8 @@ var (
 	DefaultPriority int
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
 	DefaultRateMultiplier float64
+	// DefaultSharingRateMultiplier holds the default value on creation for the "sharing_rate_multiplier" field.
+	DefaultSharingRateMultiplier float64
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -327,6 +335,16 @@ func ByPriority(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// BySharingRateMultiplier orders the results by the sharing_rate_multiplier field.
+func BySharingRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSharingRateMultiplier, opts...).ToFunc()
+}
+
+// BySharingRateUpdatedAt orders the results by the sharing_rate_updated_at field.
+func BySharingRateUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSharingRateUpdatedAt, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

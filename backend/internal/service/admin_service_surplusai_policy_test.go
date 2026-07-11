@@ -77,6 +77,25 @@ func TestAdminServiceUpdateAccountAllowsChangingOAuthToNonOAuth(t *testing.T) {
 	require.Equal(t, 1, repo.updateCalls)
 }
 
+func TestAdminServiceUpdateAccountRejectsChangingContributedOAuthType(t *testing.T) {
+	ownerID := int64(77)
+	repo := &surplusAIPolicyAccountRepoStub{
+		account: &Account{
+			ID:          10,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			OwnerUserID: &ownerID,
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	account, err := svc.UpdateAccount(context.Background(), 10, &UpdateAccountInput{Type: AccountTypeAPIKey})
+
+	require.Nil(t, account)
+	require.ErrorContains(t, err, "must remain OAuth")
+	require.Zero(t, repo.updateCalls)
+}
+
 func TestAdminServiceSetAccountSchedulableAllowsNonOAuthAccount(t *testing.T) {
 	repo := &surplusAIPolicyAccountRepoStub{
 		account: &Account{

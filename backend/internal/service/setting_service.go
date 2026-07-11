@@ -70,6 +70,12 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
+
+	// sharingRateSettingsCache mirrors the openAIQuotaAutoPauseSettingsCache pattern:
+	// a per-service instance field (not a package global) so tests using distinct
+	// SettingService instances get natural cache isolation instead of cross-test bleed.
+	sharingRateSettingsCache atomic.Value // *cachedSharingRateSettings
+	sharingRateSettingsSF    singleflight.Group
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

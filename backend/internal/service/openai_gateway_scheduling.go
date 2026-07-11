@@ -194,6 +194,9 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSurplusAISchedulableType() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
+	if stickyAccountSharingIneligible(ctx, account) {
+		return false
+	}
 	if account.IsOpenAI() {
 		// Owners use their own contributed account unrestricted: bypass contribution
 		// reserve protection and quota auto-pause. Non-owners remain gated by both.
@@ -640,7 +643,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
-	if shouldClearStickySession(account, requestedModel) {
+	if shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -849,7 +852,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
 			if err == nil {
-				clearSticky := shouldClearStickySession(account, requestedModel)
+				clearSticky := shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account)
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
@@ -1311,10 +1314,6 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if err != nil || latest == nil {
 		return nil
 	}
-	// GetByID does not load co-owners (separate table); carry over the co-owner
-	// set already hydrated on the candidate so owner-bypass (contribution reserve
-	// + auto-pause) also works for co-owners on this DB-recheck path.
-	latest.CoOwnerUserIDs = account.CoOwnerUserIDs
 	// Carry over the hydrated NON-owner weekly spend (GetByID does not compute it),
 	// then (re-)hydrate for budget-mode accounts if still missing so the budget gate
 	// has fresh data on this DB-recheck path. Best-effort / fails open.

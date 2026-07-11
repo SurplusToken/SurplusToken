@@ -51,6 +51,7 @@ export interface UpdateUserAccountScopeRequest {
   contribution_probe_failure_policy?: ContributionProbeFailurePolicy
   contribution_share_mode?: ContributionShareMode
   contribution_weekly_share_budget?: number
+  sharing_rate_multiplier?: number
 }
 
 export interface UserOAuthAuthUrlRequest {
@@ -386,14 +387,17 @@ export async function getContributionPool(id: number): Promise<ContributionPoolV
 }
 
 // Owner-only: distribute the held pool. mode='even' splits the whole pool evenly across
-// the owner set; otherwise pass explicit per-recipient allocations.
+// the owner set; mode='custom' requires explicit per-recipient allocations. The caller
+// owns the idempotency key so an automatic or user-triggered retry reuses the same key.
 export async function distributeContributionPool(
   id: number,
-  payload: { mode?: 'even'; allocations?: ContributionPoolAllocation[] },
+  payload: { mode: 'even' | 'custom'; allocations?: ContributionPoolAllocation[] },
+  idempotencyKey: string,
 ): Promise<ContributionPoolView> {
   const { data } = await apiClient.post<ContributionPoolView>(
     `/accounts/pool/${id}/contribution-pool/distribute`,
     payload,
+    { headers: { 'Idempotency-Key': idempotencyKey } },
   )
   return data
 }

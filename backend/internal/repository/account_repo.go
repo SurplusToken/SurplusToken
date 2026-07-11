@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,12 +28,14 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 
+	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
 )
@@ -102,7 +105,37 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		return service.ErrAccountNilInput
 	}
 
-	builder := r.client.Account.Create().
+	client := clientFromContext(ctx, r.client)
+	var tx *dbent.Tx
+	if account.OwnerUserID != nil && dbent.TxFromContext(ctx) == nil {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if err == nil {
+			defer func() { _ = tx.Rollback() }()
+			client = tx.Client()
+		}
+	}
+	if account.OwnerUserID != nil {
+		if *account.OwnerUserID <= 0 {
+			return service.ErrUserNotFound
+		}
+		ownerQuery := client.User.Query().
+			Where(dbuser.IDEQ(*account.OwnerUserID), dbuser.DeletedAtIsNil())
+		if client.Driver().Dialect() == dialect.Postgres {
+			// Serialize owner-account creation against user soft deletion. A
+			// creator that wins commits first and makes deletion fail its owned
+			// account guard; a deletion that wins makes this live-user check fail.
+			ownerQuery = ownerQuery.ForShare()
+		}
+		if _, err := ownerQuery.Only(ctx); err != nil {
+			return translatePersistenceError(err, service.ErrUserNotFound, nil)
+		}
+	}
+
+	builder := client.Account.Create().
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
@@ -118,6 +151,12 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
+	}
+	if account.SharingRateMultiplier != nil {
+		builder.SetSharingRateMultiplier(*account.SharingRateMultiplier)
+	}
+	if account.SharingRateUpdatedAt != nil {
+		builder.SetSharingRateUpdatedAt(*account.SharingRateUpdatedAt)
 	}
 	if account.LoadFactor != nil {
 		builder.SetLoadFactor(*account.LoadFactor)
@@ -162,6 +201,11 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	created, err := builder.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
 
 	account.ID = created.ID
@@ -234,6 +278,15 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	if err != nil {
 		return nil, err
 	}
+	// Batch-hydrate CoOwnerUserIDs so IsSurplusAIOwner/the sharing-rate
+	// eligibility filter see the authoritative owner set for every account this
+	// call returns (scheduler snapshot rebuilds go through GetByIDs). A lookup
+	// failure is returned rather than silently treated as "no co-owners" —
+	// callers must not evaluate owner-bypass against a possibly-wrong empty set.
+	coOwnersByAccount, err := r.ListCoOwnersByAccountIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
@@ -256,6 +309,7 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		if ags, ok := accountGroupsByAccount[entAcc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		out.CoOwnerUserIDs = coOwnersByAccount[entAcc.ID]
 		outByID[entAcc.ID] = out
 	}
 
@@ -375,6 +429,9 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
 	}
+	// SharingRateMultiplier/UpdatedAt are deliberately excluded. The atomic
+	// owner-price method is their sole writer, preventing an ordinary account
+	// edit based on an older snapshot from reverting a concurrent price change.
 	if account.LoadFactor != nil {
 		builder.SetLoadFactor(*account.LoadFactor)
 	} else {
@@ -463,6 +520,41 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	return nil
 }
 
+// UpdateUserAccountSharingRate 原子地设置贡献账号的共享报价倍率。
+// 单条条件 UPDATE 同时校验：id、主 owner_user_id、type=oauth、未删除、
+// 冷却窗口已过（sharing_rate_updated_at 为空或 <= cooldownCutoff），
+// 避免"先读后写"竞态下并发改价互相覆盖或绕过冷却限制。
+// 影响 0 行（权限不符/类型不符/冷却未到/账号已删除）时返回 (false, nil)，
+// 由调用方结合上下文决定具体的业务错误。
+func (r *accountRepository) UpdateUserAccountSharingRate(ctx context.Context, accountID, ownerUserID int64, rate float64, changedAt, cooldownCutoff time.Time) (bool, error) {
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET sharing_rate_multiplier = $1,
+			sharing_rate_updated_at = $2,
+			updated_at = NOW()
+		WHERE id = $3
+			AND owner_user_id = $4
+			AND type = $5
+			AND deleted_at IS NULL
+			AND (sharing_rate_updated_at IS NULL OR sharing_rate_updated_at <= $6)
+	`, rate, changedAt, accountID, ownerUserID, service.AccountTypeOAuth, cooldownCutoff)
+	if err != nil {
+		return false, translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account sharing rate update failed: account=%d err=%v", accountID, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, accountID)
+	return true, nil
+}
+
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	groupIDs, err := r.loadAccountGroupIDs(ctx, id)
 	if err != nil {
@@ -483,10 +575,40 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 		txClient = r.client
 	}
 
+	// Lock the live account before the pool row. Contribution accrual and pool
+	// distribution use the same lock order, so a hard delete cannot race with a
+	// late reward accrual or orphan an undistributed balance.
+	accountQuery := txClient.Account.Query().Where(dbaccount.IDEQ(id), dbaccount.DeletedAtIsNil())
+	if txClient.Driver().Dialect() == dialect.Postgres {
+		accountQuery = accountQuery.ForUpdate()
+	}
+	if _, err := accountQuery.Only(ctx); err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	var poolAmount float64
+	poolErr := scanSingleRow(ctx, txClient, `
+		SELECT pool_amount::double precision
+		FROM account_contribution_pools
+		WHERE account_id = $1
+		FOR UPDATE
+	`, []any{id}, &poolAmount)
+	if poolErr != nil && !errors.Is(poolErr, sql.ErrNoRows) {
+		return poolErr
+	}
+	if poolErr == nil && poolAmount != 0 {
+		return service.ErrAccountDeleteBlockedNonzeroPool
+	}
+
 	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(id)).Exec(ctx); err != nil {
 		return err
 	}
 	if _, err := txClient.ExecContext(ctx, "DELETE FROM scheduled_test_plans WHERE account_id = $1", id); err != nil {
+		return err
+	}
+	if _, err := txClient.ExecContext(ctx, "DELETE FROM account_contribution_pools WHERE account_id = $1", id); err != nil {
+		return err
+	}
+	if _, err := txClient.ExecContext(ctx, "DELETE FROM account_co_owners WHERE account_id = $1", id); err != nil {
 		return err
 	}
 	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx); err != nil {
@@ -780,6 +902,9 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		defaultOrder = false
 	case "rate_multiplier":
 		field = dbaccount.FieldRateMultiplier
+		defaultOrder = false
+	case "sharing_rate_multiplier":
+		field = dbaccount.FieldSharingRateMultiplier
 		defaultOrder = false
 	case "last_used_at":
 		field = dbaccount.FieldLastUsedAt
@@ -1930,6 +2055,16 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	// Batch-hydrate CoOwnerUserIDs from account_co_owners in a single query so
+	// every read path (GetByID, list/filter queries, scheduler snapshot rebuild)
+	// sees the authoritative owner set, avoiding N+1 per-account lookups. A
+	// lookup failure is returned rather than silently treated as "no
+	// co-owners" — owner-bypass and sharing-rate eligibility must never be
+	// evaluated against a possibly-wrong empty set.
+	coOwnersByAccount, err := r.ListCoOwnersByAccountIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -1958,6 +2093,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		out.CoOwnerUserIDs = coOwnersByAccount[acc.ID]
 		outAccounts = append(outAccounts, *out)
 	}
 
@@ -2156,6 +2292,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	}
 
 	rateMultiplier := m.RateMultiplier
+	sharingRateMultiplier := m.SharingRateMultiplier
 
 	return &service.Account{
 		ID:                      m.ID,
@@ -2171,6 +2308,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,
+		SharingRateMultiplier:   &sharingRateMultiplier,
+		SharingRateUpdatedAt:    m.SharingRateUpdatedAt,
 		LoadFactor:              m.LoadFactor,
 		Status:                  m.Status,
 		ErrorMessage:            derefString(m.ErrorMessage),
@@ -2630,6 +2769,20 @@ func (r *accountRepository) ListCoOwnedAccountIDsByUser(ctx context.Context, use
 // 账号已有的全部 co-owner，再为每个去重后的合法 userID（> 0）插入一行。
 // createdBy 为分配该 co-owner 的管理员用户 ID，可为 nil。
 func (r *accountRepository) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
+	seen := make(map[int64]struct{}, len(userIDs))
+	cleanUserIDs := make([]int64, 0, len(userIDs))
+	for _, userID := range userIDs {
+		if userID <= 0 {
+			continue
+		}
+		if _, duplicate := seen[userID]; duplicate {
+			continue
+		}
+		seen[userID] = struct{}{}
+		cleanUserIDs = append(cleanUserIDs, userID)
+	}
+	sort.Slice(cleanUserIDs, func(i, j int) bool { return cleanUserIDs[i] < cleanUserIDs[j] })
+
 	// 与 Delete / BindGroups 一致：使用 ent 事务保证删除旧记录与写入新记录的原子性。
 	tx, err := r.client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -2644,20 +2797,40 @@ func (r *accountRepository) SetAccountCoOwners(ctx context.Context, accountID in
 		// 已处于外部事务中（ErrTxStarted），复用当前 client
 		txClient = r.client
 	}
+	// Lock users first, in ID order, matching the billing/delete user->account
+	// lock order. This validates that every recipient is still live and prevents
+	// a concurrent soft delete from reintroducing a deleted co-owner.
+	if len(cleanUserIDs) > 0 {
+		usersQuery := txClient.User.Query().
+			Where(dbuser.IDIn(cleanUserIDs...), dbuser.DeletedAtIsNil()).
+			Order(dbent.Asc(dbuser.FieldID))
+		if txClient.Driver().Dialect() == dialect.Postgres {
+			usersQuery = usersQuery.ForShare()
+		}
+		liveUserIDs, err := usersQuery.IDs(ctx)
+		if err != nil {
+			return err
+		}
+		if len(liveUserIDs) != len(cleanUserIDs) {
+			return service.ErrUserNotFound
+		}
+	}
+	// Then serialize against account deletion. If deletion commits first, the
+	// live-account check fails; if replacement commits first, Delete removes the
+	// resulting rows afterwards.
+	accountQuery := txClient.Account.Query().Where(dbaccount.IDEQ(accountID), dbaccount.DeletedAtIsNil())
+	if txClient.Driver().Dialect() == dialect.Postgres {
+		accountQuery = accountQuery.ForUpdate()
+	}
+	if _, err := accountQuery.Only(ctx); err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
 
 	if _, err := txClient.ExecContext(ctx, `DELETE FROM account_co_owners WHERE account_id = $1`, accountID); err != nil {
 		return err
 	}
 
-	seen := make(map[int64]struct{}, len(userIDs))
-	for _, userID := range userIDs {
-		if userID <= 0 {
-			continue
-		}
-		if _, ok := seen[userID]; ok {
-			continue
-		}
-		seen[userID] = struct{}{}
+	for _, userID := range cleanUserIDs {
 		if _, err := txClient.ExecContext(ctx, `
 			INSERT INTO account_co_owners (account_id, user_id, created_by, created_at)
 			VALUES ($1, $2, $3, NOW())

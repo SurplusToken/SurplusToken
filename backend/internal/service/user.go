@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -65,6 +66,64 @@ type User struct {
 
 	// ContributionRewardRate 用户贡献账号收益比例覆盖。nil 表示跟随系统全局默认。
 	ContributionRewardRate *float64
+
+	// SharingRateMin/Max 用户愿意接受的贡献账号共享报价闭区间。两端可空；
+	// 均空表示不过滤（接受任意报价）。
+	SharingRateMin *float64
+	SharingRateMax *float64
+}
+
+// AcceptsSharingRate reports whether rate falls within the user's accepted
+// closed interval [SharingRateMin, SharingRateMax]. A nil bound is unbounded
+// on that side; both nil accepts any rate. A NaN rate is never accepted:
+// NaN comparisons are always false, so without this guard an invalid rate
+// would silently pass every bound check.
+func (u *User) AcceptsSharingRate(rate float64) bool {
+	if math.IsNaN(rate) {
+		return false
+	}
+	if u == nil {
+		return true
+	}
+	if u.SharingRateMin != nil && rate < *u.SharingRateMin {
+		return false
+	}
+	if u.SharingRateMax != nil && rate > *u.SharingRateMax {
+		return false
+	}
+	return true
+}
+
+// ValidateSharingRateAcceptedRange validates a user's accepted sharing-price
+// closed interval [min, max] before it is persisted. A nil bound is
+// unbounded on that side and always valid on its own. Each non-nil bound
+// must be a finite value within the hard [SharingRateMultiplierHardMin,
+// SharingRateMultiplierHardMax] range, and min must not exceed max.
+func ValidateSharingRateAcceptedRange(min, max *float64) error {
+	if err := validateSharingRateBound(min); err != nil {
+		return err
+	}
+	if err := validateSharingRateBound(max); err != nil {
+		return err
+	}
+	if min != nil && max != nil && *min > *max {
+		return ErrSharingRateRangeInvalid
+	}
+	return nil
+}
+
+func validateSharingRateBound(bound *float64) error {
+	if bound == nil {
+		return nil
+	}
+	v := *bound
+	if math.IsNaN(v) || v < SharingRateMultiplierHardMin || v > SharingRateMultiplierHardMax {
+		return ErrSharingRateOutOfRange
+	}
+	if !hasSharingRateStoragePrecision(v) {
+		return ErrSharingRatePrecisionInvalid
+	}
+	return nil
 }
 
 func (u *User) IsAdmin() bool {

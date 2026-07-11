@@ -426,6 +426,101 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 	})
 }
 
+func TestIsBatchImageSystemAccount(t *testing.T) {
+	zero := int64(0)
+	owner := int64(42)
+
+	require.True(t, isBatchImageSystemAccount(&Account{ID: 1, OwnerUserID: nil}))
+	require.False(t, isBatchImageSystemAccount(&Account{ID: 2, OwnerUserID: &zero}))
+	require.False(t, isBatchImageSystemAccount(&Account{ID: 3, OwnerUserID: &owner}))
+	require.False(t, isBatchImageSystemAccount(nil))
+}
+
+func TestFilterBatchImageSystemAccounts(t *testing.T) {
+	zero := int64(0)
+	owner := int64(42)
+	accounts := []Account{
+		{ID: 1, OwnerUserID: nil},
+		{ID: 2, OwnerUserID: &zero},
+		{ID: 3, OwnerUserID: &owner},
+		{ID: 4, OwnerUserID: nil},
+	}
+
+	got := filterBatchImageSystemAccounts(accounts)
+
+	ids := make([]int64, 0, len(got))
+	for _, account := range got {
+		ids = append(ids, account.ID)
+	}
+	require.Equal(t, []int64{1, 4}, ids)
+}
+
+func TestBatchImagePublicService_ExcludesContributedAccounts(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("submit never selects a contributed account even at higher priority", func(t *testing.T) {
+		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		ownerID := int64(77)
+		zeroOwner := int64(0)
+		contributed := testBatchImageAccount(999, AccountTypeOAuth)
+		contributed.OwnerUserID = &ownerID
+		contributed.Priority = 9999
+		zeroOwnerAccount := testBatchImageAccount(998, AccountTypeOAuth)
+		zeroOwnerAccount.OwnerUserID = &zeroOwner
+		zeroOwnerAccount.Priority = 9998
+		accountRepo.accounts = append(accountRepo.accounts, contributed, zeroOwnerAccount)
+
+		got, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+		require.NoError(t, err)
+		job := repo.jobs[got.ID]
+		require.NotNil(t, job.AccountID)
+		require.Equal(t, int64(202), *job.AccountID)
+	})
+
+	t.Run("submit fails when only contributed accounts are schedulable", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		ownerID := int64(77)
+		contributed := testBatchImageAccount(999, AccountTypeOAuth)
+		contributed.OwnerUserID = &ownerID
+		accountRepo.accounts = []Account{contributed}
+
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+		require.ErrorIs(t, err, ErrBatchImageNoAccountAvailable)
+	})
+
+	t.Run("list models excludes contributed account models", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		ownerID := int64(55)
+		contributed := testBatchImageMappedAccount(777, AccountTypeAPIKey, map[string]any{
+			"gemini-3-pro-image": "gemini-3-pro-image",
+		})
+		contributed.OwnerUserID = &ownerID
+		accountRepo.accounts = []Account{contributed}
+
+		got, err := svc.ListModels(ctx, testBatchImageOwner())
+		require.NoError(t, err)
+		require.Empty(t, got.Data)
+	})
+
+	t.Run("list models excludes accounts with owner user id pointing to zero", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		zeroOwner := int64(0)
+		contributed := testBatchImageMappedAccount(778, AccountTypeAPIKey, map[string]any{
+			"gemini-3-pro-image": "gemini-3-pro-image",
+		})
+		contributed.OwnerUserID = &zeroOwner
+		accountRepo.accounts = []Account{contributed}
+
+		got, err := svc.ListModels(ctx, testBatchImageOwner())
+		require.NoError(t, err)
+		require.Empty(t, got.Data)
+	})
+}
+
 func TestBatchImagePublicService_List(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, _, _, _ := newTestBatchImagePublicService(true)

@@ -21,6 +21,16 @@ import type {
   PlatformQuotasResponse,
 } from '@/types'
 
+export interface SharingRateRange {
+  min: number | null
+  max: number | null
+}
+
+export interface UpdateSharingRateRangeRequest {
+  min: number | null
+  max: number | null
+}
+
 /**
  * Get current user profile
  * @returns User profile data
@@ -43,6 +53,22 @@ export async function updateProfile(profile: {
   balance_notify_extra_emails?: NotifyEmailEntry[]
 }): Promise<User> {
   const { data } = await apiClient.put<User>('/user', profile)
+  return data
+}
+
+export async function getSharingRateRange(): Promise<SharingRateRange> {
+  const { data } = await apiClient.get<SharingRateRange>('/user/sharing-rate-range')
+  return data
+}
+
+export async function updateSharingRateRange(
+  range: UpdateSharingRateRangeRequest,
+): Promise<SharingRateRange> {
+  const payload: UpdateSharingRateRangeRequest = {
+    min: range.min ?? null,
+    max: range.max ?? null,
+  }
+  const { data } = await apiClient.put<SharingRateRange>('/user/sharing-rate-range', payload)
   return data
 }
 
@@ -209,6 +235,8 @@ export async function getMyPlatformQuotas(): Promise<PlatformQuotasResponse> {
 export const userAPI = {
   getProfile,
   updateProfile,
+  getSharingRateRange,
+  updateSharingRateRange,
   changePassword,
   sendNotifyEmailCode,
   verifyNotifyEmail,

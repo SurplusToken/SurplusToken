@@ -150,6 +150,12 @@ type SystemSettings struct {
 	AffiliateRebatePerInviteeCap  float64                      `json:"affiliate_rebate_per_invitee_cap"`
 	ContributionRewardRate        float64                      `json:"contribution_reward_rate"`
 	ContributionRewardFreezeHours int                          `json:"contribution_reward_freeze_hours"`
+	SharingPoolDisplayEnabled     bool                         `json:"sharing_pool_display_enabled"`
+	SharingRangeFilterEnabled     bool                         `json:"sharing_range_filter_enabled"`
+	SharingPoolBillingEnabled     bool                         `json:"sharing_pool_billing_enabled"`
+	SharingRateFloor              float64                      `json:"sharing_rate_floor"`
+	SharingRateCap                float64                      `json:"sharing_rate_cap"`
+	SharingRateCooldownMinutes    int                          `json:"sharing_rate_cooldown_minutes"`
 	DefaultUserRPMLimit           int                          `json:"default_user_rpm_limit"`
 	DefaultSubscriptions          []DefaultSubscriptionSetting `json:"default_subscriptions"`
 
@@ -363,6 +369,13 @@ type PublicSettings struct {
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
+
+	SharingPoolDisplayEnabled  bool    `json:"sharing_pool_display_enabled"`
+	SharingRangeFilterEnabled  bool    `json:"sharing_range_filter_enabled"`
+	SharingPoolBillingEnabled  bool    `json:"sharing_pool_billing_enabled"`
+	SharingRateFloor           float64 `json:"sharing_rate_floor"`
+	SharingRateCap             float64 `json:"sharing_rate_cap"`
+	SharingRateCooldownMinutes int     `json:"sharing_rate_cooldown_minutes"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
 }

@@ -172,6 +172,7 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
+	balanceCollected := false
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
 		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
 			return err
@@ -185,6 +186,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		}
 		result.NewBalance = &newBalance
 		result.BalanceOverdrafted = !sufficient
+		balanceCollected = sufficient
 	}
 
 	if cmd.APIKeyQuotaCost > 0 {
@@ -213,11 +215,11 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	// account's pool (account_contribution_pools) for later manual distribution. The
 	// legacy per-owner-split / single-contributor user accruals are kept as a fallback
 	// for back-compat (no longer set by buildUsageBillingCommand).
-	if cmd.ContributionPoolAccountID > 0 && cmd.ContributionPoolAmount > 0 {
-		if err := accrueUsageBillingContributionPool(ctx, tx, cmd.ContributionPoolAccountID, cmd.ContributionPoolAmount); err != nil {
+	if balanceCollected && cmd.ContributionPoolAccountID > 0 && cmd.ContributionPoolAmount > 0 {
+		if err := accrueUsageBillingContributionPool(ctx, tx, cmd); err != nil {
 			return err
 		}
-	} else if len(cmd.ContributionRewardShares) > 0 {
+	} else if balanceCollected && len(cmd.ContributionRewardShares) > 0 {
 		for _, share := range cmd.ContributionRewardShares {
 			if share.UserID <= 0 || share.Amount <= 0 {
 				continue
@@ -226,7 +228,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 				return err
 			}
 		}
-	} else if cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
+	} else if balanceCollected && cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
 		if err := accrueUsageBillingContributionReward(ctx, tx, cmd.ContributorUserID, cmd.ContributionRewardAmount, cmd); err != nil {
 			return err
 		}
@@ -238,9 +240,49 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 // accrueUsageBillingContributionPool adds a held reward to the account's pool
 // (Model B). The reward stays in the pool until the primary owner distributes it to
 // the account's owner set; it is NOT credited to any user's spendable balance here.
-func accrueUsageBillingContributionPool(ctx context.Context, tx *sql.Tx, accountID int64, amount float64) error {
-	if accountID <= 0 || amount <= 0 {
+func accrueUsageBillingContributionPool(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.ContributionPoolAccountID <= 0 || cmd.ContributionPoolAmount <= 0 {
 		return nil
+	}
+	accountID := cmd.ContributionPoolAccountID
+	amount := cmd.ContributionPoolAmount
+	var liveAccountID int64
+	if err := tx.QueryRowContext(ctx, `
+SELECT id
+FROM accounts
+WHERE id = $1 AND deleted_at IS NULL
+FOR KEY SHARE`, accountID).Scan(&liveAccountID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The request has already consumed upstream resources. If account
+			// deletion won the row-lock race, suppress only the contribution
+			// reward; the consumer charge must still commit.
+			return nil
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO account_contribution_pool_ledger (
+    account_id,
+    direction,
+    amount,
+    usage_billing_request_id,
+    api_key_id,
+    consumer_user_id,
+    sharing_rate_multiplier,
+    reward_rate,
+    actual_cost
+)
+VALUES ($1, 'accrue', $2, $3, $4, $5, $6, $7, $8)`,
+		accountID,
+		amount,
+		cmd.RequestID,
+		cmd.APIKeyID,
+		cmd.UserID,
+		cmd.ContributionSharingRateMultiplier,
+		cmd.ContributionRewardRatePercent,
+		cmd.BalanceCost,
+	); err != nil {
+		return err
 	}
 	_, err := tx.ExecContext(ctx, `
 INSERT INTO account_contribution_pools (account_id, pool_amount, updated_at)

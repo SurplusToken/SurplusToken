@@ -558,6 +558,12 @@ export default {
       refreshTokenSuccess: 'Token refreshed',
       privacySetSuccess: 'Privacy setting updated',
     },
+    sharingRate: {
+      label: 'Shared account price',
+      bounds: 'Allowed range: {floor}x - {cap}x',
+      cooldown: 'This price is cooling down. You can change it in about {minutes} minutes; other sharing settings can still be saved.',
+      invalid: 'The account price must be between {floor}x and {cap}x.',
+    },
     remote: {
       setup: 'Set up remote login',
       relogin: 'Re-login',
@@ -679,6 +685,7 @@ export default {
       platform: 'Platform',
       accountType: 'Account Type',
       owner: 'Owner',
+      sharingRate: 'Account Rate',
       status: 'Status',
       scheduling: 'Scheduling',
       concurrency: 'Concurrency',
@@ -851,6 +858,20 @@ export default {
     passwordTooShort: 'Password must be at least 8 characters long',
     passwordChangeSuccess: 'Password changed successfully',
     passwordChangeFailed: 'Failed to change password',
+    sharingRateRange: {
+      title: 'Accepted Shared Account Rates',
+      description: 'Set the closed interval accepted when scheduling shared accounts. Leave either side blank for no bound in that direction.',
+      minimum: 'Minimum rate',
+      maximum: 'Maximum rate',
+      unbounded: 'No limit',
+      marketBounds: 'Current owner price range: {floor}x - {cap}x.',
+      filterDisabled: 'Filtering disabled',
+      outOfRange: 'Rates must be between 0 and {cap}, or blank for no bound.',
+      invalidOrder: 'The minimum rate cannot exceed the maximum rate.',
+      loadFailed: 'Failed to load the accepted rate range',
+      saveFailed: 'Failed to save the accepted rate range',
+      saveSuccess: 'Accepted rate range saved',
+    },
     // TOTP 2FA
     totp: {
       title: 'Two-Factor Authentication (2FA)',

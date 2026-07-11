@@ -119,6 +119,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateRebatePerInviteeCap:              strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 2, 64),
 		SettingKeyContributionRewardRate:                    strconv.FormatFloat(ContributionRewardRateDefault, 'f', 8, 64),
 		SettingKeyContributionRewardFreezeHours:             strconv.Itoa(ContributionRewardFreezeHoursDefault),
+		SettingKeySharingPoolDisplayEnabled:                 "false",
+		SettingKeySharingRangeFilterEnabled:                 "false",
+		SettingKeySharingPoolBillingEnabled:                 "false",
+		SettingKeySharingRateFloor:                          strconv.FormatFloat(SharingRateFloorDefault, 'f', 4, 64),
+		SettingKeySharingRateCap:                            strconv.FormatFloat(SharingRateCapDefault, 'f', 4, 64),
+		SettingKeySharingRateCooldownMinutes:                strconv.Itoa(SharingRateOwnerCooldownMinutesDefault),
 		SettingKeyDefaultUserRPMLimit:                       "0",
 		SettingKeyDefaultSubscriptions:                      "[]",
 		SettingKeyAuthSourceDefaultEmailBalance:             "0",
@@ -343,6 +349,22 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.ContributionRewardFreezeHours = normalizeContributionFreezeHours(freezeHours)
 	} else {
 		result.ContributionRewardFreezeHours = ContributionRewardFreezeHoursDefault
+	}
+	result.SharingPoolDisplayEnabled = settings[SettingKeySharingPoolDisplayEnabled] == "true"
+	result.SharingRangeFilterEnabled = settings[SettingKeySharingRangeFilterEnabled] == "true"
+	result.SharingPoolBillingEnabled = settings[SettingKeySharingPoolBillingEnabled] == "true"
+	floor, cap := SharingRateFloorDefault, SharingRateCapDefault
+	if v, err := strconv.ParseFloat(settings[SettingKeySharingRateFloor], 64); err == nil {
+		floor = v
+	}
+	if v, err := strconv.ParseFloat(settings[SettingKeySharingRateCap], 64); err == nil {
+		cap = v
+	}
+	result.SharingRateFloor, result.SharingRateCap = clampSharingRateBounds(floor, cap)
+	if cooldown, err := strconv.Atoi(settings[SettingKeySharingRateCooldownMinutes]); err == nil {
+		result.SharingRateCooldownMinutes = normalizeSharingRateCooldownMinutes(cooldown)
+	} else {
+		result.SharingRateCooldownMinutes = SharingRateOwnerCooldownMinutesDefault
 	}
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 

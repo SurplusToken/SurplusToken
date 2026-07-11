@@ -41,12 +41,14 @@ type UsageBillingCommand struct {
 	AccountQuotaCost    float64
 
 	ContributorUserID                 int64
+	ContributionEligible              bool
 	ContributionRewardAmount          float64
 	ContributionRewardRatePercent     float64
 	ContributionRewardFreezeHours     int
 	ContributionTotalCost             float64
 	ContributionAccountStatsCost      *float64
 	ContributionAccountRateMultiplier float64
+	ContributionSharingRateMultiplier float64
 
 	// ContributionRewardShares carries the per-owner reward split for accounts
 	// with multiple owners (primary owner_user_id ∪ admin-assigned co-owners),
@@ -108,6 +110,16 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 	)
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
+	}
+	if c.ContributionEligible {
+		raw += fmt.Sprintf(
+			"|contribution:%t|%d|%0.10f|%0.10f|%0.10f",
+			c.ContributionEligible,
+			c.ContributionPoolAccountID,
+			c.ContributionPoolAmount,
+			c.ContributionRewardRatePercent,
+			c.ContributionSharingRateMultiplier,
+		)
 	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

@@ -9,7 +9,7 @@ import (
 )
 
 // distributePoolPayload is the body for the distribute endpoint. mode=="even" splits the
-// whole pool equally across the owner set; otherwise allocations are explicit per-recipient.
+// whole pool equally across the owner set; mode=="custom" uses explicit allocations.
 type distributePoolPayload struct {
 	Mode        string `json:"mode"`
 	Allocations []struct {
@@ -67,7 +67,14 @@ func (h *AccountPoolHandler) DistributeContributionPool(c *gin.Context) {
 	for _, a := range payload.Allocations {
 		allocations = append(allocations, service.PoolAllocation{UserID: a.UserID, Amount: a.Amount})
 	}
-	if err := h.contributionPoolService.DistributeAccountPool(c.Request.Context(), userID, accountID, payload.Mode, allocations); err != nil {
+	if err := h.contributionPoolService.DistributeAccountPool(
+		c.Request.Context(),
+		userID,
+		accountID,
+		c.GetHeader("Idempotency-Key"),
+		payload.Mode,
+		allocations,
+	); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

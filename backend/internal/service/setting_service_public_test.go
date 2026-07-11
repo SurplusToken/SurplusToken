@@ -104,6 +104,68 @@ func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *t
 	require.True(t, settings.AllowUserViewErrorRequests)
 }
 
+func TestSettingService_GetPublicSettings_ExposesNormalizedSharingRateSettings(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeySharingPoolDisplayEnabled:  "true",
+			SettingKeySharingRangeFilterEnabled:  "true",
+			SettingKeySharingPoolBillingEnabled:  "true",
+			SettingKeySharingRateFloor:           "0",
+			SettingKeySharingRateCap:             "3.5",
+			SettingKeySharingRateCooldownMinutes: "0",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, settings.SharingPoolDisplayEnabled)
+	require.True(t, settings.SharingRangeFilterEnabled)
+	require.True(t, settings.SharingPoolBillingEnabled)
+	require.Equal(t, 0.0, settings.SharingRateFloor)
+	require.Equal(t, 3.5, settings.SharingRateCap)
+	require.Equal(t, 0, settings.SharingRateCooldownMinutes)
+}
+
+func TestSettingService_GetPublicSettings_NormalizesCorruptSharingRateSettings(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeySharingRateFloor:           "4",
+			SettingKeySharingRateCap:             "2",
+			SettingKeySharingRateCooldownMinutes: "not-an-int",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, SharingRateFloorDefault, settings.SharingRateFloor)
+	require.Equal(t, SharingRateCapDefault, settings.SharingRateCap)
+	require.Equal(t, SharingRateOwnerCooldownMinutesDefault, settings.SharingRateCooldownMinutes)
+}
+
+func TestSettingService_GetPublicSettingsForInjection_ExposesSharingRateSettings(t *testing.T) {
+	svc := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeySharingPoolDisplayEnabled:  "true",
+		SettingKeySharingRangeFilterEnabled:  "true",
+		SettingKeySharingPoolBillingEnabled:  "false",
+		SettingKeySharingRateFloor:           "0.25",
+		SettingKeySharingRateCap:             "4.75",
+		SettingKeySharingRateCooldownMinutes: "12",
+	}}, &config.Config{})
+
+	raw, err := svc.GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	payload, ok := raw.(*PublicSettingsInjectionPayload)
+	require.True(t, ok)
+	require.True(t, payload.SharingPoolDisplayEnabled)
+	require.True(t, payload.SharingRangeFilterEnabled)
+	require.False(t, payload.SharingPoolBillingEnabled)
+	require.Equal(t, 0.25, payload.SharingRateFloor)
+	require.Equal(t, 4.75, payload.SharingRateCap)
+	require.Equal(t, 12, payload.SharingRateCooldownMinutes)
+}
+
 func TestSettingService_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *testing.T) {
 	svc := NewSettingService(&settingPublicRepoStub{
 		values: map[string]string{

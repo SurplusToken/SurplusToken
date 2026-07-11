@@ -4,6 +4,8 @@ package service
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestBuildUsageBillingCommand_SubscriptionAppliesRateMultiplier locks in the fix
@@ -89,12 +91,14 @@ func TestBuildUsageBillingCommand_ContributionRewardUsesActualCost(t *testing.T)
 	accountMultiplier := 1.5
 	statsCost := 2.0
 	p := &postUsageBillingParams{
-		Cost:                          &CostBreakdown{TotalCost: 3.0, ActualCost: 4.0},
-		User:                          &User{ID: 1},
-		APIKey:                        &APIKey{ID: 2},
-		Account:                       &Account{ID: 3, OwnerUserID: &ownerID, RateMultiplier: &accountMultiplier},
-		AccountRateMultiplier:         accountMultiplier,
-		ContributionRewardRatePercent: 80,
+		Cost:                              &CostBreakdown{TotalCost: 3.0, ActualCost: 4.0},
+		User:                              &User{ID: 1},
+		APIKey:                            &APIKey{ID: 2},
+		Account:                           &Account{ID: 3, OwnerUserID: &ownerID, RateMultiplier: &accountMultiplier},
+		AccountRateMultiplier:             accountMultiplier,
+		ContributionEligible:              true,
+		ContributionSharingRateMultiplier: 1,
+		ContributionRewardRatePercent:     80,
 	}
 	usageLog := &UsageLog{
 		Model:            "gpt-test",
@@ -123,12 +127,14 @@ func TestBuildUsageBillingCommand_ContributionRewardUsesActualCost(t *testing.T)
 func TestBuildUsageBillingCommand_ContributionRewardTracksDiscountedActualCost(t *testing.T) {
 	ownerID := int64(99)
 	p := &postUsageBillingParams{
-		Cost:                          &CostBreakdown{TotalCost: 10.0, ActualCost: 2.5},
-		User:                          &User{ID: 1},
-		APIKey:                        &APIKey{ID: 2},
-		Account:                       &Account{ID: 3, OwnerUserID: &ownerID},
-		AccountRateMultiplier:         1,
-		ContributionRewardRatePercent: 80,
+		Cost:                              &CostBreakdown{TotalCost: 10.0, ActualCost: 2.5},
+		User:                              &User{ID: 1},
+		APIKey:                            &APIKey{ID: 2},
+		Account:                           &Account{ID: 3, OwnerUserID: &ownerID},
+		AccountRateMultiplier:             1,
+		ContributionEligible:              true,
+		ContributionSharingRateMultiplier: 1,
+		ContributionRewardRatePercent:     80,
 	}
 
 	cmd := buildUsageBillingCommand("req-contribution-discount", nil, p)
@@ -158,4 +164,78 @@ func TestBuildUsageBillingCommand_SelfUseDoesNotReward(t *testing.T) {
 	if cmd.ContributionPoolAmount != 0 || cmd.ContributionPoolAccountID != 0 {
 		t.Fatalf("self use should not reward, got pool_account=%d amount=%v", cmd.ContributionPoolAccountID, cmd.ContributionPoolAmount)
 	}
+}
+
+func TestBuildUsageBillingCommand_SubscriptionNeverRewards(t *testing.T) {
+	ownerID := int64(99)
+	subscriptionID := int64(44)
+	p := &postUsageBillingParams{
+		Cost:                              &CostBreakdown{TotalCost: 3.0, ActualCost: 4.0},
+		User:                              &User{ID: 1},
+		APIKey:                            &APIKey{ID: 2},
+		Account:                           &Account{ID: 3, OwnerUserID: &ownerID},
+		Subscription:                      &UserSubscription{ID: subscriptionID},
+		IsSubscriptionBill:                true,
+		ContributionEligible:              true,
+		ContributionSharingRateMultiplier: 2,
+		ContributionRewardRatePercent:     80,
+	}
+
+	cmd := buildUsageBillingCommand("req-subscription-no-reward", nil, p)
+	require.NotNil(t, cmd)
+	require.Zero(t, cmd.ContributionPoolAccountID)
+	require.Zero(t, cmd.ContributionPoolAmount)
+}
+
+func TestUsageBillingFingerprintIncludesContributionSharingSnapshot(t *testing.T) {
+	base := &UsageBillingCommand{
+		RequestID:                         "req-sharing-fingerprint",
+		APIKeyID:                          2,
+		UserID:                            1,
+		AccountID:                         3,
+		BalanceCost:                       4,
+		ContributionEligible:              true,
+		ContributionPoolAccountID:         3,
+		ContributionPoolAmount:            3.2,
+		ContributionRewardRatePercent:     80,
+		ContributionSharingRateMultiplier: 1,
+	}
+	changed := *base
+	changed.ContributionSharingRateMultiplier = 2
+
+	require.NotEqual(t, buildUsageBillingFingerprint(base), buildUsageBillingFingerprint(&changed))
+}
+
+func TestUsageBillingFingerprintIgnoresSharingFieldsWhenNotContributionEligible(t *testing.T) {
+	base := &UsageBillingCommand{
+		RequestID:                         "req-system-fingerprint",
+		APIKeyID:                          2,
+		UserID:                            1,
+		AccountID:                         3,
+		BalanceCost:                       4,
+		ContributionSharingRateMultiplier: 1,
+	}
+	changed := *base
+	changed.ContributionSharingRateMultiplier = 2
+
+	require.Equal(t, buildUsageBillingFingerprint(base), buildUsageBillingFingerprint(&changed))
+}
+
+func TestBuildUsageBillingCommand_FreeSharedConsumptionCarriesZeroRateSnapshot(t *testing.T) {
+	ownerID := int64(99)
+	p := &postUsageBillingParams{
+		Cost:                              &CostBreakdown{TotalCost: 3, ActualCost: 0},
+		User:                              &User{ID: 1},
+		APIKey:                            &APIKey{ID: 2},
+		Account:                           &Account{ID: 3, OwnerUserID: &ownerID},
+		ContributionEligible:              true,
+		ContributionSharingRateMultiplier: 0,
+		ContributionRewardRatePercent:     80,
+	}
+
+	cmd := buildUsageBillingCommand("req-free-shared", nil, p)
+	require.NotNil(t, cmd)
+	require.True(t, cmd.ContributionEligible)
+	require.Zero(t, cmd.ContributionSharingRateMultiplier)
+	require.Zero(t, cmd.ContributionPoolAmount)
 }

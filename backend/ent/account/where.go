@@ -125,6 +125,16 @@ func RateMultiplier(v float64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// SharingRateMultiplier applies equality check predicate on the "sharing_rate_multiplier" field. It's identical to SharingRateMultiplierEQ.
+func SharingRateMultiplier(v float64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateUpdatedAt applies equality check predicate on the "sharing_rate_updated_at" field. It's identical to SharingRateUpdatedAtEQ.
+func SharingRateUpdatedAt(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSharingRateUpdatedAt, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldStatus, v))
@@ -898,6 +908,96 @@ func RateMultiplierLT(v float64) predicate.Account {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// SharingRateMultiplierEQ applies the EQ predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierEQ(v float64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierNEQ applies the NEQ predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierNEQ(v float64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierIn applies the In predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierIn(vs ...float64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldSharingRateMultiplier, vs...))
+}
+
+// SharingRateMultiplierNotIn applies the NotIn predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierNotIn(vs ...float64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldSharingRateMultiplier, vs...))
+}
+
+// SharingRateMultiplierGT applies the GT predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierGT(v float64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierGTE applies the GTE predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierGTE(v float64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierLT applies the LT predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierLT(v float64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateMultiplierLTE applies the LTE predicate on the "sharing_rate_multiplier" field.
+func SharingRateMultiplierLTE(v float64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldSharingRateMultiplier, v))
+}
+
+// SharingRateUpdatedAtEQ applies the EQ predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtNEQ applies the NEQ predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtNEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtIn applies the In predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldSharingRateUpdatedAt, vs...))
+}
+
+// SharingRateUpdatedAtNotIn applies the NotIn predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtNotIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldSharingRateUpdatedAt, vs...))
+}
+
+// SharingRateUpdatedAtGT applies the GT predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtGT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtGTE applies the GTE predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtGTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtLT applies the LT predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtLT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtLTE applies the LTE predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtLTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldSharingRateUpdatedAt, v))
+}
+
+// SharingRateUpdatedAtIsNil applies the IsNil predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldSharingRateUpdatedAt))
+}
+
+// SharingRateUpdatedAtNotNil applies the NotNil predicate on the "sharing_rate_updated_at" field.
+func SharingRateUpdatedAtNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldSharingRateUpdatedAt))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

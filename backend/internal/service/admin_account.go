@@ -206,6 +206,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	// Owner-tied accounts belong to the user OAuth pool. Letting a generic admin
+	// edit change them to apikey/upstream would keep owner/pool state while making
+	// the owner-only pricing API (OAuth-only by contract) unable to manage them.
+	if account.IsUserContributed() && input.Type != "" && input.Type != AccountTypeOAuth {
+		return nil, infraerrors.New(http.StatusBadRequest, "CONTRIBUTED_ACCOUNT_IMMUTABLE_TYPE",
+			"a contributed account must remain OAuth; transfer or delete it before changing account type")
+	}
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
 	// 必须在此守住,否则仅在创建时的保证可被这些路径绕过。
 	if account.IsCredentialShadow() {

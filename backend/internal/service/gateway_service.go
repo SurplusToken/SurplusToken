@@ -1092,8 +1092,15 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 // GetAvailableModels returns the list of models available for a group
 // It aggregates model_mapping keys from all schedulable accounts in the group
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
+	// The models list cache is keyed only by (groupID, platform), not by requester
+	// or accepted sharing-rate range. When the marketplace range filter is active,
+	// filterSurplusAISchedulableAccounts below produces a per-consumer-specific
+	// result, so reading/writing the shared cache would leak one consumer's
+	// filtered list to another (or serve a stale unfiltered list). Bypass the
+	// cache entirely in that case; flag=false keeps pre-feature cache behavior.
+	sharingFilterActive := SharingRangeFilterEnabledFromContext(ctx)
 	cacheKey := modelsListCacheKey(groupID, platform)
-	if s.modelsListCache != nil {
+	if !sharingFilterActive && s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
@@ -1115,12 +1122,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if err != nil || len(accounts) == 0 {
 		return nil
 	}
-	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
-	if len(accounts) == 0 {
-		return nil
-	}
 
-	// Filter by platform if specified
+	// Narrow to the requested platform before applying the per-consumer filter.
+	// This lets an empty non-nil result mean "this platform had accounts, but the
+	// consumer's accepted sharing range excluded all of them" rather than merely
+	// "another platform happened to have an account".
 	if platform != "" {
 		filtered := make([]Account, 0)
 		for _, acc := range accounts {
@@ -1129,6 +1135,19 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 			}
 		}
 		accounts = filtered
+	}
+	if len(accounts) == 0 {
+		return nil
+	}
+
+	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
+	if len(accounts) == 0 {
+		if sharingFilterActive {
+			// Preserve non-nil emptiness for the HTTP layer. nil still means the
+			// ordinary "no model mapping, use platform defaults" fallback.
+			return []string{}
+		}
+		return nil
 	}
 
 	// Collect unique models from all accounts
@@ -1147,7 +1166,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
-		if s.modelsListCache != nil {
+		if !sharingFilterActive && s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
 		}
@@ -1161,7 +1180,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	}
 	sort.Strings(models)
 
-	if s.modelsListCache != nil {
+	if !sharingFilterActive && s.modelsListCache != nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}

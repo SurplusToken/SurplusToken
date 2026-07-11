@@ -159,6 +159,103 @@ func TestSettingHandler_GetSettings_InjectsAuthSourceDefaults(t *testing.T) {
 	require.Len(t, subscriptions, 1)
 }
 
+func TestSettingHandler_GetSettings_ExposesSharingRateSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeySharingPoolDisplayEnabled:  "true",
+		service.SettingKeySharingRangeFilterEnabled:  "false",
+		service.SettingKeySharingPoolBillingEnabled:  "true",
+		service.SettingKeySharingRateFloor:           "0.5",
+		service.SettingKeySharingRateCap:             "4.5",
+		service.SettingKeySharingRateCooldownMinutes: "20",
+	}}
+	handler := NewSettingHandler(service.NewSettingService(repo, &config.Config{}), nil, nil, nil, nil, nil, nil)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+	handler.GetSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, data["sharing_pool_display_enabled"])
+	require.Equal(t, false, data["sharing_range_filter_enabled"])
+	require.Equal(t, true, data["sharing_pool_billing_enabled"])
+	require.Equal(t, 0.5, data["sharing_rate_floor"])
+	require.Equal(t, 4.5, data["sharing_rate_cap"])
+	require.Equal(t, float64(20), data["sharing_rate_cooldown_minutes"])
+}
+
+func TestSettingHandler_UpdateSettings_SharingRatePointersPreserveOmittedAndAcceptZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &settingHandlerRepoStub{values: map[string]string{
+		service.SettingKeySharingPoolDisplayEnabled:  "true",
+		service.SettingKeySharingRangeFilterEnabled:  "true",
+		service.SettingKeySharingPoolBillingEnabled:  "true",
+		service.SettingKeySharingRateFloor:           "1.25",
+		service.SettingKeySharingRateCap:             "4.5",
+		service.SettingKeySharingRateCooldownMinutes: "30",
+	}}
+	handler := NewSettingHandler(service.NewSettingService(repo, &config.Config{}), nil, nil, nil, nil, nil, nil)
+	body := map[string]any{
+		"sharing_pool_display_enabled":  false,
+		"sharing_rate_floor":            0,
+		"sharing_rate_cooldown_minutes": 0,
+	}
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.UpdateSettings(c)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "false", repo.values[service.SettingKeySharingPoolDisplayEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeySharingRangeFilterEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeySharingPoolBillingEnabled])
+	require.Equal(t, "0.0000", repo.values[service.SettingKeySharingRateFloor])
+	require.Equal(t, "4.5000", repo.values[service.SettingKeySharingRateCap])
+	require.Equal(t, "0", repo.values[service.SettingKeySharingRateCooldownMinutes])
+
+	var resp response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, false, data["sharing_pool_display_enabled"])
+	require.Equal(t, true, data["sharing_range_filter_enabled"])
+	require.Equal(t, true, data["sharing_pool_billing_enabled"])
+	require.Equal(t, float64(0), data["sharing_rate_floor"])
+	require.Equal(t, 4.5, data["sharing_rate_cap"])
+	require.Equal(t, float64(0), data["sharing_rate_cooldown_minutes"])
+}
+
+func TestDiffSettings_IncludesSharingRateSettings(t *testing.T) {
+	before := &service.SystemSettings{}
+	after := &service.SystemSettings{
+		SharingPoolDisplayEnabled:  true,
+		SharingRangeFilterEnabled:  true,
+		SharingPoolBillingEnabled:  true,
+		SharingRateFloor:           0.5,
+		SharingRateCap:             4.5,
+		SharingRateCooldownMinutes: 20,
+	}
+
+	changed := diffSettings(before, after, nil, nil, UpdateSettingsRequest{})
+	require.Subset(t, changed, []string{
+		"sharing_pool_display_enabled",
+		"sharing_range_filter_enabled",
+		"sharing_pool_billing_enabled",
+		"sharing_rate_floor",
+		"sharing_rate_cap",
+		"sharing_rate_cooldown_minutes",
+	})
+}
+
 func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{

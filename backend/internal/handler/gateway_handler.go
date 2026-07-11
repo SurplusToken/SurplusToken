@@ -1005,6 +1005,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	// A non-nil empty slice is an intentional fail-closed signal: accounts existed
+	// for this platform, but this consumer's accepted sharing-rate range excluded
+	// all of them. Do not advertise platform defaults that cannot be scheduled.
+	if service.SharingRangeFilterEnabledFromContext(c.Request.Context()) && availableModels != nil && len(availableModels) == 0 {
+		writeCustomModelsList(c, platform, []string{})
+		return
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)

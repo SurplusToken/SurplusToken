@@ -34,6 +34,13 @@
 
       <ProfilePasswordForm />
 
+      <ProfileSharingRateRangeCard
+        v-if="sharingPoolDisplayEnabled"
+        :filter-enabled="sharingRangeFilterEnabled"
+        :floor="sharingRateFloor"
+        :cap="sharingRateCap"
+      />
+
       <ProfileBalanceNotifyCard
         v-if="user && balanceLowNotifyEnabled"
         :enabled="user.balance_notify_enabled ?? true"
@@ -56,6 +63,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
+import ProfileSharingRateRangeCard from '@/components/user/profile/ProfileSharingRateRangeCard.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
 import { isWeChatWebOAuthEnabled } from '@/api/auth'
 import { useAppStore } from '@/stores/app'
@@ -76,6 +84,10 @@ const wechatOAuthOpenEnabled = ref<boolean | undefined>(undefined)
 const wechatOAuthMPEnabled = ref<boolean | undefined>(undefined)
 const oidcOAuthEnabled = ref(false)
 const oidcOAuthProviderName = ref('OIDC')
+const sharingPoolDisplayEnabled = ref(false)
+const sharingRangeFilterEnabled = ref(false)
+const sharingRateFloor = ref(0)
+const sharingRateCap = ref(5)
 
 onMounted(async () => {
   const profileRefresh = authStore.refreshUser().catch((error) => {
@@ -101,6 +113,10 @@ onMounted(async () => {
         : undefined
       oidcOAuthEnabled.value = settings.oidc_oauth_enabled ?? false
       oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
+      sharingPoolDisplayEnabled.value = settings.sharing_pool_display_enabled ?? false
+      sharingRangeFilterEnabled.value = settings.sharing_range_filter_enabled ?? false
+      sharingRateFloor.value = settings.sharing_rate_floor ?? 0
+      sharingRateCap.value = settings.sharing_rate_cap ?? 5
     })
     .catch((error) => {
       console.error('Failed to load settings:', error)

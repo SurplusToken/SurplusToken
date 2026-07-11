@@ -314,6 +314,24 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.ContributionRewardFreezeHours != after.ContributionRewardFreezeHours {
 		changed = append(changed, "contribution_reward_freeze_hours")
 	}
+	if before.SharingPoolDisplayEnabled != after.SharingPoolDisplayEnabled {
+		changed = append(changed, "sharing_pool_display_enabled")
+	}
+	if before.SharingRangeFilterEnabled != after.SharingRangeFilterEnabled {
+		changed = append(changed, "sharing_range_filter_enabled")
+	}
+	if before.SharingPoolBillingEnabled != after.SharingPoolBillingEnabled {
+		changed = append(changed, "sharing_pool_billing_enabled")
+	}
+	if before.SharingRateFloor != after.SharingRateFloor {
+		changed = append(changed, "sharing_rate_floor")
+	}
+	if before.SharingRateCap != after.SharingRateCap {
+		changed = append(changed, "sharing_rate_cap")
+	}
+	if before.SharingRateCooldownMinutes != after.SharingRateCooldownMinutes {
+		changed = append(changed, "sharing_rate_cooldown_minutes")
+	}
 	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
 		changed = append(changed, "default_subscriptions")
 	}

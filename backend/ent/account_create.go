@@ -209,6 +209,34 @@ func (_c *AccountCreate) SetNillableRateMultiplier(v *float64) *AccountCreate {
 	return _c
 }
 
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (_c *AccountCreate) SetSharingRateMultiplier(v float64) *AccountCreate {
+	_c.mutation.SetSharingRateMultiplier(v)
+	return _c
+}
+
+// SetNillableSharingRateMultiplier sets the "sharing_rate_multiplier" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableSharingRateMultiplier(v *float64) *AccountCreate {
+	if v != nil {
+		_c.SetSharingRateMultiplier(*v)
+	}
+	return _c
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (_c *AccountCreate) SetSharingRateUpdatedAt(v time.Time) *AccountCreate {
+	_c.mutation.SetSharingRateUpdatedAt(v)
+	return _c
+}
+
+// SetNillableSharingRateUpdatedAt sets the "sharing_rate_updated_at" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableSharingRateUpdatedAt(v *time.Time) *AccountCreate {
+	if v != nil {
+		_c.SetSharingRateUpdatedAt(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *AccountCreate) SetStatus(v string) *AccountCreate {
 	_c.mutation.SetStatus(v)
@@ -579,6 +607,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.SharingRateMultiplier(); !ok {
+		v := account.DefaultSharingRateMultiplier
+		_c.mutation.SetSharingRateMultiplier(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := account.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -644,6 +676,9 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "Account.rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.SharingRateMultiplier(); !ok {
+		return &ValidationError{Name: "sharing_rate_multiplier", err: errors.New(`ent: missing required field "Account.sharing_rate_multiplier"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "Account.status"`)}
@@ -758,6 +793,14 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(account.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
+	}
+	if value, ok := _c.mutation.SharingRateMultiplier(); ok {
+		_spec.SetField(account.FieldSharingRateMultiplier, field.TypeFloat64, value)
+		_node.SharingRateMultiplier = value
+	}
+	if value, ok := _c.mutation.SharingRateUpdatedAt(); ok {
+		_spec.SetField(account.FieldSharingRateUpdatedAt, field.TypeTime, value)
+		_node.SharingRateUpdatedAt = &value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(account.FieldStatus, field.TypeString, value)
@@ -1206,6 +1249,42 @@ func (u *AccountUpsert) UpdateRateMultiplier() *AccountUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *AccountUpsert) AddRateMultiplier(v float64) *AccountUpsert {
 	u.Add(account.FieldRateMultiplier, v)
+	return u
+}
+
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (u *AccountUpsert) SetSharingRateMultiplier(v float64) *AccountUpsert {
+	u.Set(account.FieldSharingRateMultiplier, v)
+	return u
+}
+
+// UpdateSharingRateMultiplier sets the "sharing_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateSharingRateMultiplier() *AccountUpsert {
+	u.SetExcluded(account.FieldSharingRateMultiplier)
+	return u
+}
+
+// AddSharingRateMultiplier adds v to the "sharing_rate_multiplier" field.
+func (u *AccountUpsert) AddSharingRateMultiplier(v float64) *AccountUpsert {
+	u.Add(account.FieldSharingRateMultiplier, v)
+	return u
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (u *AccountUpsert) SetSharingRateUpdatedAt(v time.Time) *AccountUpsert {
+	u.Set(account.FieldSharingRateUpdatedAt, v)
+	return u
+}
+
+// UpdateSharingRateUpdatedAt sets the "sharing_rate_updated_at" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateSharingRateUpdatedAt() *AccountUpsert {
+	u.SetExcluded(account.FieldSharingRateUpdatedAt)
+	return u
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (u *AccountUpsert) ClearSharingRateUpdatedAt() *AccountUpsert {
+	u.SetNull(account.FieldSharingRateUpdatedAt)
 	return u
 }
 
@@ -1809,6 +1888,48 @@ func (u *AccountUpsertOne) AddRateMultiplier(v float64) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateRateMultiplier() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (u *AccountUpsertOne) SetSharingRateMultiplier(v float64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSharingRateMultiplier(v)
+	})
+}
+
+// AddSharingRateMultiplier adds v to the "sharing_rate_multiplier" field.
+func (u *AccountUpsertOne) AddSharingRateMultiplier(v float64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddSharingRateMultiplier(v)
+	})
+}
+
+// UpdateSharingRateMultiplier sets the "sharing_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateSharingRateMultiplier() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSharingRateMultiplier()
+	})
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (u *AccountUpsertOne) SetSharingRateUpdatedAt(v time.Time) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSharingRateUpdatedAt(v)
+	})
+}
+
+// UpdateSharingRateUpdatedAt sets the "sharing_rate_updated_at" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateSharingRateUpdatedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSharingRateUpdatedAt()
+	})
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (u *AccountUpsertOne) ClearSharingRateUpdatedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearSharingRateUpdatedAt()
 	})
 }
 
@@ -2622,6 +2743,48 @@ func (u *AccountUpsertBulk) AddRateMultiplier(v float64) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateRateMultiplier() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetSharingRateMultiplier sets the "sharing_rate_multiplier" field.
+func (u *AccountUpsertBulk) SetSharingRateMultiplier(v float64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSharingRateMultiplier(v)
+	})
+}
+
+// AddSharingRateMultiplier adds v to the "sharing_rate_multiplier" field.
+func (u *AccountUpsertBulk) AddSharingRateMultiplier(v float64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddSharingRateMultiplier(v)
+	})
+}
+
+// UpdateSharingRateMultiplier sets the "sharing_rate_multiplier" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateSharingRateMultiplier() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSharingRateMultiplier()
+	})
+}
+
+// SetSharingRateUpdatedAt sets the "sharing_rate_updated_at" field.
+func (u *AccountUpsertBulk) SetSharingRateUpdatedAt(v time.Time) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSharingRateUpdatedAt(v)
+	})
+}
+
+// UpdateSharingRateUpdatedAt sets the "sharing_rate_updated_at" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateSharingRateUpdatedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSharingRateUpdatedAt()
+	})
+}
+
+// ClearSharingRateUpdatedAt clears the value of the "sharing_rate_updated_at" field.
+func (u *AccountUpsertBulk) ClearSharingRateUpdatedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearSharingRateUpdatedAt()
 	})
 }
 

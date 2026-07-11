@@ -182,6 +182,12 @@
               </span>
             </template>
 
+            <template #cell-sharing_rate="{ row: account }">
+              <span class="whitespace-nowrap font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ formatSharingRate(account.sharing_rate_multiplier) }}
+              </span>
+            </template>
+
             <template #cell-status="{ row: account }">
               <div class="flex flex-col gap-1">
                 <span :class="statusClass(account.status)">{{ statusLabel(account.status) }}</span>
@@ -843,6 +849,34 @@
             </div>
           </div>
 
+          <div
+            v-if="sharingMarketplaceVisible"
+            class="mb-4 border-b border-gray-200 pb-4 dark:border-dark-600"
+          >
+            <label class="input-label">{{ t('accountPool.sharingRate.label') }}</label>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div class="relative w-full sm:max-w-56">
+                <input
+                  v-model.number="scopeForm.sharingRateMultiplier"
+                  data-testid="account-sharing-rate-input"
+                  type="number"
+                  :min="sharingRateFloor"
+                  :max="sharingRateCap"
+                  step="0.0001"
+                  class="input pr-10"
+                  :disabled="scopeSharingRateCooldownActive"
+                />
+                <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">x</span>
+              </div>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('accountPool.sharingRate.bounds', { floor: sharingRateFloor, cap: sharingRateCap }) }}
+              </span>
+            </div>
+            <p v-if="scopeSharingRateCooldownActive" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              {{ t('accountPool.sharingRate.cooldown', { minutes: scopeSharingRateCooldownRemaining }) }}
+            </p>
+          </div>
+
           <div class="space-y-4">
             <div>
               <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -1318,6 +1352,24 @@ interface OAuthFlowExposed {
 const { t } = useI18n()
 const appStore = useAppStore()
 
+const sharingMarketplaceVisible = computed(
+  () => appStore.cachedPublicSettings?.sharing_pool_display_enabled ?? false,
+)
+const sharingRateFloor = computed(() => {
+  const value = appStore.cachedPublicSettings?.sharing_rate_floor
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+})
+const sharingRateCap = computed(() => {
+  const value = appStore.cachedPublicSettings?.sharing_rate_cap
+  return typeof value === 'number' && Number.isFinite(value) ? value : 5
+})
+const sharingRateCooldownMinutes = computed(() => {
+  const value = appStore.cachedPublicSettings?.sharing_rate_cooldown_minutes
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 10
+})
+const sharingRateClock = ref(Date.now())
+let sharingRateClockTimer: number | null = null
+
 const platforms: AccountPlatform[] = ['anthropic', 'openai']
 const accounts = ref<UserAccountPoolItem[]>([])
 const availableGroups = ref<Group[]>([])
@@ -1368,6 +1420,8 @@ const poolDialog = reactive<{
   poolAmount: number
   mode: 'even' | 'custom'
   recipients: PoolDialogRecipient[]
+  idempotencyKey: string | null
+  idempotencySignature: string | null
 }>({
   show: false,
   account: null,
@@ -1376,6 +1430,8 @@ const poolDialog = reactive<{
   poolAmount: 0,
   mode: 'even',
   recipients: [],
+  idempotencyKey: null,
+  idempotencySignature: null,
 })
 const poolCustomTotal = computed(() =>
   poolDialog.recipients.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0),
@@ -1645,7 +1701,21 @@ const scopeForm = reactive({
   shareMode: 'percent' as ContributionShareMode,
   weeklyShareBudget: 0,
   probeFailurePolicy: 'continue' as ContributionProbeFailurePolicy,
+  sharingRateMultiplier: 1,
 })
+
+const scopeSharingRateCooldownRemaining = computed(() => {
+  const updatedAt = scopeAccount.value?.sharing_rate_updated_at
+  if (!updatedAt || sharingRateCooldownMinutes.value <= 0) return 0
+  const changedAt = new Date(updatedAt).getTime()
+  if (!Number.isFinite(changedAt)) return 0
+  const availableAt = changedAt + sharingRateCooldownMinutes.value * 60_000
+  return Math.max(0, Math.ceil((availableAt - sharingRateClock.value) / 60_000))
+})
+
+const scopeSharingRateCooldownActive = computed(
+  () => scopeSharingRateCooldownRemaining.value > 0,
+)
 
 const expiresAtInput = computed({
   get: () => formatDateTimeLocalInput(createForm.expiresAt),
@@ -1704,6 +1774,9 @@ const allColumns = computed<Column[]>(() => [
   { key: 'account', label: t('accountPool.columns.account'), sortable: false },
   { key: 'account_type', label: t('accountPool.columns.accountType'), sortable: false },
   { key: 'owner', label: t('accountPool.columns.owner'), sortable: false },
+  ...(sharingMarketplaceVisible.value
+    ? [{ key: 'sharing_rate', label: t('accountPool.columns.sharingRate'), sortable: false }]
+    : []),
   { key: 'status', label: t('accountPool.columns.status'), sortable: false },
   { key: 'scheduling', label: t('accountPool.columns.scheduling'), sortable: false },
   { key: 'concurrency', label: t('accountPool.columns.concurrency'), sortable: false },
@@ -1788,6 +1861,19 @@ function formatPercent(value: number | null | undefined): string {
   const n = Number(value)
   if (!Number.isFinite(n)) return '-'
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
+}
+
+function formatSharingRate(value: number | null | undefined): string {
+  const rate = value ?? 1
+  if (!Number.isFinite(rate)) return '1x'
+  return `${rate.toFixed(4).replace(/\.?0+$/, '')}x`
+}
+
+function validSharingRate(value: unknown): value is number {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= sharingRateFloor.value &&
+    value <= sharingRateCap.value
 }
 
 function normalizeReservePercent(value: number | null | undefined): number {
@@ -2182,6 +2268,8 @@ function openPoolDialog(account: UserAccountPoolItem) {
   poolDialog.mode = 'even'
   poolDialog.recipients = []
   poolDialog.poolAmount = 0
+  poolDialog.idempotencyKey = null
+  poolDialog.idempotencySignature = null
   accountsAPI
     .getContributionPool(account.id)
     .then((view) => {
@@ -2207,13 +2295,22 @@ function closePoolDialog() {
   poolDialog.show = false
   poolDialog.account = null
   poolDialog.recipients = []
+  poolDialog.idempotencyKey = null
+  poolDialog.idempotencySignature = null
+}
+
+function createIdempotencyKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  return `pool-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 async function distributePool() {
   if (!poolDialog.account || poolDialog.distributing) return
   if (poolDialog.poolAmount <= 0) return
   const accountId = poolDialog.account.id
-  let payload: { mode?: 'even'; allocations?: { user_id: number; amount: number }[] }
+  let payload: { mode: 'even' | 'custom'; allocations?: { user_id: number; amount: number }[] }
   if (poolDialog.mode === 'even') {
     payload = { mode: 'even' }
   } else {
@@ -2228,11 +2325,20 @@ async function distributePool() {
       appStore.showError(t('accountPool.pool.overPool'))
       return
     }
-    payload = { allocations }
+    payload = { mode: 'custom', allocations }
+  }
+  const signature = JSON.stringify(payload)
+  if (poolDialog.idempotencySignature !== signature || !poolDialog.idempotencyKey) {
+    poolDialog.idempotencySignature = signature
+    poolDialog.idempotencyKey = createIdempotencyKey()
   }
   poolDialog.distributing = true
   try {
-    const view = await accountsAPI.distributeContributionPool(accountId, payload)
+    const view = await accountsAPI.distributeContributionPool(
+      accountId,
+      payload,
+      poolDialog.idempotencyKey,
+    )
     poolAmounts.set(accountId, view.pool_amount || 0)
     appStore.showSuccess(t('accountPool.pool.distributed'))
     void loadContributionSummary()
@@ -2530,6 +2636,7 @@ function openScopeDialog(account: UserAccountPoolItem) {
   scopeForm.shareMode = account.contribution_share_mode || 'percent'
   scopeForm.weeklyShareBudget = account.contribution_weekly_share_budget || 0
   scopeForm.probeFailurePolicy = account.contribution_probe_failure_policy
+  scopeForm.sharingRateMultiplier = account.sharing_rate_multiplier ?? 1
   scopeAllowedModels.value = parseUserModelWhitelist(account.model_mapping)
   showScopeForm.value = true
 }
@@ -2549,14 +2656,28 @@ function handleScopeClose() {
   scopeForm.shareMode = 'percent'
   scopeForm.weeklyShareBudget = 0
   scopeForm.probeFailurePolicy = 'continue'
+  scopeForm.sharingRateMultiplier = 1
 }
 
 async function saveScope() {
   const account = scopeAccount.value
   if (!account) return
+  if (
+    sharingMarketplaceVisible.value &&
+    !scopeSharingRateCooldownActive.value &&
+    !validSharingRate(scopeForm.sharingRateMultiplier)
+  ) {
+    appStore.showError(
+      t('accountPool.sharingRate.invalid', {
+        floor: sharingRateFloor.value,
+        cap: sharingRateCap.value,
+      }),
+    )
+    return
+  }
   savingIDs.value.add(account.id)
   try {
-    const updated = await accountsAPI.updateScope(account.id, {
+    const payload = {
       group_ids: scopeForm.groupIds,
       proxy_id: scopeForm.proxyId || 0,
       concurrency: normalizeConcurrency(scopeForm.concurrency),
@@ -2566,7 +2687,13 @@ async function saveScope() {
       codex_cli_only: account.platform === 'openai' ? scopeForm.codexCLIOnly : false,
       ...buildContributionPayload(scopeForm),
       contribution_probe_failure_policy: scopeForm.probeFailurePolicy,
-    })
+      ...(
+        sharingMarketplaceVisible.value && !scopeSharingRateCooldownActive.value
+          ? { sharing_rate_multiplier: scopeForm.sharingRateMultiplier }
+          : {}
+      ),
+    }
+    const updated = await accountsAPI.updateScope(account.id, payload)
     replaceAccount(updated)
     appStore.showSuccess(t('accountPool.scopeSaveSuccess'))
     handleScopeClose()
@@ -2845,17 +2972,26 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 onMounted(() => {
+  void appStore.fetchPublicSettings().catch((error) => {
+    console.error('Failed to load sharing marketplace settings:', error)
+  })
   loadAccounts()
   loadContributionSummary()
   loadAvailableGroups()
   loadProxies()
   window.addEventListener('scroll', handleScroll, true)
   document.addEventListener('click', handleClickOutside)
+  sharingRateClockTimer = window.setInterval(() => {
+    sharingRateClock.value = Date.now()
+  }, 30_000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
+  if (sharingRateClockTimer !== null) {
+    window.clearInterval(sharingRateClockTimer)
+  }
   remoteSessions.forEach((state) => clearRemoteTimer(state))
 })
 </script>

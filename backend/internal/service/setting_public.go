@@ -222,6 +222,12 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
+		SettingKeySharingPoolDisplayEnabled,
+		SettingKeySharingRangeFilterEnabled,
+		SettingKeySharingPoolBillingEnabled,
+		SettingKeySharingRateFloor,
+		SettingKeySharingRateCap,
+		SettingKeySharingRateCooldownMinutes,
 		SettingKeyAllowUserViewErrorRequests,
 	}
 
@@ -279,6 +285,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
 	}
+	sharingRateSettings := parseSharingRateSettingsMap(settings)
 
 	return &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
@@ -335,6 +342,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
+
+		SharingPoolDisplayEnabled:  sharingRateSettings.displayEnabled,
+		SharingRangeFilterEnabled:  sharingRateSettings.rangeFilterEnabled,
+		SharingPoolBillingEnabled:  sharingRateSettings.poolBillingEnabled,
+		SharingRateFloor:           sharingRateSettings.floor,
+		SharingRateCap:             sharingRateSettings.cap,
+		SharingRateCooldownMinutes: sharingRateSettings.cooldownMinutes,
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
 	}, nil
@@ -491,12 +505,18 @@ type PublicSettingsInjectionPayload struct {
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
 	// that hid the "可用渠道" menu on page refresh.
-	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
-	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
-	AffiliateEnabled                     bool `json:"affiliate_enabled"`
-	RiskControlEnabled                   bool `json:"risk_control_enabled"`
-	AllowUserViewErrorRequests           bool `json:"allow_user_view_error_requests"`
+	ChannelMonitorEnabled                bool    `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int     `json:"channel_monitor_default_interval_seconds"`
+	AvailableChannelsEnabled             bool    `json:"available_channels_enabled"`
+	AffiliateEnabled                     bool    `json:"affiliate_enabled"`
+	RiskControlEnabled                   bool    `json:"risk_control_enabled"`
+	SharingPoolDisplayEnabled            bool    `json:"sharing_pool_display_enabled"`
+	SharingRangeFilterEnabled            bool    `json:"sharing_range_filter_enabled"`
+	SharingPoolBillingEnabled            bool    `json:"sharing_pool_billing_enabled"`
+	SharingRateFloor                     float64 `json:"sharing_rate_floor"`
+	SharingRateCap                       float64 `json:"sharing_rate_cap"`
+	SharingRateCooldownMinutes           int     `json:"sharing_rate_cooldown_minutes"`
+	AllowUserViewErrorRequests           bool    `json:"allow_user_view_error_requests"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -561,6 +581,12 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
+		SharingPoolDisplayEnabled:            settings.SharingPoolDisplayEnabled,
+		SharingRangeFilterEnabled:            settings.SharingRangeFilterEnabled,
+		SharingPoolBillingEnabled:            settings.SharingPoolBillingEnabled,
+		SharingRateFloor:                     settings.SharingRateFloor,
+		SharingRateCap:                       settings.SharingRateCap,
+		SharingRateCooldownMinutes:           settings.SharingRateCooldownMinutes,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
 	}, nil
 }

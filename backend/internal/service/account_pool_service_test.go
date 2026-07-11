@@ -24,6 +24,45 @@ type accountPoolRepoStub struct {
 	deletedIDs   []int64
 	extraUpdates map[string]any
 	boundGroups  []int64
+
+	// sharingRateUpdate stubs UpdateUserAccountSharingRate; sharingRateOK controls
+	// the returned bool (false simulates a cooldown-not-elapsed / owner-mismatch
+	// no-op), sharingRateErr simulates a repo error, and sharingRateCalled /
+	// sharingRateArgs record the call for assertions.
+	sharingRateOK     bool
+	sharingRateErr    error
+	sharingRateCalled bool
+	sharingRateArgs   sharingRateUpdateArgs
+}
+
+type sharingRateUpdateArgs struct {
+	accountID, ownerUserID int64
+	rate                   float64
+	changedAt, cutoff      time.Time
+}
+
+func (s *accountPoolRepoStub) UpdateUserAccountSharingRate(ctx context.Context, accountID, ownerUserID int64, rate float64, changedAt, cooldownCutoff time.Time) (bool, error) {
+	s.sharingRateCalled = true
+	s.sharingRateArgs = sharingRateUpdateArgs{
+		accountID:   accountID,
+		ownerUserID: ownerUserID,
+		rate:        rate,
+		changedAt:   changedAt,
+		cutoff:      cooldownCutoff,
+	}
+	if s.sharingRateErr != nil {
+		return false, s.sharingRateErr
+	}
+	if !s.sharingRateOK {
+		return false, nil
+	}
+	if s.accountsByID != nil {
+		if account := s.accountsByID[accountID]; account != nil {
+			account.SharingRateMultiplier = &rate
+			account.SharingRateUpdatedAt = &changedAt
+		}
+	}
+	return true, nil
 }
 
 func (s *accountPoolRepoStub) Create(ctx context.Context, account *Account) error {
@@ -375,6 +414,103 @@ func TestAccountServiceUpdateUserAccountScope(t *testing.T) {
 	require.Equal(t, []int64{11, 12}, item.GroupIDs)
 	require.False(t, item.CodexCLIOnly)
 	require.Equal(t, 7, item.Concurrency)
+}
+
+func TestAccountServiceUpdateUserAccountScopeSharingRateLegalUpdate(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}, sharingRateOK: true}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
+		SharingRateMultiplier: accountPoolFloatPtr(2.0),
+	})
+
+	require.NoError(t, err)
+	require.True(t, repo.sharingRateCalled)
+	require.Equal(t, int64(7), repo.sharingRateArgs.accountID)
+	require.Equal(t, ownerID, repo.sharingRateArgs.ownerUserID)
+	require.Equal(t, 2.0, repo.sharingRateArgs.rate)
+	require.Nil(t, repo.updated, "sharing rate must not go through the general accountRepo.Update path")
+	require.Equal(t, 2.0, item.SharingRateMultiplier)
+	require.NotNil(t, item.SharingRateUpdatedAt)
+}
+
+func TestAccountServiceUpdateUserAccountScopeSharingRateSameValueNoOp(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:                    7,
+		Name:                  "mine",
+		Platform:              PlatformOpenAI,
+		Type:                  AccountTypeOAuth,
+		Status:                StatusActive,
+		Schedulable:           true,
+		OwnerUserID:           &ownerID,
+		SharingRateMultiplier: accountPoolFloatPtr(2.0),
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}, sharingRateOK: true}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
+		SharingRateMultiplier: accountPoolFloatPtr(2.0),
+	})
+
+	require.NoError(t, err)
+	require.False(t, repo.sharingRateCalled, "identical price must be a no-op that never calls the repo")
+	require.Nil(t, account.SharingRateUpdatedAt, "no-op must not refresh the change timestamp")
+	require.Equal(t, 2.0, item.SharingRateMultiplier)
+}
+
+func TestAccountServiceUpdateUserAccountScopeSharingRateCooldownNotElapsed(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}, sharingRateOK: false}
+	svc := &AccountService{accountRepo: repo}
+
+	_, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
+		SharingRateMultiplier: accountPoolFloatPtr(2.0),
+	})
+
+	require.ErrorIs(t, err, ErrSharingRateCooldown)
+	require.True(t, repo.sharingRateCalled)
+}
+
+func TestAccountServiceUpdateUserAccountScopeSharingRateOutOfRange(t *testing.T) {
+	ownerID := int64(42)
+	account := &Account{
+		ID:          7,
+		Name:        "mine",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		OwnerUserID: &ownerID,
+	}
+	repo := &accountPoolRepoStub{accountsByID: map[int64]*Account{7: account}, sharingRateOK: true}
+	svc := &AccountService{accountRepo: repo}
+
+	_, err := svc.UpdateUserAccountScope(context.Background(), ownerID, 7, UpdateUserAccountScopeRequest{
+		SharingRateMultiplier: accountPoolFloatPtr(10.0),
+	})
+
+	require.ErrorIs(t, err, ErrSharingRateOutOfRange)
+	require.False(t, repo.sharingRateCalled, "out-of-range price must be rejected before touching the repo")
 }
 
 func TestBuildUserContributionProtectionUpdatesMirrorsReserveToAutoPause(t *testing.T) {
