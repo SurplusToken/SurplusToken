@@ -109,6 +109,7 @@ type stubConcurrencyCache struct {
 	loadBatchErr    error
 	loadMap         map[int64]*AccountLoadInfo
 	acquireResults  map[int64]bool
+	acquireOrder    *[]int64
 	waitCounts      map[int64]int
 	skipDefaultLoad bool
 }
@@ -140,6 +141,9 @@ func (w *failingGinWriter) Write(p []byte) (int, error) {
 }
 
 func (c stubConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+	if c.acquireOrder != nil {
+		*c.acquireOrder = append(*c.acquireOrder, accountID)
+	}
 	if c.acquireResults != nil {
 		if result, ok := c.acquireResults[accountID]; ok {
 			return result, nil
@@ -741,6 +745,154 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	if !strings.Contains(err.Error(), "supporting model") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func openAISharingRateSchedulingTestContext(enabled bool) context.Context {
+	ctx := WithRequestingUserID(context.Background(), 999)
+	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	return WithSharingRangeFilterEnabled(ctx, enabled)
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_SharingRateBeatsPriority(t *testing.T) {
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate},
+	}}
+	svc := &OpenAIGatewayService{accountRepo: repo, cache: &stubGatewayCache{}}
+
+	account, err := svc.SelectAccountForModelWithExclusions(
+		openAISharingRateSchedulingTestContext(true), nil, "", "gpt-4", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(1), account.ID)
+}
+
+func TestOpenAISelectBestAccount_SharingRateStaysWithinCompactTier(t *testing.T) {
+	owner1, owner2, owner3 := int64(10), int64(20), int64(30)
+	expensiveSupportedRate, cheapUnknownRate, cheapSupportedRate := 2.0, 0.1, 0.5
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Priority: 0, OwnerUserID: &owner1, SharingRateMultiplier: &expensiveSupportedRate, Extra: map[string]any{"openai_compact_supported": true}},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Priority: 0, OwnerUserID: &owner2, SharingRateMultiplier: &cheapUnknownRate},
+		{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Priority: 100, OwnerUserID: &owner3, SharingRateMultiplier: &cheapSupportedRate, Extra: map[string]any{"openai_compact_supported": true}},
+	}}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+
+	selected, compactBlocked := svc.selectBestAccount(
+		openAISharingRateSchedulingTestContext(true), nil, PlatformOpenAI, repo.accounts, "gpt-4", nil, true, "",
+	)
+	require.False(t, compactBlocked)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(3), selected.ID)
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_SharingRateDisabledKeepsPriority(t *testing.T) {
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate},
+	}}
+	svc := &OpenAIGatewayService{accountRepo: repo, cache: &stubGatewayCache{}}
+
+	account, err := svc.SelectAccountForModelWithExclusions(
+		openAISharingRateSchedulingTestContext(false), nil, "", "gpt-4", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(2), account.ID)
+}
+
+func TestOpenAISelectAccountWithLoadAwareness_SharingRateFallsBackLowToHigh(t *testing.T) {
+	groupID := int64(1)
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate},
+	}}
+	acquireOrder := make([]int64, 0, 2)
+	concurrencyCache := stubConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			1: {AccountID: 1, LoadRate: 90},
+			2: {AccountID: 2, LoadRate: 0},
+		},
+		acquireResults: map[int64]bool{1: false, 2: true},
+		acquireOrder:   &acquireOrder,
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              &stubGatewayCache{},
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(
+		openAISharingRateSchedulingTestContext(true), &groupID, "", "gpt-4", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID)
+	require.Equal(t, []int64{1, 2}, acquireOrder)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAISelectAccountWithLoadAwareness_SharingRateFallsBackWhenLoadBatchDisabled(t *testing.T) {
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate},
+	}}
+	acquireOrder := make([]int64, 0, 2)
+	concurrencyCache := stubConcurrencyCache{
+		acquireResults: map[int64]bool{1: false, 2: true},
+		acquireOrder:   &acquireOrder,
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              &stubGatewayCache{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(
+		openAISharingRateSchedulingTestContext(true), nil, "", "gpt-4", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID)
+	require.Equal(t, []int64{1, 2}, acquireOrder)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_SharingRateKeepsEligibleSticky(t *testing.T) {
+	cheapOwnerID, stickyOwnerID := int64(10), int64(20)
+	cheapRate, stickyRate := 0.5, 2.0
+	sessionHash := "sharing-rate-sticky"
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, OwnerUserID: &stickyOwnerID, SharingRateMultiplier: &stickyRate},
+		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate},
+	}}
+	cache := &stubGatewayCache{sessionBindings: map[string]int64{"openai:" + sessionHash: 1}}
+	svc := &OpenAIGatewayService{accountRepo: repo, cache: cache}
+
+	account, err := svc.SelectAccountForModelWithExclusions(
+		openAISharingRateSchedulingTestContext(true), nil, sessionHash, "gpt-4", nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(1), account.ID)
+	require.Zero(t, cache.deletedSessions["openai:"+sessionHash])
 }
 
 func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.T) {

@@ -527,6 +527,28 @@ func (s *OpenAIGatewayService) withOpenAIQuotaAutoPauseContext(ctx context.Conte
 	return withOpenAIQuotaAutoPauseSettings(ctx, s.settingService.GetOpenAIQuotaAutoPauseSettings(ctx))
 }
 
+// sortOpenAIAccountsBySharingRate stably promotes the consumer-visible sharing
+// price ahead of the existing scheduler order. Callers establish their legacy
+// priority/load/LRU order first, then apply compact/capability hard tiers after
+// this helper so price only competes within the same eligible tier.
+func sortOpenAIAccountsBySharingRate(ctx context.Context, accounts []*Account) {
+	if len(accounts) < 2 || !SharingRangeFilterEnabledFromContext(ctx) {
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return compareSharingRateForScheduling(ctx, accounts[i], accounts[j]) < 0
+	})
+}
+
+func sortOpenAIAccountLoadsBySharingRate(ctx context.Context, accounts []accountWithLoad) {
+	if len(accounts) < 2 || !SharingRangeFilterEnabledFromContext(ctx) {
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return compareSharingRateForScheduling(ctx, accounts[i].account, accounts[j].account) < 0
+	})
+}
+
 // prioritizeOpenAICompactAccounts re-orders a slice so that accounts with known
 // compact support are tried first, followed by unknown, then explicitly unsupported.
 // The relative order within each tier is preserved.
@@ -729,9 +751,17 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			continue
 		}
 
-		// compact 模式下高 tier 优先；同 tier 内才比较 priority/LRU。
+		// compact 模式下高 tier 优先；同 tier 内才比较共享价格和 priority/LRU。
 		if requireCompact && compactTier != selectedCompactTier {
 			if compactTier > selectedCompactTier {
+				selected = fresh
+				selectedCompactTier = compactTier
+			}
+			continue
+		}
+
+		if rateOrder := compareSharingRateForScheduling(ctx, fresh, selected); rateOrder != 0 {
+			if rateOrder < 0 {
 				selected = fresh
 				selectedCompactTier = compactTier
 			}
@@ -803,31 +833,64 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
-		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
-		if err != nil {
-			return nil, err
+		localExcluded := make(map[int64]struct{}, len(excludedIDs))
+		for id := range excludedIDs {
+			localExcluded[id] = struct{}{}
 		}
-		result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
-		if err == nil && result != nil && result.Acquired {
-			return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
-		}
-		if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-			waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
-			if waitingCount < cfg.StickySessionMaxWaiting {
+		var fallbackAccount *Account
+		for {
+			account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, localExcluded, requireCompact, stickyAccountID, requiredCapability)
+			if err != nil {
+				if fallbackAccount == nil {
+					return nil, err
+				}
+				if sessionHash != "" {
+					_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, fallbackAccount.ID, openaiStickySessionTTL)
+				}
+				return s.newSelectionResult(ctx, fallbackAccount, false, nil, &AccountWaitPlan{
+					AccountID:      fallbackAccount.ID,
+					MaxConcurrency: fallbackAccount.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				})
+			}
+			result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			if acquireErr == nil && result != nil && result.Acquired {
+				return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+			}
+			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
+				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				if waitingCount < cfg.StickySessionMaxWaiting {
+					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+						AccountID:      account.ID,
+						MaxConcurrency: account.Concurrency,
+						Timeout:        cfg.StickySessionWaitTimeout,
+						MaxWaiting:     cfg.StickySessionMaxWaiting,
+					})
+				}
 				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 					AccountID:      account.ID,
 					MaxConcurrency: account.Concurrency,
-					Timeout:        cfg.StickySessionWaitTimeout,
-					MaxWaiting:     cfg.StickySessionMaxWaiting,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
 				})
 			}
+
+			// Preserve the exact legacy behavior while the marketplace is off. When
+			// enabled, try the next price tier before waiting on a busy new selection.
+			if !SharingRangeFilterEnabledFromContext(ctx) {
+				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+					AccountID:      account.ID,
+					MaxConcurrency: account.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				})
+			}
+			if fallbackAccount == nil {
+				fallbackAccount = account
+			}
+			localExcluded[account.ID] = struct{}{}
 		}
-		return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
-			AccountID:      account.ID,
-			MaxConcurrency: account.Concurrency,
-			Timeout:        cfg.FallbackWaitTimeout,
-			MaxWaiting:     cfg.FallbackMaxWaiting,
-		})
 	}
 
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
@@ -986,6 +1049,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			}
 		})
 		shuffleWithinSortGroups(available)
+		sortOpenAIAccountLoadsBySharingRate(ctx, available)
 
 		selectionOrder := make([]accountWithLoad, 0, len(available))
 		if requireCompact {
@@ -1037,6 +1101,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if err != nil {
 		ordered := append([]*Account(nil), candidates...)
 		sortAccountsByPriorityAndLastUsed(ordered, false)
+		sortOpenAIAccountsBySharingRate(ctx, ordered)
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
@@ -1082,6 +1147,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	// ============ Layer 3: Fallback wait ============
 	sortAccountsByPriorityAndLastUsed(candidates, false)
+	sortOpenAIAccountsBySharingRate(ctx, candidates)
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}

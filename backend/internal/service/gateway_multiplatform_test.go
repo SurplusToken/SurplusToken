@@ -431,6 +431,46 @@ func TestGatewayService_SelectAccountForModelWithPlatform_PriorityAndLastUsed(t 
 	require.Equal(t, int64(2), acc.ID, "同优先级应选择最久未用的账户")
 }
 
+func TestGatewayService_SelectAccountForModelWithPlatform_DynamicSharingRangeUsesLowestRate(t *testing.T) {
+	cheapOwnerID := int64(10)
+	expensiveOwnerID := int64(20)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Priority: 100, Status: StatusActive, Schedulable: true,
+				OwnerUserID: &cheapOwnerID, SharingRateMultiplier: ptr(0.5),
+			},
+			{
+				ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Priority: 0, Status: StatusActive, Schedulable: true,
+				OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: ptr(2.0),
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	svc := &GatewayService{accountRepo: repo, cache: &mockGatewayCacheForPlatform{}, cfg: testConfig()}
+
+	selectWithRange := func(t *testing.T, enabled bool, min, max float64) int64 {
+		t.Helper()
+		ctx := WithRequestingUserID(context.Background(), 99)
+		ctx = WithSharingRateAcceptedRange(ctx, ptr(min), ptr(max))
+		ctx = WithSharingRangeFilterEnabled(ctx, enabled)
+		account, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		require.NoError(t, err)
+		require.NotNil(t, account)
+		return account.ID
+	}
+
+	require.Equal(t, int64(1), selectWithRange(t, true, 0, 5), "price must outrank legacy priority for a new selection")
+	require.Equal(t, int64(2), selectWithRange(t, true, 0.75, 5), "the accepted range must be evaluated per request")
+	require.Equal(t, int64(1), selectWithRange(t, true, 0, 1.5), "changing the range must immediately change the eligible pool")
+	require.Equal(t, int64(2), selectWithRange(t, false, 0, 5), "disabling the feature must preserve legacy priority selection")
+}
+
 func TestGatewayService_SelectAccountForModelWithPlatform_GeminiOAuthPreference(t *testing.T) {
 	ctx := context.Background()
 
@@ -2019,6 +2059,7 @@ func (m *mockConcurrencyService) GetAccountWaitingCount(ctx context.Context, acc
 
 type mockConcurrencyCache struct {
 	acquireAccountCalls int
+	acquireOrder        []int64
 	loadBatchCalls      int
 	acquireResults      map[int64]bool
 	loadBatchErr        error
@@ -2029,6 +2070,7 @@ type mockConcurrencyCache struct {
 
 func (m *mockConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
 	m.acquireAccountCalls++
+	m.acquireOrder = append(m.acquireOrder, accountID)
 	if m.acquireResults != nil {
 		if result, ok := m.acquireResults[accountID]; ok {
 			return result, nil
@@ -2144,6 +2186,162 @@ func (m *mockConcurrencyCache) GetUsersLoadBatch(ctx context.Context, users []Us
 		}
 	}
 	return result, nil
+}
+
+func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateFallsThroughLowToHigh(t *testing.T) {
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100,
+				OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate,
+			},
+			{
+				ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+				OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate,
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	concurrencyCache := &mockConcurrencyCache{
+		acquireResults: map[int64]bool{1: false, 2: true},
+		loadMap: map[int64]*AccountLoadInfo{
+			1: {AccountID: 1, LoadRate: 90},
+			2: {AccountID: 2, LoadRate: 0},
+		},
+	}
+	cfg := testConfig()
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &GatewayService{
+		accountRepo:        repo,
+		cache:              &mockGatewayCacheForPlatform{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+	ctx := WithRequestingUserID(context.Background(), 99)
+	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", 99)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID)
+	require.Equal(t, []int64{1, 2}, concurrencyCache.acquireOrder)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateFallsThroughWhenLoadBatchDisabled(t *testing.T) {
+	cheapOwnerID, expensiveOwnerID := int64(10), int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100,
+				OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate,
+			},
+			{
+				ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+				OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate,
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	concurrencyCache := &mockConcurrencyCache{
+		acquireResults: map[int64]bool{1: false, 2: true},
+	}
+	cfg := testConfig()
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &GatewayService{
+		accountRepo:        repo,
+		cache:              &mockGatewayCacheForPlatform{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+	ctx := WithRequestingUserID(context.Background(), 99)
+	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", 99)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID)
+	require.Equal(t, []int64{1, 2}, concurrencyCache.acquireOrder)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateNoLoadKeepsModelRoutingBoundary(t *testing.T) {
+	groupID := int64(77)
+	routedOwnerID, ordinaryOwnerID := int64(10), int64(20)
+	routedRate, ordinaryRate := 0.5, 2.0
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1,
+				OwnerUserID: &routedOwnerID, SharingRateMultiplier: &routedRate,
+				AccountGroups: []AccountGroup{{GroupID: groupID}},
+			},
+			{
+				ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+				Status: StatusActive, Schedulable: true, Concurrency: 1,
+				OwnerUserID: &ordinaryOwnerID, SharingRateMultiplier: &ordinaryRate,
+				AccountGroups: []AccountGroup{{GroupID: groupID}},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+		groupID: {
+			ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true,
+			ModelRoutingEnabled: true,
+			ModelRouting: map[string][]int64{
+				"claude-*":      {2},
+				"claude-opus-*": {1},
+			},
+		},
+	}}
+	concurrencyCache := &mockConcurrencyCache{
+		acquireResults: map[int64]bool{1: false, 2: true},
+	}
+	cfg := testConfig()
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &GatewayService{
+		accountRepo:        repo,
+		groupRepo:          groupRepo,
+		cache:              &mockGatewayCacheForPlatform{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+	ctx := WithRequestingUserID(context.Background(), 99)
+	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "claude-opus-4", nil, "", 99)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.WaitPlan)
+	require.Equal(t, int64(1), selection.WaitPlan.AccountID, "busy routed pool must wait instead of falling through to an ordinary account")
+	require.Equal(t, []int64{1}, concurrencyCache.acquireOrder, "ordinary account must not be acquired outside the explicit route pool")
 }
 
 // TestGatewayService_SelectAccountWithLoadAwareness tests load-aware account selection

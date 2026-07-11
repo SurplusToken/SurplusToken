@@ -174,14 +174,24 @@ func (g *Group) GetRoutingAccountIDs(requestedModel string) []int64 {
 		return accountIDs
 	}
 
-	// 2. 通配符匹配（前缀匹配）
+	// 2. 通配符匹配（前缀匹配）。Map iteration order is deliberately not
+	// used as routing precedence: overlapping patterns must resolve identically
+	// across the hard-pool precheck and the subsequent account selector.
+	var bestPattern string
+	var bestPrefixLength int
+	var bestAccountIDs []int64
 	for pattern, accountIDs := range g.ModelRouting {
-		if matchModelPattern(pattern, requestedModel) && len(accountIDs) > 0 {
-			return accountIDs
+		if !strings.HasSuffix(pattern, "*") || !matchModelPattern(pattern, requestedModel) || len(accountIDs) == 0 {
+			continue
+		}
+		prefixLength := len(strings.TrimSuffix(pattern, "*"))
+		if bestAccountIDs == nil || prefixLength > bestPrefixLength || (prefixLength == bestPrefixLength && pattern < bestPattern) {
+			bestPattern = pattern
+			bestPrefixLength = prefixLength
+			bestAccountIDs = accountIDs
 		}
 	}
-
-	return nil
+	return bestAccountIDs
 }
 
 // matchModelPattern 检查模型是否匹配模式

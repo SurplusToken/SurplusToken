@@ -25,6 +25,27 @@ type geminiCompatHTTPUpstreamStub struct {
 	lastReq  *http.Request
 }
 
+func TestGeminiMessagesCompatService_IsBetterAccountUsesLowestSharingRate(t *testing.T) {
+	cheapOwnerID := int64(10)
+	expensiveOwnerID := int64(20)
+	cheapRate, expensiveRate := 0.5, 2.0
+	cheap := &Account{
+		ID: 1, Platform: PlatformGemini, Type: AccountTypeOAuth,
+		OwnerUserID: &cheapOwnerID, SharingRateMultiplier: &cheapRate, Priority: 100,
+	}
+	expensive := &Account{
+		ID: 2, Platform: PlatformGemini, Type: AccountTypeOAuth,
+		OwnerUserID: &expensiveOwnerID, SharingRateMultiplier: &expensiveRate, Priority: 0,
+	}
+	svc := &GeminiMessagesCompatService{}
+	ctx := WithRequestingUserID(t.Context(), 99)
+
+	require.False(t, svc.isBetterGeminiAccount(ctx, cheap, expensive), "feature-off path must keep legacy priority ordering")
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+	require.True(t, svc.isBetterGeminiAccount(ctx, cheap, expensive), "lower effective price must outrank priority for a new selection")
+	require.False(t, svc.isBetterGeminiAccount(ctx, expensive, cheap))
+}
+
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	s.calls++
 	s.lastReq = req

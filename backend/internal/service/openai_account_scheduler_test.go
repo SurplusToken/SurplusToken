@@ -86,11 +86,15 @@ type schedulerTestConcurrencyCache struct {
 	loadBatchErr    error
 	loadMap         map[int64]*AccountLoadInfo
 	acquireResults  map[int64]bool
+	acquireOrder    *[]int64
 	waitCounts      map[int64]int
 	skipDefaultLoad bool
 }
 
 func (c schedulerTestConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+	if c.acquireOrder != nil {
+		*c.acquireOrder = append(*c.acquireOrder, accountID)
+	}
 	if c.acquireResults != nil {
 		if result, ok := c.acquireResults[accountID]; ok {
 			return result, nil
@@ -3077,4 +3081,266 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityWai
 	require.NotNil(t, selection.WaitPlan)
 	require.Equal(t, int64(38011), selection.WaitPlan.AccountID)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SharingRateTierPrecedesTopKScore(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(101101)
+	cheapID, expensiveID := int64(38101), int64(38102)
+	accounts := schedulerSharingRateAccounts(groupID, cheapID, expensiveID)
+	cfg := newSchedulerSharingRateConfig()
+	concurrencyCache := schedulerTestConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			cheapID:     {AccountID: cheapID, LoadRate: 95, WaitingCount: 9},
+			expensiveID: {AccountID: expensiveID, LoadRate: 0, WaitingCount: 0},
+		},
+		acquireResults: map[int64]bool{cheapID: true, expensiveID: true},
+	}
+	svc := newSchedulerSharingRateService(accounts, cfg, concurrencyCache)
+	// Movable weighted stickiness must remain inside its price tier: even a
+	// high-scoring sticky account cannot leapfrog a cheaper eligible tier.
+	svc.cache = &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+		"openai:sharing_rate_topk": expensiveID,
+	}}
+	svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("true", "true")
+	ctx := schedulerSharingRateContext(true)
+
+	selection, decision, err := svc.SelectAccountWithScheduler(
+		ctx,
+		&groupID,
+		"",
+		"sharing_rate_topk",
+		"gpt-5.1",
+		nil,
+		OpenAIUpstreamTransportAny,
+		false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, cheapID, selection.Account.ID, "TopK=1 must be computed inside the cheapest effective-rate tier")
+	require.Equal(t, 1, decision.TopK)
+	require.False(t, decision.StickySessionHit)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SharingRateFallsThroughToNextTier(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(101102)
+	cheapID, expensiveID := int64(38111), int64(38112)
+	accounts := schedulerSharingRateAccounts(groupID, cheapID, expensiveID)
+	cfg := newSchedulerSharingRateConfig()
+	concurrencyCache := schedulerTestConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			cheapID:     {AccountID: cheapID, LoadRate: 10},
+			expensiveID: {AccountID: expensiveID, LoadRate: 0},
+		},
+		acquireResults: map[int64]bool{cheapID: false, expensiveID: true},
+	}
+	svc := newSchedulerSharingRateService(accounts, cfg, concurrencyCache)
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		schedulerSharingRateContext(true),
+		&groupID,
+		"",
+		"sharing_rate_fallthrough",
+		"gpt-5.1",
+		nil,
+		OpenAIUpstreamTransportAny,
+		false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, expensiveID, selection.Account.ID, "a full cheap tier must not block the next effective-rate tier")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SharingRateExhaustsCheapTierBeforeNextTier(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(101104)
+	cheapBestID, cheapFallbackID, expensiveID := int64(38141), int64(38142), int64(38143)
+	owner1, owner2, owner3 := int64(71101), int64(71102), int64(71103)
+	cheapRate, expensiveRate := 0.5, 2.0
+	accounts := []Account{
+		{ID: cheapBestID, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}, OwnerUserID: &owner1, SharingRateMultiplier: &cheapRate},
+		{ID: cheapFallbackID, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, GroupIDs: []int64{groupID}, OwnerUserID: &owner2, SharingRateMultiplier: &cheapRate},
+		{ID: expensiveID, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}, OwnerUserID: &owner3, SharingRateMultiplier: &expensiveRate},
+	}
+	acquireOrder := make([]int64, 0, 3)
+	concurrencyCache := schedulerTestConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			cheapBestID:     {AccountID: cheapBestID, LoadRate: 0},
+			cheapFallbackID: {AccountID: cheapFallbackID, LoadRate: 95},
+			expensiveID:     {AccountID: expensiveID, LoadRate: 0},
+		},
+		acquireResults: map[int64]bool{cheapBestID: false, cheapFallbackID: true, expensiveID: true},
+		acquireOrder:   &acquireOrder,
+	}
+	svc := newSchedulerSharingRateService(accounts, newSchedulerSharingRateConfig(), concurrencyCache)
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		schedulerSharingRateContext(true), &groupID, "", "sharing_rate_same_tier_fallback", "gpt-5.1", nil,
+		OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, cheapFallbackID, selection.Account.ID)
+	require.Equal(t, []int64{cheapBestID, cheapFallbackID}, acquireOrder, "all cheap candidates must be attempted before a higher price tier")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestFinishLoadBalanceSelectionFallback_WeightedStickyCannotCrossSharingRateTier(t *testing.T) {
+	groupID := int64(101105)
+	cheapID, expensiveStickyID := int64(38151), int64(38152)
+	accounts := schedulerSharingRateAccounts(groupID, cheapID, expensiveStickyID)
+	concurrencyCache := schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{cheapID: false, expensiveStickyID: false},
+	}
+	service := newSchedulerSharingRateService(accounts, newSchedulerSharingRateConfig(), concurrencyCache)
+	scheduler := &defaultOpenAIAccountScheduler{service: service, stats: newOpenAIAccountRuntimeStats()}
+	attempt := openAIAccountLoadSelectionAttempt{
+		selectionOrder: []openAIAccountCandidateScore{
+			{account: &accounts[0], loadInfo: &AccountLoadInfo{AccountID: cheapID}, sharingRateRank: 5_000, sharingRateOrdered: true},
+			{account: &accounts[1], loadInfo: &AccountLoadInfo{AccountID: expensiveStickyID}, sharingRateRank: 20_000, sharingRateOrdered: true},
+		},
+		candidateCount: 2,
+		topK:           1,
+	}
+	req := OpenAIAccountScheduleRequest{
+		GroupID:         &groupID,
+		Platform:        PlatformOpenAI,
+		StickyWeighted:  true,
+		StickyAccountID: expensiveStickyID,
+	}
+
+	selection, _, _, _, err := scheduler.finishLoadBalanceSelectionFallback(schedulerSharingRateContext(true), req, attempt)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.WaitPlan)
+	require.Equal(t, cheapID, selection.WaitPlan.AccountID, "movable weighted sticky must not wait across a cheaper price tier")
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SharingRateFlagOffKeepsScoreOrder(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(101103)
+	cheapID, expensiveID := int64(38121), int64(38122)
+	accounts := schedulerSharingRateAccounts(groupID, cheapID, expensiveID)
+	cfg := newSchedulerSharingRateConfig()
+	concurrencyCache := schedulerTestConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			cheapID:     {AccountID: cheapID, LoadRate: 95, WaitingCount: 9},
+			expensiveID: {AccountID: expensiveID, LoadRate: 0, WaitingCount: 0},
+		},
+		acquireResults: map[int64]bool{cheapID: true, expensiveID: true},
+	}
+	svc := newSchedulerSharingRateService(accounts, cfg, concurrencyCache)
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		schedulerSharingRateContext(false),
+		&groupID,
+		"",
+		"sharing_rate_disabled",
+		"gpt-5.1",
+		nil,
+		OpenAIUpstreamTransportAny,
+		false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, expensiveID, selection.Account.ID, "flag=false must preserve the legacy score/TopK winner")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestSortOpenAICompactRetryCandidates_SharingRateAware(t *testing.T) {
+	cheap := openAIAccountCandidateScore{
+		account:            &Account{ID: 38131, Priority: 100},
+		loadInfo:           &AccountLoadInfo{},
+		sharingRateRank:    5_000,
+		sharingRateOrdered: true,
+	}
+	expensive := openAIAccountCandidateScore{
+		account:            &Account{ID: 38132, Priority: 0},
+		loadInfo:           &AccountLoadInfo{},
+		sharingRateRank:    20_000,
+		sharingRateOrdered: true,
+	}
+
+	ordered := sortOpenAICompactRetryCandidates([]openAIAccountCandidateScore{expensive, cheap})
+	require.Equal(t, int64(38131), ordered[0].account.ID)
+
+	cheap.sharingRateOrdered = false
+	expensive.sharingRateOrdered = false
+	legacyOrder := sortOpenAICompactRetryCandidates([]openAIAccountCandidateScore{cheap, expensive})
+	require.Equal(t, int64(38132), legacyOrder[0].account.ID, "flag=false candidates must retain priority-first retry order")
+}
+
+func schedulerSharingRateAccounts(groupID, cheapID, expensiveID int64) []Account {
+	cheapOwnerID, expensiveOwnerID := int64(71001), int64(71002)
+	cheapRate, expensiveRate := 0.5, 2.0
+	return []Account{
+		{
+			ID:                    cheapID,
+			Platform:              PlatformOpenAI,
+			Type:                  AccountTypeOAuth,
+			Status:                StatusActive,
+			Schedulable:           true,
+			Concurrency:           1,
+			Priority:              100,
+			GroupIDs:              []int64{groupID},
+			OwnerUserID:           &cheapOwnerID,
+			SharingRateMultiplier: &cheapRate,
+		},
+		{
+			ID:                    expensiveID,
+			Platform:              PlatformOpenAI,
+			Type:                  AccountTypeOAuth,
+			Status:                StatusActive,
+			Schedulable:           true,
+			Concurrency:           1,
+			Priority:              0,
+			GroupIDs:              []int64{groupID},
+			OwnerUserID:           &expensiveOwnerID,
+			SharingRateMultiplier: &expensiveRate,
+		},
+	}
+}
+
+func newSchedulerSharingRateConfig() *config.Config {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 1
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 2
+	return cfg
+}
+
+func newSchedulerSharingRateService(accounts []Account, cfg *config.Config, concurrencyCache schedulerTestConcurrencyCache) *OpenAIGatewayService {
+	return &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+}
+
+func schedulerSharingRateContext(enabled bool) context.Context {
+	ctx := WithRequestingUserID(context.Background(), 79999)
+	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	return WithSharingRangeFilterEnabled(ctx, enabled)
 }

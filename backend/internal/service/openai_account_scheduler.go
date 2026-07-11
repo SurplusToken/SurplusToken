@@ -125,6 +125,7 @@ type openAIAccountLoadPlan struct {
 	candidateCount            int
 	topK                      int
 	loadSkew                  float64
+	sharingRateOrdering       bool
 }
 
 type openAIAccountLoadSelectionAttempt struct {
@@ -513,13 +514,15 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
-	account   *Account
-	loadInfo  *AccountLoadInfo
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	account            *Account
+	loadInfo           *AccountLoadInfo
+	score              float64
+	priority           int
+	errorRate          float64
+	ttft               float64
+	hasTTFT            bool
+	sharingRateRank    int64
+	sharingRateOrdered bool
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -720,6 +723,8 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	filtered []*Account,
 	loadMap map[int64]*AccountLoadInfo,
 ) openAIAccountLoadPlan {
+	sharingRateOrdering := SharingRangeFilterEnabledFromContext(ctx)
+	consumerUserID := RequestingUserIDFromContext(ctx)
 	allCandidates := make([]openAIAccountCandidateScore, 0, len(filtered))
 	for _, account := range filtered {
 		loadInfo := loadMap[account.ID]
@@ -731,11 +736,13 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			errorRate, ttft, hasTTFT = s.stats.snapshot(account.ID)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
-			account:   account,
-			loadInfo:  loadInfo,
-			errorRate: errorRate,
-			ttft:      ttft,
-			hasTTFT:   hasTTFT,
+			account:            account,
+			loadInfo:           loadInfo,
+			errorRate:          errorRate,
+			ttft:               ttft,
+			hasTTFT:            hasTTFT,
+			sharingRateRank:    sharingRateSchedulingRank(account, consumerUserID),
+			sharingRateOrdered: sharingRateOrdering,
 		})
 	}
 
@@ -757,6 +764,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		candidates:                candidates,
 		staleSnapshotCompactRetry: staleSnapshotCompactRetry,
 		candidateCount:            len(candidates),
+		sharingRateOrdering:       sharingRateOrdering,
 	}
 	if len(candidates) == 0 {
 		plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
@@ -893,7 +901,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	buildTierSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
@@ -917,6 +925,58 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			}
 		}
 		return buildOpenAIWeightedSelectionOrder(ranked, req)
+	}
+
+	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if len(pool) == 0 || !plan.sharingRateOrdering {
+			return buildTierSelectionOrder(pool)
+		}
+
+		// Price is a strict outer tier for movable/new selections. Each price tier
+		// independently keeps the existing score -> top-K -> weighted order, so a
+		// high-scoring expensive account cannot crowd a cheaper account out of top-K.
+		orderedByRate := append([]openAIAccountCandidateScore(nil), pool...)
+		sort.SliceStable(orderedByRate, func(i, j int) bool {
+			return orderedByRate[i].sharingRateRank < orderedByRate[j].sharingRateRank
+		})
+		selectionOrder := make([]openAIAccountCandidateScore, 0, len(orderedByRate))
+		for start := 0; start < len(orderedByRate); {
+			rateRank := orderedByRate[start].sharingRateRank
+			end := start + 1
+			for end < len(orderedByRate) && orderedByRate[end].sharingRateRank == rateRank {
+				end++
+			}
+			// Preserve top-K as the first-choice batch, but exhaust every candidate
+			// in this price tier before moving to a more expensive tier. Otherwise
+			// TopK=1 could skip an idle low-score cheap account after the best cheap
+			// candidate is busy and incorrectly acquire a higher-priced account.
+			remaining := append([]openAIAccountCandidateScore(nil), orderedByRate[start:end]...)
+			for len(remaining) > 0 {
+				batch := buildTierSelectionOrder(remaining)
+				if len(batch) == 0 {
+					break
+				}
+				selectionOrder = append(selectionOrder, batch...)
+				selected := make(map[int64]struct{}, len(batch))
+				for _, candidate := range batch {
+					if candidate.account != nil {
+						selected[candidate.account.ID] = struct{}{}
+					}
+				}
+				next := remaining[:0]
+				for _, candidate := range remaining {
+					if candidate.account == nil {
+						continue
+					}
+					if _, ok := selected[candidate.account.ID]; !ok {
+						next = append(next, candidate)
+					}
+				}
+				remaining = next
+			}
+			start = end
+		}
+		return selectionOrder
 	}
 
 	if req.RequireCompact {
@@ -949,6 +1009,9 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
+		if a.sharingRateOrdered && b.sharingRateOrdered && a.sharingRateRank != b.sharingRateRank {
+			return a.sharingRateRank < b.sharingRateRank
+		}
 		if a.account.Priority != b.account.Priority {
 			return a.account.Priority < b.account.Priority
 		}
@@ -1013,6 +1076,7 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrder(
 func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
+	allowedAccountIDs map[int64]struct{},
 ) (*AccountSelectionResult, error) {
 	if !req.StickyWeighted {
 		return nil, nil
@@ -1020,6 +1084,11 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 		if accountID <= 0 {
 			continue
+		}
+		if allowedAccountIDs != nil {
+			if _, allowed := allowedAccountIDs[accountID]; !allowed {
+				continue
+			}
 		}
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[accountID]; excluded {
@@ -1306,7 +1375,29 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, attempt.compactBlocked)
 	}
 
-	if stickyFallback, stickyErr := s.tryFallbackToWeightedSticky(ctx, req); stickyErr != nil {
+	var weightedStickyAllowedIDs map[int64]struct{}
+	if first := attempt.selectionOrder[0]; first.sharingRateOrdered {
+		weightedStickyAllowedIDs = make(map[int64]struct{})
+		firstCompactTier := 0
+		if req.RequireCompact {
+			firstCompactTier = openAICompactSupportTier(first.account)
+		}
+		// selectionOrder is grouped by hard capability pool first, then price.
+		// Only the leading price tier may retain movable weighted-stickiness;
+		// hard sticky/previous-response paths are resolved before load balancing.
+		for _, candidate := range attempt.selectionOrder {
+			if !candidate.sharingRateOrdered || candidate.sharingRateRank != first.sharingRateRank {
+				break
+			}
+			if req.RequireCompact && openAICompactSupportTier(candidate.account) != firstCompactTier {
+				break
+			}
+			if candidate.account != nil {
+				weightedStickyAllowedIDs[candidate.account.ID] = struct{}{}
+			}
+		}
+	}
+	if stickyFallback, stickyErr := s.tryFallbackToWeightedSticky(ctx, req, weightedStickyAllowedIDs); stickyErr != nil {
 		return nil, candidateCount, topK, loadSkew, stickyErr
 	} else if stickyFallback != nil {
 		return stickyFallback, candidateCount, topK, loadSkew, nil

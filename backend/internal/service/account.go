@@ -176,6 +176,33 @@ func (a *Account) EffectiveSharingRateMultiplier(consumerUserID int64) float64 {
 	return rate
 }
 
+// compareSharingRateForScheduling compares two accounts by the effective
+// sharing-market price seen by the current consumer. A negative result means
+// candidate is cheaper, a positive result means current is cheaper, and zero
+// means either equal price or price-aware scheduling is disabled for the
+// request. Stored prices have four decimal places, so integer ranks avoid
+// float equality drift when schedulers build price tiers.
+func compareSharingRateForScheduling(ctx context.Context, candidate, current *Account) int {
+	if !SharingRangeFilterEnabledFromContext(ctx) {
+		return 0
+	}
+	consumerUserID := RequestingUserIDFromContext(ctx)
+	candidateRank := sharingRateSchedulingRank(candidate, consumerUserID)
+	currentRank := sharingRateSchedulingRank(current, consumerUserID)
+	switch {
+	case candidateRank < currentRank:
+		return -1
+	case candidateRank > currentRank:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func sharingRateSchedulingRank(account *Account, consumerUserID int64) int64 {
+	return int64(math.Round(account.EffectiveSharingRateMultiplier(consumerUserID) * 10_000))
+}
+
 // IsSharingEligibleForConsumer reports whether this account may be scheduled
 // for consumerUserID under the shared account rate marketplace's accepted
 // price range filter.

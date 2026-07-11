@@ -150,11 +150,55 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		for k, v := range excludedIDs {
 			localExcluded[k] = v
 		}
+		priceFallbacks := make([]*Account, 0)
+		routingSet := make(map[int64]struct{})
+		if group != nil && requestedModel != "" && group.Platform == PlatformAnthropic {
+			for _, accountID := range group.GetRoutingAccountIDs(requestedModel) {
+				if accountID > 0 {
+					routingSet[accountID] = struct{}{}
+				}
+			}
+		}
+		routingPoolActive := false
+		waitOnPriceFallback := func() (*AccountSelectionResult, bool, error) {
+			for _, fallback := range priceFallbacks {
+				if !s.checkAndRegisterSession(ctx, fallback, sessionHash) {
+					continue
+				}
+				if sessionHash != "" && s.cache != nil {
+					_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, fallback.ID, stickySessionTTL)
+				}
+				selection, selectErr := s.newSelectionResult(ctx, fallback, false, nil, &AccountWaitPlan{
+					AccountID:      fallback.ID,
+					MaxConcurrency: fallback.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				})
+				return selection, true, selectErr
+			}
+			return nil, false, nil
+		}
 
 		for {
 			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
+				// Price-aware selection tries every eligible account before waiting.
+				// Only now register a session on the cheapest busy fallback, avoiding
+				// leaked session reservations on accounts that were merely attempted.
+				if fallback, ok, fallbackErr := waitOnPriceFallback(); ok || fallbackErr != nil {
+					return fallback, fallbackErr
+				}
 				return nil, err
+			}
+			_, routedCandidate := routingSet[account.ID]
+			if routingPoolActive && !routedCandidate {
+				// The legacy selector falls back to the ordinary pool once every
+				// routed account is excluded. Busy price-tier retries must not pierce
+				// that explicit model-routing boundary.
+				if fallback, ok, fallbackErr := waitOnPriceFallback(); ok || fallbackErr != nil {
+					return fallback, fallbackErr
+				}
+				return nil, ErrNoAvailableAccounts
 			}
 
 			result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
@@ -168,13 +212,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 			}
 
-			// 对于等待计划的情况，也需要先检查会话限制
-			if !s.checkAndRegisterSession(ctx, account, sessionHash) {
-				localExcluded[account.ID] = struct{}{}
-				continue
-			}
-
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
+				if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+					localExcluded[account.ID] = struct{}{}
+					continue
+				}
 				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
 				if waitingCount < cfg.StickySessionMaxWaiting {
 					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
@@ -184,6 +226,27 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						MaxWaiting:     cfg.StickySessionMaxWaiting,
 					})
 				}
+				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+					AccountID:      account.ID,
+					MaxConcurrency: account.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				})
+			}
+
+			if SharingRangeFilterEnabledFromContext(ctx) {
+				priceFallbacks = append(priceFallbacks, account)
+				if routedCandidate {
+					routingPoolActive = true
+				}
+				localExcluded[account.ID] = struct{}{}
+				continue
+			}
+
+			// Feature-off path keeps the legacy first-selected wait behavior.
+			if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+				localExcluded[account.ID] = struct{}{}
+				continue
 			}
 			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 				AccountID:      account.ID,
@@ -422,27 +485,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 
 			if len(routingAvailable) > 0 {
-				// 排序：优先级 > 负载率 > 最后使用时间
-				sort.SliceStable(routingAvailable, func(i, j int) bool {
-					a, b := routingAvailable[i], routingAvailable[j]
-					if a.account.Priority != b.account.Priority {
-						return a.account.Priority < b.account.Priority
-					}
-					if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-						return a.loadInfo.LoadRate < b.loadInfo.LoadRate
-					}
-					switch {
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-						return true
-					case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-						return false
-					case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-						return false
-					default:
-						return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-					}
-				})
-				shuffleWithinSortGroups(routingAvailable)
+				// Price is the first choice dimension when the sharing marketplace
+				// filter is enabled; existing priority/load/LRU behavior remains the
+				// tie-breaker inside each effective-price tier.
+				sortAccountLoadsBySharingRatePriorityLoadAndLastUsed(ctx, routingAvailable)
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
@@ -681,17 +727,19 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
-		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
+		// 分层过滤选择：共享报价 → 优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
-			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
-			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
+			// 1. 取当前用户视角下共享报价最低的集合（开关关闭时不缩小集合）
+			candidates := filterByMinSharingRate(ctx, available)
+			// 2. 取优先级最小的集合
+			candidates = filterByMinPriority(candidates)
+			// 3. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
 			if cfg.PreferSoonestReset {
 				candidates = filterBySoonestReset(candidates)
 			}
-			// 3. 取负载率最低的集合
+			// 4. 取负载率最低的集合
 			candidates = filterByMinLoadRate(candidates)
-			// 4. LRU 选择最久未用的账号
+			// 5. LRU 选择最久未用的账号
 			selected := selectByLRU(candidates, preferOAuth)
 			if selected == nil {
 				break
@@ -723,7 +771,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 3: 兜底排队 ============
-	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
+	s.sortCandidatesForFallback(ctx, candidates, preferOAuth, cfg.FallbackSelectionMode)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
 		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
@@ -741,7 +789,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
 	ordered := append([]*Account(nil), candidates...)
-	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
+	sortAccountsBySharingRatePriorityAndLastUsed(ctx, ordered, preferOAuth)
 
 	for _, acc := range ordered {
 		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
@@ -1456,6 +1504,29 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	}, nil
 }
 
+// filterByMinSharingRate keeps the cheapest effective-price tier for the
+// requesting consumer. It is intentionally inert while the marketplace range
+// filter is disabled, preserving the legacy priority/load selection behavior.
+func filterByMinSharingRate(ctx context.Context, accounts []accountWithLoad) []accountWithLoad {
+	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+		return accounts
+	}
+	consumerUserID := RequestingUserIDFromContext(ctx)
+	minRank := sharingRateSchedulingRank(accounts[0].account, consumerUserID)
+	for _, item := range accounts[1:] {
+		if rank := sharingRateSchedulingRank(item.account, consumerUserID); rank < minRank {
+			minRank = rank
+		}
+	}
+	result := make([]accountWithLoad, 0, len(accounts))
+	for _, item := range accounts {
+		if sharingRateSchedulingRank(item.account, consumerUserID) == minRank {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 // filterByMinPriority 过滤出优先级最小的账号集合
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -1612,6 +1683,84 @@ func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 	shuffleWithinPriorityAndLastUsed(accounts, preferOAuth)
 }
 
+// sortAccountsBySharingRatePriorityAndLastUsed orders price tiers from cheap to
+// expensive and applies the legacy priority/LRU ordering independently inside
+// each tier. This also prevents the legacy group shuffle from mixing prices.
+func sortAccountsBySharingRatePriorityAndLastUsed(ctx context.Context, accounts []*Account, preferOAuth bool) {
+	sortAccountsBySharingRateTiers(ctx, accounts, func(tier []*Account) {
+		sortAccountsByPriorityAndLastUsed(tier, preferOAuth)
+	})
+}
+
+func sortAccountsBySharingRatePriorityOnly(ctx context.Context, accounts []*Account, preferOAuth bool) {
+	sortAccountsBySharingRateTiers(ctx, accounts, func(tier []*Account) {
+		sortAccountsByPriorityOnly(tier, preferOAuth)
+		shuffleWithinPriority(tier)
+	})
+}
+
+func sortAccountsBySharingRateTiers(ctx context.Context, accounts []*Account, sortTier func([]*Account)) {
+	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+		sortTier(accounts)
+		return
+	}
+	consumerUserID := RequestingUserIDFromContext(ctx)
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return sharingRateSchedulingRank(accounts[i], consumerUserID) < sharingRateSchedulingRank(accounts[j], consumerUserID)
+	})
+	for start := 0; start < len(accounts); {
+		rank := sharingRateSchedulingRank(accounts[start], consumerUserID)
+		end := start + 1
+		for end < len(accounts) && sharingRateSchedulingRank(accounts[end], consumerUserID) == rank {
+			end++
+		}
+		sortTier(accounts[start:end])
+		start = end
+	}
+}
+
+func sortAccountLoadsBySharingRatePriorityLoadAndLastUsed(ctx context.Context, accounts []accountWithLoad) {
+	sortTier := func(tier []accountWithLoad) {
+		sort.SliceStable(tier, func(i, j int) bool {
+			a, b := tier[i], tier[j]
+			if a.account.Priority != b.account.Priority {
+				return a.account.Priority < b.account.Priority
+			}
+			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+			}
+			switch {
+			case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+				return true
+			case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+				return false
+			case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
+				return false
+			default:
+				return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
+			}
+		})
+		shuffleWithinSortGroups(tier)
+	}
+	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+		sortTier(accounts)
+		return
+	}
+	consumerUserID := RequestingUserIDFromContext(ctx)
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return sharingRateSchedulingRank(accounts[i].account, consumerUserID) < sharingRateSchedulingRank(accounts[j].account, consumerUserID)
+	})
+	for start := 0; start < len(accounts); {
+		rank := sharingRateSchedulingRank(accounts[start].account, consumerUserID)
+		end := start + 1
+		for end < len(accounts) && sharingRateSchedulingRank(accounts[end].account, consumerUserID) == rank {
+			end++
+		}
+		sortTier(accounts[start:end])
+		start = end
+	}
+}
+
 // shuffleWithinSortGroups 对排序后的 accountWithLoad 切片，按 (Priority, LoadRate, LastUsedAt) 分组后组内随机打乱。
 // 防止并发请求读取同一快照时，确定性排序导致所有请求命中相同账号。
 func shuffleWithinSortGroups(accounts []accountWithLoad) {
@@ -1711,14 +1860,13 @@ func sameLastUsedAt(a, b *time.Time) bool {
 
 // sortCandidatesForFallback 根据配置选择排序策略
 // mode: "last_used"(按最后使用时间) 或 "random"(随机)
-func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
+func (s *GatewayService) sortCandidatesForFallback(ctx context.Context, accounts []*Account, preferOAuth bool, mode string) {
 	if mode == "random" {
-		// 先按优先级排序，然后在同优先级内随机打乱
-		sortAccountsByPriorityOnly(accounts, preferOAuth)
-		shuffleWithinPriority(accounts)
+		// 先按报价/优先级排序，然后仅在同报价、同优先级内随机打乱。
+		sortAccountsBySharingRatePriorityOnly(ctx, accounts, preferOAuth)
 	} else {
-		// 默认按最后使用时间排序
-		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
+		// 默认在每个报价档内按优先级和最后使用时间排序。
+		sortAccountsBySharingRatePriorityAndLastUsed(ctx, accounts, preferOAuth)
 	}
 }
 
@@ -1866,6 +2014,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				selected = acc
 				continue
 			}
+			if rateOrder := compareSharingRateForScheduling(ctx, acc, selected); rateOrder != 0 {
+				if rateOrder < 0 {
+					selected = acc
+				}
+				continue
+			}
 			if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
@@ -1978,6 +2132,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 		if selected == nil {
 			selected = acc
+			continue
+		}
+		if rateOrder := compareSharingRateForScheduling(ctx, acc, selected); rateOrder != 0 {
+			if rateOrder < 0 {
+				selected = acc
+			}
 			continue
 		}
 		if acc.Priority < selected.Priority {
@@ -2126,6 +2286,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				selected = acc
 				continue
 			}
+			if rateOrder := compareSharingRateForScheduling(ctx, acc, selected); rateOrder != 0 {
+				if rateOrder < 0 {
+					selected = acc
+				}
+				continue
+			}
 			if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
@@ -2239,6 +2405,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 		if selected == nil {
 			selected = acc
+			continue
+		}
+		if rateOrder := compareSharingRateForScheduling(ctx, acc, selected); rateOrder != 0 {
+			if rateOrder < 0 {
+				selected = acc
+			}
 			continue
 		}
 		if acc.Priority < selected.Priority {

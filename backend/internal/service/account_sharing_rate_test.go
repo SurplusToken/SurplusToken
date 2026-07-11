@@ -197,6 +197,43 @@ func TestSharingRangeFilterEnabledContext_DefaultsFalse(t *testing.T) {
 	require.True(t, SharingRangeFilterEnabledFromContext(ctx))
 }
 
+func TestCompareSharingRateForScheduling_UsesConsumerEffectiveRateOnlyWhenEnabled(t *testing.T) {
+	consumerID := int64(99)
+	cheapOwnerID := int64(10)
+	expensiveOwnerID := int64(20)
+	cheap := contributedAccount(cheapOwnerID, nil, f64(0.5))
+	expensive := contributedAccount(expensiveOwnerID, nil, f64(2.0))
+
+	disabled := WithRequestingUserID(t.Context(), consumerID)
+	require.Zero(t, compareSharingRateForScheduling(disabled, &cheap, &expensive))
+
+	enabled := WithSharingRangeFilterEnabled(disabled, true)
+	require.Negative(t, compareSharingRateForScheduling(enabled, &cheap, &expensive))
+	require.Positive(t, compareSharingRateForScheduling(enabled, &expensive, &cheap))
+
+	system := Account{ID: 3, Type: AccountTypeOAuth}
+	ownerSelfUse := contributedAccount(consumerID, nil, f64(4.0))
+	unset := contributedAccount(cheapOwnerID, nil, nil)
+	require.Zero(t, compareSharingRateForScheduling(enabled, &system, &ownerSelfUse), "system and owner self-use both rank as 1x")
+	require.Zero(t, compareSharingRateForScheduling(enabled, &system, &unset), "an unset contributed price defaults to 1x")
+}
+
+func TestFilterByMinSharingRate_KeepsWholeLowestPriceTier(t *testing.T) {
+	ownerID := int64(10)
+	accounts := []accountWithLoad{
+		{account: &Account{ID: 1, OwnerUserID: &ownerID, SharingRateMultiplier: f64(0.5)}},
+		{account: &Account{ID: 2, OwnerUserID: &ownerID, SharingRateMultiplier: f64(0.5)}},
+		{account: &Account{ID: 3, OwnerUserID: &ownerID, SharingRateMultiplier: f64(1.5)}},
+	}
+	ctx := WithRequestingUserID(t.Context(), 99)
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+
+	got := filterByMinSharingRate(ctx, accounts)
+	require.Len(t, got, 2)
+	require.ElementsMatch(t, []int64{1, 2}, []int64{got[0].account.ID, got[1].account.ID})
+	require.Len(t, filterByMinSharingRate(t.Context(), accounts), 3, "feature-off path must remain inert")
+}
+
 func TestSharingRateWriteValidationRejectsMoreThanFourDecimals(t *testing.T) {
 	t.Parallel()
 
