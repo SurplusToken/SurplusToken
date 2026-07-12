@@ -26,6 +26,9 @@ import (
 type Application struct {
 	Server  *http.Server
 	Cleanup func()
+	// AccountService is exposed for one-shot CLI maintenance commands
+	// (e.g. -backfill-self-use); not used by the running HTTP server.
+	AccountService *service.AccountService
 }
 
 func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
@@ -53,7 +56,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "Cleanup"),
+		wire.Struct(new(Application), "Server", "Cleanup", "AccountService"),
 	)
 	return nil, nil
 }

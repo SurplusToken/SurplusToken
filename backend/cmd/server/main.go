@@ -59,6 +59,7 @@ func main() {
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	showVersion := flag.Bool("version", false, "Show version information")
+	backfillSelfUse := flag.Int64("backfill-self-use", 0, "Backfill contributor self-use provisioning for the given user id, then exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -71,6 +72,13 @@ func main() {
 		if err := setup.RunCLI(); err != nil {
 			log.Fatalf("Setup failed: %v", err)
 		}
+		return
+	}
+
+	// One-shot maintenance: backfill self-use provisioning for an existing
+	// contributor (accounts contributed before the feature shipped), then exit.
+	if *backfillSelfUse > 0 {
+		runBackfillSelfUse(*backfillSelfUse)
 		return
 	}
 
@@ -92,6 +100,35 @@ func main() {
 
 	// Normal server mode
 	runMainServer()
+}
+
+// runBackfillSelfUse builds the full application graph, provisions self-use
+// access for the given contributor's existing accounts, then exits. Reuses the
+// same wiring as the server so the API-key hashing / group / subscription logic
+// is identical to the on-contribution path.
+func runBackfillSelfUse(ownerUserID int64) {
+	cfg, err := config.LoadForBootstrap()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if err := logger.Init(logger.OptionsFromConfig(cfg.Log)); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	buildInfo := handler.BuildInfo{Version: Version, BuildType: BuildType}
+	app, err := initializeApplication(buildInfo)
+	if err != nil {
+		log.Fatalf("Failed to initialize application: %v", err)
+	}
+	defer app.Cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	n, err := app.AccountService.BackfillSelfUseForUser(ctx, ownerUserID)
+	if err != nil {
+		log.Fatalf("Backfill self-use failed for user %d: %v", ownerUserID, err)
+	}
+	log.Printf("Backfill self-use complete for user %d: provisioned %d account(s)", ownerUserID, n)
 }
 
 func runSetupServer() {

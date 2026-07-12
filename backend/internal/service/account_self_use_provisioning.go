@@ -232,6 +232,34 @@ func (s *AccountService) deleteSelfUseAPIKeys(ctx context.Context, userID, group
 	return nil
 }
 
+// BackfillSelfUseForUser provisions self-use access for a contributor's EXISTING
+// OAuth accounts — those contributed before this feature shipped, which never ran
+// through the on-contribution hook. Idempotent (reuses ensureSelfUseAccess), so it
+// is safe to re-run. Returns the number of owned accounts (re)provisioned.
+func (s *AccountService) BackfillSelfUseForUser(ctx context.Context, ownerUserID int64) (int, error) {
+	if !s.selfUseProvisioningEnabled() {
+		return 0, errors.New("self-use provisioning is not wired (subscription/api-key services missing)")
+	}
+	if ownerUserID <= 0 {
+		return 0, errors.New("owner user id required")
+	}
+	// User contribution is OpenAI-OAuth only (see isUserOAuthPlatformAllowed), so
+	// that is the only platform to scan.
+	accounts, err := s.ListOwnedUserOAuthAccounts(ctx, ownerUserID, PlatformOpenAI)
+	if err != nil {
+		return 0, err
+	}
+	provisioned := 0
+	for i := range accounts {
+		acc := accounts[i]
+		if err := s.ensureSelfUseAccess(ctx, ownerUserID, &acc); err != nil {
+			return provisioned, fmt.Errorf("backfill self-use for account %d: %w", acc.ID, err)
+		}
+		provisioned++
+	}
+	return provisioned, nil
+}
+
 // logSelfUseProvisioningError records a non-fatal provisioning failure. Account
 // contribution succeeds regardless — the account still serves the marketplace;
 // only the owner's private self-use path is (temporarily) unavailable and will
