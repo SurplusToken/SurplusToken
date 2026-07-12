@@ -65,20 +65,38 @@ func (f *selfUseKeyFake) Delete(_ context.Context, id int64, _ int64) error {
 type selfUseGroupRepoFake struct {
 	groupRepoStub
 	created      *Group
+	createdAll   []*Group
 	byID         map[int64]*Group
+	byName       map[string]int64
+	nextID       int64
 	bound        map[int64][]int64
 	accountCount int64
 	deletedIDs   []int64
 }
 
 func (f *selfUseGroupRepoFake) Create(_ context.Context, g *Group) error {
-	g.ID = 900
+	if f.byName == nil {
+		f.byName = map[string]int64{}
+	}
+	// Mirrors the production partial-unique index groups_name_unique_active: a
+	// duplicate group name must fail. Without this the fake silently hid the bug
+	// where every contributor after the first collided on a fixed group name.
+	if _, dup := f.byName[g.Name]; dup {
+		return ErrGroupExists
+	}
+	if f.nextID == 0 {
+		f.nextID = 900
+	}
+	g.ID = f.nextID
+	f.nextID++
 	cp := *g
 	f.created = &cp
+	f.createdAll = append(f.createdAll, &cp)
 	if f.byID == nil {
 		f.byID = map[int64]*Group{}
 	}
 	f.byID[g.ID] = &cp
+	f.byName[g.Name] = g.ID
 	return nil
 }
 
@@ -137,6 +155,31 @@ func TestEnsureSelfUseAccess_FirstContribution(t *testing.T) {
 	require.NotNil(t, key.lastCreate.GroupID)
 	require.Equal(t, int64(900), *key.lastCreate.GroupID)
 	require.Equal(t, float64(0), key.lastCreate.Quota)
+}
+
+// Each contributor must get their OWN self-use group: groups.name carries a partial
+// unique index, so a fixed name would make every contributor after the first fail
+// with ErrGroupExists (silently, since provisioning is best-effort) — and their
+// accounts must never land in someone else's self-use group.
+func TestEnsureSelfUseAccess_SecondContributorGetsOwnGroup(t *testing.T) {
+	gr := &selfUseGroupRepoFake{}
+	key := &selfUseKeyFake{}
+
+	// User 7 contributes first.
+	svc7 := &AccountService{groupRepo: gr, subscriptionSvc: &selfUseSubFake{}, apiKeyService: key}
+	require.NoError(t, svc7.ensureSelfUseAccess(context.Background(), 7, &Account{ID: 42, Platform: PlatformOpenAI}))
+
+	// User 8 contributes next, holding no self-use subscription of their own.
+	svc8 := &AccountService{groupRepo: gr, subscriptionSvc: &selfUseSubFake{}, apiKeyService: key}
+	require.NoError(t, svc8.ensureSelfUseAccess(context.Background(), 8, &Account{ID: 43, Platform: PlatformOpenAI}))
+
+	require.Len(t, gr.createdAll, 2, "each contributor needs their own self-use group")
+	require.NotEqual(t, gr.createdAll[0].Name, gr.createdAll[1].Name, "self-use group names must be per-user")
+	require.NotEqual(t, gr.createdAll[0].ID, gr.createdAll[1].ID)
+
+	// Isolation: each group holds only its own owner's contributed account.
+	require.Equal(t, []int64{42}, gr.bound[gr.createdAll[0].ID])
+	require.Equal(t, []int64{43}, gr.bound[gr.createdAll[1].ID])
 }
 
 func TestEnsureSelfUseAccess_ReusesExistingGroup(t *testing.T) {

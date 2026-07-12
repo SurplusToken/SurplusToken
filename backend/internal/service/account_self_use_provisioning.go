@@ -47,9 +47,11 @@ type selfUseAPIKeyPort interface {
 }
 
 const (
-	// selfUseGroupName is the display name of the auto-managed per-user self-use
-	// group. The group is hidden from user-facing surfaces, so a fixed name is fine.
-	selfUseGroupName = "自用直连（系统自动）"
+	// selfUseGroupNamePrefix prefixes the auto-managed per-user self-use group name.
+	// groups.name carries a partial UNIQUE index (groups_name_unique_active), so the
+	// name MUST be per-user: a fixed name would make every contributor after the first
+	// fail to create their group with ErrGroupExists.
+	selfUseGroupNamePrefix = "自用直连（系统自动）"
 	// selfUseAPIKeyName names the auto-provisioned self-use API key.
 	selfUseAPIKeyName = "自用直连"
 	// selfUseSubscriptionValidityDays is ~100 years: the subscription is revoked
@@ -79,7 +81,7 @@ func (s *AccountService) ensureSelfUseAccess(ctx context.Context, userID int64, 
 		return fmt.Errorf("lookup self-use group: %w", err)
 	}
 	if !found {
-		groupID, err = s.createSelfUseGroup(ctx, account.Platform)
+		groupID, err = s.createSelfUseGroup(ctx, userID, account.Platform)
 		if err != nil {
 			return fmt.Errorf("create self-use group: %w", err)
 		}
@@ -131,15 +133,22 @@ func (s *AccountService) findUserSelfUseGroupID(ctx context.Context, userID int6
 	return 0, false, nil
 }
 
+// selfUseGroupNameFor builds the per-user self-use group name. It must be unique
+// per user because groups.name has a partial unique index (see the prefix comment).
+func selfUseGroupNameFor(ownerUserID int64) string {
+	return fmt.Sprintf("%s #%d", selfUseGroupNamePrefix, ownerUserID)
+}
+
 // createSelfUseGroup creates the per-user self-use group: subscription-type,
-// unlimited (nil limits), image generation enabled, flagged auto_self_use so it
-// is hidden from user-facing surfaces.
-func (s *AccountService) createSelfUseGroup(ctx context.Context, platform string) (int64, error) {
+// unlimited (nil limits), image generation enabled, flagged auto_self_use.
+// Each contributor gets their OWN group holding only their own accounts; other
+// users hold no subscription to it and therefore can never bind or see it.
+func (s *AccountService) createSelfUseGroup(ctx context.Context, ownerUserID int64, platform string) (int64, error) {
 	if platform == "" {
 		platform = PlatformOpenAI
 	}
 	group := &Group{
-		Name:                 selfUseGroupName,
+		Name:                 selfUseGroupNameFor(ownerUserID),
 		Description:          "系统自动创建：贡献者自用专属分组（仅含本人贡献的账号，按订阅计费、不扣平台余额）",
 		Platform:             platform,
 		RateMultiplier:       1.0,
