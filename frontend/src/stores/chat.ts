@@ -1,152 +1,156 @@
 /**
- * Chat (playground) store.
- *
- * DEMO_MODE = true: fabricates assistant replies locally (typewriter effect) so
- * the ChatView can be previewed on staging without any backend. Flip to false
- * once the dashboard chat endpoint + chatgpt-web bridge are wired.
+ * Chat (playground) store — real chat through the platform gateway using the
+ * logged-in user's OWN API key. No ChatGPT-web bridge here (that comes later).
  */
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { chatAPI, type ChatModel, type ChatMessage, type Conversation, type ChatRoute } from '@/api/chat'
-
-const DEMO_MODE = true
-
-// Merged model list: real API models + web-only (bridge) models, each tagged
-// with its route so the UI can badge it and bill accordingly.
-const DEMO_MODELS: ChatModel[] = [
-  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', route: 'api', group: 'API' },
-  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', route: 'api', group: 'API' },
-  { id: 'gpt-5', label: 'GPT-5', route: 'api', group: 'API' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', route: 'api', group: 'API' },
-  { id: 'web:pro', label: 'Pro', route: 'web', group: 'ChatGPT 网页版' },
-  { id: 'web:extra-high', label: 'Extra High', route: 'web', group: 'ChatGPT 网页版' },
-  { id: 'web:high', label: 'High', route: 'web', group: 'ChatGPT 网页版' },
-  { id: 'web:instant', label: 'Instant 5.5', route: 'web', group: 'ChatGPT 网页版' },
-  { id: 'web:gpt-5.6-sol', label: 'GPT-5.6 Sol', route: 'web', group: 'ChatGPT 网页版' },
-  { id: 'web:o3', label: 'o3', route: 'web', group: 'ChatGPT 网页版' },
-]
+import type { ApiKey } from '@/types'
+import {
+  listActiveKeys,
+  fetchModels,
+  chatCompletion,
+  type ChatMessage,
+  type Conversation,
+  type Attachment,
+  type OAIMessage,
+} from '@/api/chat'
 
 function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-// A canned, markdown-rich reply so the preview exercises headings / lists /
-// inline code / fenced code-block rendering.
-function demoReply(prompt: string, modelLabel: string): string {
-  const trimmed = prompt.length > 60 ? prompt.slice(0, 60) + '…' : prompt
-  return [
-    `收到你的消息:「**${trimmed}**」。这是 **${modelLabel}** 的一条演示回复,用来预览渲染效果。`,
-    '',
-    '要点如下:',
-    '',
-    '1. 这是一个 **Markdown** 渲染演示(标题、列表、代码都能显示)',
-    '2. 行内代码像这样:`const x = 42`',
-    '3. 代码块会带独立样式:',
-    '',
-    '```ts',
-    'function greet(name: string): string {',
-    '  return `Hello, ${name}!`',
-    '}',
-    'console.log(greet("SurplusAI"))',
-    '```',
-    '',
-    '> 说明:当前为演示模式,回复由前端本地生成;接上后端后这里就是真实模型输出。',
-  ].join('\n')
-}
-
 export const useChatStore = defineStore('chat', () => {
-  const models = ref<ChatModel[]>(DEMO_MODE ? DEMO_MODELS : [])
-  const currentModelId = ref<string>(DEMO_MODELS[0].id)
+  const keys = ref<ApiKey[]>([])
+  const selectedKeyId = ref<number | null>(null)
+  const models = ref<string[]>([])
+  const currentModelId = ref<string>('')
   const conversations = ref<Conversation[]>([])
   const messagesByConv = ref<Record<string, ChatMessage[]>>({})
   const currentConvId = ref<string>('')
   const sending = ref(false)
+  const loadingModels = ref(false)
+  const initialized = ref(false)
+  const notice = ref<string>('') // non-fatal banner (no keys / model load failure)
 
-  const currentModel = computed<ChatModel | undefined>(() =>
-    models.value.find((m) => m.id === currentModelId.value),
-  )
-  const currentConversation = computed<Conversation | undefined>(() =>
-    conversations.value.find((c) => c.id === currentConvId.value),
-  )
+  const selectedKey = computed(() => keys.value.find((k) => k.id === selectedKeyId.value))
+  const hasKey = computed(() => !!selectedKey.value)
+  const currentConversation = computed(() => conversations.value.find((c) => c.id === currentConvId.value))
   const currentMessages = computed<ChatMessage[]>(() =>
     currentConvId.value ? messagesByConv.value[currentConvId.value] ?? [] : [],
   )
 
-  function routeOf(modelId: string): ChatRoute {
-    return models.value.find((m) => m.id === modelId)?.route ?? 'api'
-  }
-
-  function newConversation(modelId = currentModelId.value): Conversation {
-    const conv: Conversation = {
-      id: uid(),
-      title: '新对话',
-      route: routeOf(modelId),
-      model: modelId,
-      updatedAt: Date.now(),
-    }
+  function newConversation(): Conversation {
+    const conv: Conversation = { id: uid(), title: '新对话', model: currentModelId.value, updatedAt: Date.now() }
     conversations.value.unshift(conv)
     messagesByConv.value[conv.id] = []
     currentConvId.value = conv.id
-    currentModelId.value = modelId
     return conv
   }
 
   function selectConversation(id: string): void {
-    const conv = conversations.value.find((c) => c.id === id)
-    if (!conv) return
+    if (!messagesByConv.value[id]) return
     currentConvId.value = id
-    currentModelId.value = conv.model
+    const c = currentConversation.value
+    if (c?.model) currentModelId.value = c.model
   }
 
-  function setModel(modelId: string): void {
-    currentModelId.value = modelId
-    const conv = currentConversation.value
-    // Keep the current conversation only if the route matches; otherwise a fresh
-    // send will spawn a new conversation (a conversation is locked to one route).
-    if (conv && conv.route === routeOf(modelId)) {
-      conv.model = modelId
+  function setModel(id: string): void {
+    currentModelId.value = id
+    const c = currentConversation.value
+    if (c) c.model = id
+  }
+
+  async function selectKey(id: number): Promise<void> {
+    selectedKeyId.value = id
+    await loadModels()
+  }
+
+  async function loadModels(): Promise<void> {
+    const k = selectedKey.value
+    if (!k) return
+    loadingModels.value = true
+    notice.value = ''
+    try {
+      models.value = await fetchModels(k.key)
+      if (models.value.length === 0) {
+        notice.value = '该 Key 没有可用模型(检查分组/渠道配置)'
+      } else if (!models.value.includes(currentModelId.value)) {
+        currentModelId.value = models.value[0]
+      }
+    } catch (e) {
+      models.value = []
+      notice.value = `加载模型失败: ${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      loadingModels.value = false
     }
   }
 
-  async function sendMessage(text: string): Promise<void> {
+  // Turn our stored history into an OpenAI messages array (attachments -> content parts).
+  function buildOAIMessages(convId: string): OAIMessage[] {
+    const list = messagesByConv.value[convId] ?? []
+    const out: OAIMessage[] = []
+    for (const m of list) {
+      if (m.pending) continue
+      if (m.role === 'user' && m.attachments && m.attachments.length > 0) {
+        const parts: Exclude<OAIMessage['content'], string> = []
+        if (m.content) parts.push({ type: 'text', text: m.content })
+        for (const a of m.attachments) {
+          if (a.kind === 'image') parts.push({ type: 'image_url', image_url: { url: a.dataUrl } })
+          else if (a.kind === 'text' && a.text) parts.push({ type: 'text', text: `\n[文件 ${a.name}]\n${a.text}` })
+          else parts.push({ type: 'text', text: `\n[附件: ${a.name} (${a.mime || 'file'})]` })
+        }
+        out.push({ role: 'user', content: parts })
+      } else {
+        out.push({ role: m.role, content: m.content })
+      }
+    }
+    return out
+  }
+
+  async function sendMessage(text: string, attachments: Attachment[] = []): Promise<void> {
     const content = text.trim()
-    if (!content || sending.value) return
-
-    // Ensure we have a conversation whose route matches the chosen model.
-    let conv = currentConversation.value
-    if (!conv || conv.route !== routeOf(currentModelId.value)) {
-      conv = newConversation(currentModelId.value)
+    if ((!content && attachments.length === 0) || sending.value) return
+    const k = selectedKey.value
+    if (!k) {
+      notice.value = '请先选择一个可用的 API Key'
+      return
     }
+
+    let conv = currentConversation.value
+    if (!conv) conv = newConversation()
     const convId = conv.id
-    const modelLabel = currentModel.value?.label ?? currentModelId.value
+    const model = currentModelId.value
 
     const list = messagesByConv.value[convId] ?? (messagesByConv.value[convId] = [])
-    list.push({ id: uid(), role: 'user', content, createdAt: Date.now() })
-    if (conv.title === '新对话') conv.title = content.length > 24 ? content.slice(0, 24) + '…' : content
+    list.push({
+      id: uid(),
+      role: 'user',
+      content,
+      attachments: attachments.length ? attachments : undefined,
+      createdAt: Date.now(),
+    })
+    if (conv.title === '新对话' && content) conv.title = content.length > 24 ? content.slice(0, 24) + '…' : content
     conv.updatedAt = Date.now()
 
     const assistant: ChatMessage = {
       id: uid(),
       role: 'assistant',
       content: '',
-      model: modelLabel,
+      model,
       pending: true,
       createdAt: Date.now(),
     }
     list.push(assistant)
     sending.value = true
-
     try {
-      if (DEMO_MODE) {
-        await typewriter(assistant, demoReply(content, modelLabel))
-      } else {
-        const res = await chatAPI.sendMessage({ conversationId: convId, content, model: currentModelId.value })
-        assistant.content = res.text
-        assistant.model = res.model || modelLabel
-      }
+      const msgs = buildOAIMessages(convId)
+      const res = await chatCompletion(k.key, model, msgs)
+      assistant.content = res.content || '(空回复)'
+      assistant.model = res.model
     } catch (e) {
-      assistant.content = `⚠️ 出错了: ${e instanceof Error ? e.message : String(e)}`
+      assistant.content = `⚠️ ${e instanceof Error ? e.message : String(e)}`
+      assistant.error = true
     } finally {
       assistant.pending = false
       sending.value = false
@@ -154,46 +158,41 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // Reveal `full` progressively to simulate streaming.
-  function typewriter(msg: ChatMessage, full: string): Promise<void> {
-    return new Promise((resolve) => {
-      let i = 0
-      const step = Math.max(2, Math.round(full.length / 120))
-      const timer = setInterval(() => {
-        i = Math.min(full.length, i + step)
-        msg.content = full.slice(0, i)
-        if (i >= full.length) {
-          clearInterval(timer)
-          resolve()
-        }
-      }, 16)
-    })
-  }
-
   async function init(): Promise<void> {
-    if (!DEMO_MODE) {
-      try {
-        models.value = await chatAPI.getModels()
-        if (models.value[0]) currentModelId.value = models.value[0].id
-      } catch {
-        // leave empty; UI will show no models
+    if (initialized.value) return
+    initialized.value = true
+    try {
+      keys.value = await listActiveKeys()
+      if (keys.value.length > 0) {
+        selectedKeyId.value = keys.value[0].id
+        await loadModels()
+      } else {
+        notice.value = 'noKeys'
       }
+    } catch (e) {
+      notice.value = `加载 Key 失败: ${e instanceof Error ? e.message : String(e)}`
     }
     if (conversations.value.length === 0) newConversation()
   }
 
   return {
+    keys,
+    selectedKeyId,
+    selectedKey,
     models,
     currentModelId,
     conversations,
     currentConvId,
     sending,
-    currentModel,
+    loadingModels,
+    notice,
+    hasKey,
     currentConversation,
     currentMessages,
     newConversation,
     selectConversation,
     setModel,
+    selectKey,
     sendMessage,
     init,
   }

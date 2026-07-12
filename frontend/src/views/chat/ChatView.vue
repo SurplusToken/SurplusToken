@@ -17,17 +17,37 @@
       <!-- Right: chat column -->
       <section class="flex min-w-0 flex-1 flex-col">
         <!-- Header -->
-        <header class="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-900">
+        <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-2.5 dark:border-dark-700 dark:bg-dark-900">
           <div class="min-w-0">
             <h2 class="truncate text-sm font-semibold text-gray-900 dark:text-white">
               {{ store.currentConversation?.title || t('chat.title') }}
             </h2>
             <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('chat.subtitle') }}</p>
           </div>
-          <span class="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-            {{ t('chat.demoBadge') }}
-          </span>
+          <!-- Key selector -->
+          <div v-if="store.keys.length" class="flex items-center gap-2">
+            <label class="hidden text-xs text-gray-500 dark:text-gray-400 sm:block">{{ t('chat.apiKey') }}</label>
+            <select
+              :value="store.selectedKeyId ?? ''"
+              class="max-w-[200px] truncate rounded-lg border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
+              @change="onKeyChange"
+            >
+              <option v-for="k in store.keys" :key="k.id" :value="k.id">{{ keyLabel(k) }}</option>
+            </select>
+          </div>
         </header>
+
+        <!-- Notice banner -->
+        <div
+          v-if="store.notice"
+          class="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300"
+        >
+          <template v-if="store.notice === 'noKeys'">
+            {{ t('chat.noKeys') }}
+            <router-link to="/keys" class="font-medium underline">{{ t('chat.goCreateKey') }}</router-link>
+          </template>
+          <template v-else>{{ store.notice }}</template>
+        </div>
 
         <!-- Messages -->
         <div ref="scrollRef" class="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5">
@@ -41,11 +61,7 @@
             <p class="text-sm">{{ t('chat.emptyState') }}</p>
           </div>
 
-          <MessageBubble
-            v-for="msg in store.currentMessages"
-            :key="msg.id"
-            :message="msg"
-          />
+          <MessageBubble v-for="msg in store.currentMessages" :key="msg.id" :message="msg" />
         </div>
 
         <!-- Composer -->
@@ -53,8 +69,9 @@
           :models="store.models"
           :current-model-id="store.currentModelId"
           :sending="store.sending"
+          :disabled="!store.hasKey"
           @update:model="store.setModel"
-          @send="store.sendMessage"
+          @send="onSend"
         />
       </section>
     </div>
@@ -69,10 +86,26 @@ import ConversationList from '@/components/chat/ConversationList.vue'
 import MessageBubble from '@/components/chat/MessageBubble.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import { useChatStore } from '@/stores/chat'
+import type { Attachment } from '@/api/chat'
+import type { ApiKey } from '@/types'
 
 const { t } = useI18n()
 const store = useChatStore()
 const scrollRef = ref<HTMLElement | null>(null)
+
+function keyLabel(k: ApiKey): string {
+  const tail = k.key ? k.key.slice(-4) : ''
+  return `${k.name || 'key'} ···${tail}`
+}
+
+function onKeyChange(e: Event) {
+  const id = Number((e.target as HTMLSelectElement).value)
+  if (!Number.isNaN(id)) store.selectKey(id)
+}
+
+function onSend(payload: { text: string; attachments: Attachment[] }) {
+  store.sendMessage(payload.text, payload.attachments)
+}
 
 function scrollToBottom() {
   void nextTick(() => {
@@ -81,7 +114,6 @@ function scrollToBottom() {
   })
 }
 
-// Keep pinned to the bottom as messages arrive / stream in.
 watch(
   () => {
     const msgs = store.currentMessages

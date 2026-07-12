@@ -3,43 +3,69 @@
     <!-- Model row -->
     <div class="mb-2 flex items-center gap-2">
       <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('chat.model') }}</label>
-      <div class="relative">
-        <select
-          :value="currentModelId"
-          class="rounded-lg border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
-          @change="onModelChange"
-        >
-          <optgroup v-for="group in groupedModels" :key="group.name" :label="group.name">
-            <option v-for="m in group.items" :key="m.id" :value="m.id">{{ m.label }}</option>
-          </optgroup>
-        </select>
-      </div>
-      <span
-        v-if="currentModel"
-        class="rounded-full px-2 py-0.5 text-[10px] font-medium"
-        :class="currentModel.route === 'web'
-          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-          : 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'"
+      <select
+        :value="currentModelId"
+        :disabled="disabled || models.length === 0"
+        class="max-w-[240px] truncate rounded-lg border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
+        @change="onModelChange"
       >
-        {{ currentModel.route === 'web' ? t('chat.badgeWeb') : t('chat.badgeApi') }}
-      </span>
+        <option v-if="models.length === 0" value="">{{ t('chat.noModels') }}</option>
+        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+      </select>
+    </div>
+
+    <!-- Attachment chips -->
+    <div v-if="attachments.length" class="mb-2 flex flex-wrap gap-2">
+      <div
+        v-for="a in attachments"
+        :key="a.id"
+        class="group relative flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1.5 pr-6 text-xs dark:border-dark-600 dark:bg-dark-800"
+      >
+        <img v-if="a.kind === 'image'" :src="a.dataUrl" class="h-6 w-6 rounded object-cover" alt="" />
+        <svg v-else class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+        <span class="max-w-[120px] truncate text-gray-700 dark:text-gray-200">{{ a.name }}</span>
+        <button
+          type="button"
+          class="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500"
+          @click="removeAttachment(a.id)"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Input row -->
     <div class="flex items-end gap-2">
+      <button
+        type="button"
+        :disabled="disabled"
+        class="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-40 dark:border-dark-600 dark:text-gray-400 dark:hover:bg-dark-800"
+        :title="t('chat.attach')"
+        @click="fileInput?.click()"
+      >
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+        </svg>
+      </button>
+      <input ref="fileInput" type="file" multiple class="hidden" @change="onFilesPicked" />
+
       <textarea
         ref="taRef"
         v-model="draft"
-        :placeholder="t('chat.placeholder')"
+        :placeholder="disabled ? t('chat.disabledPlaceholder') : t('chat.placeholder')"
+        :disabled="disabled"
         rows="1"
-        class="max-h-40 min-h-[42px] flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 focus:border-primary-400 focus:outline-none dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
+        class="max-h-40 min-h-[42px] flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 focus:border-primary-400 focus:outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
         @input="autoGrow"
         @keydown.enter.exact.prevent="submit"
       ></textarea>
+
       <button
         type="button"
         class="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="sending || !draft.trim()"
+        :disabled="disabled || sending || (!draft.trim() && attachments.length === 0)"
         @click="submit"
       >
         <svg v-if="!sending" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -56,31 +82,73 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { ChatModel } from '@/api/chat'
+import type { Attachment, AttachmentKind } from '@/api/chat'
 
-const props = defineProps<{ models: ChatModel[]; currentModelId: string; sending: boolean }>()
-const emit = defineEmits<{ (e: 'update:model', id: string): void; (e: 'send', text: string): void }>()
+const props = defineProps<{ models: string[]; currentModelId: string; sending: boolean; disabled?: boolean }>()
+const emit = defineEmits<{
+  (e: 'update:model', id: string): void
+  (e: 'send', payload: { text: string; attachments: Attachment[] }): void
+}>()
 
 const { t } = useI18n()
 const draft = ref('')
 const taRef = ref<HTMLTextAreaElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const attachments = ref<Attachment[]>([])
 
-const currentModel = computed(() => props.models.find((m) => m.id === props.currentModelId))
+const MAX_BYTES = 10 * 1024 * 1024
+const TEXT_EXT = /\.(txt|md|markdown|json|csv|tsv|log|ya?ml|xml|html?|css|js|ts|tsx|jsx|py|go|rs|java|c|cpp|h|sh|sql|toml|ini|env)$/i
 
-const groupedModels = computed(() => {
-  const groups: { name: string; items: ChatModel[] }[] = []
-  for (const m of props.models) {
-    let g = groups.find((x) => x.name === m.group)
-    if (!g) {
-      g = { name: m.group, items: [] }
-      groups.push(g)
+function uid(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
+
+function kindOf(file: File): AttachmentKind {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('text/') || TEXT_EXT.test(file.name)) return 'text'
+  return 'file'
+}
+
+function readAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
+function readAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(r.error)
+    r.readAsText(file)
+  })
+}
+
+async function onFilesPicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  for (const file of files) {
+    if (file.size > MAX_BYTES) continue
+    const kind = kindOf(file)
+    try {
+      const dataUrl = await readAsDataURL(file)
+      const att: Attachment = { id: uid(), name: file.name, mime: file.type, kind, size: file.size, dataUrl }
+      if (kind === 'text') att.text = await readAsText(file)
+      attachments.value.push(att)
+    } catch {
+      /* skip unreadable file */
     }
-    g.items.push(m)
   }
-  return groups
-})
+  input.value = '' // allow re-picking the same file
+}
+
+function removeAttachment(id: string) {
+  attachments.value = attachments.value.filter((a) => a.id !== id)
+}
 
 function onModelChange(e: Event) {
   emit('update:model', (e.target as HTMLSelectElement).value)
@@ -95,9 +163,10 @@ function autoGrow() {
 
 function submit() {
   const text = draft.value.trim()
-  if (!text || props.sending) return
-  emit('send', text)
+  if ((!text && attachments.value.length === 0) || props.sending || props.disabled) return
+  emit('send', { text, attachments: attachments.value.slice() })
   draft.value = ''
+  attachments.value = []
   void nextTick(() => autoGrow())
 }
 </script>
