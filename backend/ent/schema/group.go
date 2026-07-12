@@ -45,6 +45,9 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Bool("dynamic_sharing_pool").
+			Default(false).
+			Comment("是否为动态共享池；启用后仅调度用户贡献账号并应用账号共享报价"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).

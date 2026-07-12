@@ -141,6 +141,40 @@ func TestAdminService_ListGroups_PassesSortParams(t *testing.T) {
 	}, repo.listWithFiltersParams)
 }
 
+func TestAdminService_CreateGroup_DynamicSharingPoolNormalizesFixedRate(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name: "dynamic", Platform: PlatformOpenAI, RateMultiplier: 2.5,
+		SubscriptionType: SubscriptionTypeStandard, DynamicSharingPool: true,
+	})
+	require.NoError(t, err)
+	require.True(t, group.DynamicSharingPool)
+	require.Equal(t, 1.0, group.RateMultiplier)
+}
+
+func TestAdminService_CreateGroup_DynamicSharingPoolRejectsSubscription(t *testing.T) {
+	svc := &adminServiceImpl{groupRepo: &groupRepoStubForAdmin{}}
+	_, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name: "dynamic-sub", RateMultiplier: 1, SubscriptionType: SubscriptionTypeSubscription,
+		DynamicSharingPool: true,
+	})
+	require.EqualError(t, err, "dynamic sharing pool must use standard billing")
+}
+
+func TestAdminService_UpdateGroup_EnablingDynamicSharingPoolNormalizesRate(t *testing.T) {
+	repo := &groupRepoStubForAdmin{getByID: &Group{
+		ID: 1, Name: "fixed", Platform: PlatformOpenAI, RateMultiplier: 2,
+		SubscriptionType: SubscriptionTypeStandard, Status: StatusActive,
+	}}
+	svc := &adminServiceImpl{groupRepo: repo}
+	enabled := true
+	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{DynamicSharingPool: &enabled})
+	require.NoError(t, err)
+	require.True(t, group.DynamicSharingPool)
+	require.Equal(t, 1.0, group.RateMultiplier)
+}
+
 // TestAdminService_CreateGroup_WithImagePricing 测试创建分组时 ImagePrice 字段正确传递
 func TestAdminService_CreateGroup_WithImagePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}

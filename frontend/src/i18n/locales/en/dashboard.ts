@@ -528,6 +528,7 @@ export default {
   },
 
   accountPool: {
+		dynamicSharingPool: 'Dynamic pool',
     title: 'Account Pool',
     description: 'Shared OAuth accounts contributed by internal users',
     searchPlaceholder: 'Search accounts...',

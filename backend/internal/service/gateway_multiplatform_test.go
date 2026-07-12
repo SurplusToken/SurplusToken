@@ -458,6 +458,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_DynamicSharingRangeUse
 		t.Helper()
 		ctx := WithRequestingUserID(context.Background(), 99)
 		ctx = WithSharingRateAcceptedRange(ctx, ptr(min), ptr(max))
+		ctx = WithDynamicSharingPoolEnabled(ctx, enabled)
 		ctx = WithSharingRangeFilterEnabled(ctx, enabled)
 		account, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
 		require.NoError(t, err)
@@ -2226,6 +2227,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateFallsThroughLo
 	}
 	ctx := WithRequestingUserID(context.Background(), 99)
 	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
 	ctx = WithSharingRangeFilterEnabled(ctx, true)
 
 	selection, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", 99)
@@ -2273,6 +2275,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateFallsThroughWh
 	}
 	ctx := WithRequestingUserID(context.Background(), 99)
 	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
 	ctx = WithSharingRangeFilterEnabled(ctx, true)
 
 	selection, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", 99)
@@ -2334,6 +2337,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness_SharingRateNoLoadKeepsMod
 	}
 	ctx := WithRequestingUserID(context.Background(), 99)
 	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
 	ctx = WithSharingRangeFilterEnabled(ctx, true)
 
 	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "claude-opus-4", nil, "", 99)
@@ -3548,6 +3552,18 @@ func TestGatewayService_GroupContext_OverwritesInvalidContextGroup(t *testing.T)
 	got, ok := ctx.Value(ctxkey.Group).(*Group)
 	require.True(t, ok)
 	require.Same(t, hydratedGroup, got)
+}
+
+func TestGatewayService_GroupContext_ResetsDynamicPoolOnResolvedFixedFallback(t *testing.T) {
+	ctx := WithDynamicSharingPoolEnabled(context.Background(), true)
+	ctx = WithSharingRangeFilterEnabled(ctx, true)
+	fixed := &Group{
+		ID: 7, Platform: PlatformAnthropic, Status: StatusActive,
+		Hydrated: true, SubscriptionType: SubscriptionTypeStandard,
+	}
+	ctx = (&GatewayService{}).withGroupContext(ctx, fixed)
+	require.False(t, DynamicSharingPoolEnabledFromContext(ctx))
+	require.False(t, SharingRangeFilterEnabledFromContext(ctx))
 }
 
 func TestGatewayService_GroupResolution_FallbackUsesLiteOnce(t *testing.T) {

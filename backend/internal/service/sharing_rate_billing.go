@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"log/slog"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 type sharingRateCoOwnerReader interface {
@@ -13,6 +15,19 @@ type sharingRateBillingDecision struct {
 	ContributionEligible              bool
 	ContributionSharingRateMultiplier float64
 	UsageSharingRateMultiplier        *float64
+}
+
+func shouldApplySharingRateBilling(ctx context.Context, apiKeyGroup *Group, globalEnabled bool) bool {
+	if !globalEnabled {
+		return false
+	}
+	group := apiKeyGroup
+	if ctx != nil {
+		if resolved, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(resolved) {
+			group = resolved
+		}
+	}
+	return group != nil && group.IsDynamicSharingPool()
 }
 
 // applySharingRateBilling resolves ownership before applying marketplace

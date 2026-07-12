@@ -533,6 +533,7 @@ export default {
   },
 
   accountPool: {
+		dynamicSharingPool: '动态池',
     title: '账号池',
     description: '内部用户贡献的共享 OAuth 账号',
     searchPlaceholder: '搜索账号...',

@@ -148,7 +148,7 @@
                     :key="group.id"
                     class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
                   >
-                    {{ group.name }}
+                    {{ group.name }}<template v-if="group.dynamic_sharing_pool"> · {{ t('accountPool.dynamicSharingPool') }}</template>
                   </span>
                   <span
                     v-if="account.model_mapping && Object.keys(account.model_mapping).length > 0"
@@ -321,7 +321,7 @@
                     :key="group.id"
                     class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600 dark:bg-dark-700 dark:text-dark-300"
                   >
-                    {{ group.name }}
+                    {{ group.name }}<template v-if="group.dynamic_sharing_pool"> · {{ t('accountPool.dynamicSharingPool') }}</template>
                   </span>
                   <span
                     v-if="!account.groups || account.groups.length === 0"

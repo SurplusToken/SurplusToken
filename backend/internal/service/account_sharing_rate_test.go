@@ -207,7 +207,8 @@ func TestCompareSharingRateForScheduling_UsesConsumerEffectiveRateOnlyWhenEnable
 	disabled := WithRequestingUserID(t.Context(), consumerID)
 	require.Zero(t, compareSharingRateForScheduling(disabled, &cheap, &expensive))
 
-	enabled := WithSharingRangeFilterEnabled(disabled, true)
+	enabled := WithDynamicSharingPoolEnabled(disabled, true)
+	enabled = WithSharingRangeFilterEnabled(enabled, true)
 	require.Negative(t, compareSharingRateForScheduling(enabled, &cheap, &expensive))
 	require.Positive(t, compareSharingRateForScheduling(enabled, &expensive, &cheap))
 
@@ -226,12 +227,38 @@ func TestFilterByMinSharingRate_KeepsWholeLowestPriceTier(t *testing.T) {
 		{account: &Account{ID: 3, OwnerUserID: &ownerID, SharingRateMultiplier: f64(1.5)}},
 	}
 	ctx := WithRequestingUserID(t.Context(), 99)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
 	ctx = WithSharingRangeFilterEnabled(ctx, true)
 
 	got := filterByMinSharingRate(ctx, accounts)
 	require.Len(t, got, 2)
 	require.ElementsMatch(t, []int64{1, 2}, []int64{got[0].account.ID, got[1].account.ID})
 	require.Len(t, filterByMinSharingRate(t.Context(), accounts), 3, "feature-off path must remain inert")
+}
+
+func TestFilterSurplusAISchedulableAccounts_DynamicPoolExcludesSystemAccounts(t *testing.T) {
+	ownerID := int64(10)
+	contributed := contributedAccount(ownerID, nil, f64(1.2))
+	contributed.ID = 2
+	contributed.Schedulable = true
+	system := Account{ID: 1, Status: StatusActive, Type: AccountTypeOAuth, Schedulable: true}
+
+	fixed := filterSurplusAISchedulableAccounts(t.Context(), []Account{system, contributed})
+	require.Len(t, fixed, 2, "fixed groups retain their existing mixed candidate set")
+
+	ctx := WithRequestingUserID(t.Context(), 99)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
+	dynamic := filterSurplusAISchedulableAccounts(ctx, []Account{system, contributed})
+	require.Len(t, dynamic, 1)
+	require.Equal(t, contributed.ID, dynamic[0].ID)
+}
+
+func TestCompareSharingRateForScheduling_FixedGroupIgnoresQuotes(t *testing.T) {
+	ownerID := int64(10)
+	cheap := contributedAccount(ownerID, nil, f64(0.5))
+	expensive := contributedAccount(ownerID, nil, f64(2))
+	ctx := WithSharingRangeFilterEnabled(t.Context(), true)
+	require.Zero(t, compareSharingRateForScheduling(ctx, &cheap, &expensive))
 }
 
 func TestSharingRateWriteValidationRejectsMoreThanFourDecimals(t *testing.T) {

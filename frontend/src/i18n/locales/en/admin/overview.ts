@@ -840,6 +840,13 @@ export default {
       groupUpdatedSuccess: 'Group updated successfully',
       groupDeletedSuccess: 'Group deleted successfully',
       rateMultiplierHint: 'Cost multiplier for this group (e.g., 1.5 = 150% of base cost)',
+      dynamicSharingPool: {
+        title: 'Dynamic shared pool',
+        enable: 'Use only contributed accounts and their account quotes',
+        hint: 'API keys in this group schedule only contributed accounts assigned to it, filtered by the user range and ordered from the lowest quote.',
+        rateHint: 'The group base multiplier is fixed at 1.0x for a dynamic shared pool.',
+        badge: 'Dynamic pool',
+      },
       exclusiveHint: 'Exclusive group, manually assign to specific users',
       exclusiveTooltip: {
         title: 'What is an exclusive group?',

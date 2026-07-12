@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,6 +15,22 @@ type sharingRateCoOwnerReaderStub struct {
 	ids   []int64
 	err   error
 	calls int
+}
+
+func TestShouldApplySharingRateBilling_RequiresDynamicStandardGroup(t *testing.T) {
+	ctx := t.Context()
+	require.False(t, shouldApplySharingRateBilling(ctx, nil, true))
+	require.False(t, shouldApplySharingRateBilling(ctx, &Group{SubscriptionType: SubscriptionTypeStandard}, true))
+	require.False(t, shouldApplySharingRateBilling(ctx, &Group{DynamicSharingPool: true, SubscriptionType: SubscriptionTypeStandard}, false))
+	require.False(t, shouldApplySharingRateBilling(ctx, &Group{DynamicSharingPool: true, SubscriptionType: SubscriptionTypeSubscription}, true))
+	require.True(t, shouldApplySharingRateBilling(ctx, &Group{DynamicSharingPool: true, SubscriptionType: SubscriptionTypeStandard}, true))
+}
+
+func TestShouldApplySharingRateBilling_ResolvedFallbackGroupWins(t *testing.T) {
+	dynamic := &Group{DynamicSharingPool: true, SubscriptionType: SubscriptionTypeStandard}
+	fixedResolved := &Group{ID: 9, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true, SubscriptionType: SubscriptionTypeStandard}
+	ctx := context.WithValue(t.Context(), ctxkey.Group, fixedResolved)
+	require.False(t, shouldApplySharingRateBilling(ctx, dynamic, true))
 }
 
 func (s *sharingRateCoOwnerReaderStub) ListCoOwnerUserIDsByAccount(context.Context, int64) ([]int64, error) {

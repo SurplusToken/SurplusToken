@@ -816,6 +816,13 @@ export default {
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
       rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      dynamicSharingPool: {
+        title: '动态共享池',
+        enable: '仅调度用户贡献账号并使用账号报价',
+        hint: 'API Key 绑定此分组后，只会从加入该分组的贡献账号中按用户接受区间和报价从低到高调度。',
+        rateHint: '动态共享池的分组基准倍率固定为 1.0x。',
+        badge: '动态池',
+      },
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',

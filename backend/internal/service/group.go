@@ -19,6 +19,10 @@ type Group struct {
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// DynamicSharingPool marks a standard balance group whose candidate set is
+	// restricted to user-contributed accounts. Its fixed rate is normalized to
+	// 1x; external consumers are filtered and billed by each account's quote.
+	DynamicSharingPool bool
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool
@@ -100,6 +104,10 @@ func (g *Group) IsActive() bool {
 
 func (g *Group) IsSubscriptionType() bool {
 	return g.SubscriptionType == SubscriptionTypeSubscription
+}
+
+func (g *Group) IsDynamicSharingPool() bool {
+	return g != nil && g.DynamicSharingPool && !g.IsSubscriptionType()
 }
 
 func (g *Group) HasDailyLimit() bool {

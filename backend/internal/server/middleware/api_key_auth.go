@@ -42,7 +42,9 @@ func setAuthRequestContext(c *gin.Context, apiKey *service.APIKey, settingServic
 	ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 	ctx = service.WithRequestingUserID(ctx, apiKey.User.ID)
 	ctx = service.WithSharingRateAcceptedRange(ctx, apiKey.User.SharingRateMin, apiKey.User.SharingRateMax)
-	filterEnabled := settingService != nil && settingService.IsSharingRangeFilterEnabled(ctx)
+	dynamicPool := apiKey.Group != nil && apiKey.Group.IsDynamicSharingPool()
+	ctx = service.WithDynamicSharingPoolEnabled(ctx, dynamicPool)
+	filterEnabled := dynamicPool && settingService != nil && settingService.IsSharingRangeFilterEnabled(ctx)
 	ctx = service.WithSharingRangeFilterEnabled(ctx, filterEnabled)
 	c.Request = c.Request.WithContext(ctx)
 }

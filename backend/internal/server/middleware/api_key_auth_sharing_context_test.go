@@ -97,6 +97,7 @@ func TestAPIKeyAuthSetsSharingRateContext_StandardNormalMode(t *testing.T) {
 		Key:    "test-key",
 		Status: service.StatusActive,
 		User:   user,
+		Group:  &service.Group{ID: 1, Platform: service.PlatformAnthropic, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard, DynamicSharingPool: true},
 	}
 	apiKeyRepo := &stubApiKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
@@ -154,6 +155,7 @@ func TestAPIKeyAuthGoogleSetsSharingRateContext_SimpleMode(t *testing.T) {
 		Key:    "g-key",
 		Status: service.StatusActive,
 		User:   user,
+		Group:  &service.Group{ID: 2, Platform: service.PlatformGemini, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard, DynamicSharingPool: true},
 	}
 	apiKeyRepo := &stubApiKeyRepo{
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
@@ -240,4 +242,20 @@ func TestNewAPIKeyAuthMiddleware_ThreeArgCallCompiles(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.False(t, gotFilterEnabled)
+}
+
+func TestSetAuthRequestContext_FixedGroupKeepsMarketplaceFilterOff(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/t", nil)
+	candidate := &service.APIKey{
+		User: sharingContextTestUser(12),
+		Group: &service.Group{
+			ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+			Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard,
+		},
+	}
+	setAuthRequestContext(c, candidate, sharingRangeFilterEnabledSettingService())
+	require.False(t, service.DynamicSharingPoolEnabledFromContext(c.Request.Context()))
+	require.False(t, service.SharingRangeFilterEnabledFromContext(c.Request.Context()))
 }

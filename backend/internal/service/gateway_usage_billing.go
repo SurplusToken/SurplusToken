@@ -751,7 +751,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
 	}
-	sharingBillingEnabled := s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx)
+	sharingBillingEnabled := shouldApplySharingRateBilling(ctx, apiKey.Group,
+		s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx))
 	sharingDecision := applySharingRateBilling(
 		ctx,
 		cost,

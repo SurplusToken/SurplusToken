@@ -183,7 +183,7 @@ func (a *Account) EffectiveSharingRateMultiplier(consumerUserID int64) float64 {
 // request. Stored prices have four decimal places, so integer ranks avoid
 // float equality drift when schedulers build price tiers.
 func compareSharingRateForScheduling(ctx context.Context, candidate, current *Account) int {
-	if !SharingRangeFilterEnabledFromContext(ctx) {
+	if !DynamicSharingPoolEnabledFromContext(ctx) || !SharingRangeFilterEnabledFromContext(ctx) {
 		return 0
 	}
 	consumerUserID := RequestingUserIDFromContext(ctx)
@@ -437,6 +437,25 @@ func SharingRangeFilterEnabledFromContext(ctx context.Context) bool {
 	return false
 }
 
+type dynamicSharingPoolContextKeyType struct{}
+
+var dynamicSharingPoolContextKey = dynamicSharingPoolContextKeyType{}
+
+// WithDynamicSharingPoolEnabled records whether the resolved API-key group is
+// a dedicated dynamic shared-account pool. Fixed groups must never inherit the
+// marketplace's filtering, ordering, or account-only candidate semantics.
+func WithDynamicSharingPoolEnabled(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, dynamicSharingPoolContextKey, enabled)
+}
+
+func DynamicSharingPoolEnabledFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, _ := ctx.Value(dynamicSharingPoolContextKey).(bool)
+	return enabled
+}
+
 // IsSurplusAIOwner reports whether userID is an owner of this account. The owner
 // set is the single primary owner_user_id unioned with the admin-assigned
 // co-owners (account_co_owners), hydrated into CoOwnerUserIDs at load time.
@@ -510,10 +529,14 @@ func filterSurplusAISchedulableAccounts(ctx context.Context, accounts []Account)
 		return accounts
 	}
 	requesterID := RequestingUserIDFromContext(ctx)
-	filterEnabled := SharingRangeFilterEnabledFromContext(ctx)
+	dynamicPool := DynamicSharingPoolEnabledFromContext(ctx)
+	filterEnabled := dynamicPool && SharingRangeFilterEnabledFromContext(ctx)
 	acceptedMin, acceptedMax := SharingRateAcceptedRangeFromContext(ctx)
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
+		if dynamicPool && !account.IsUserContributed() {
+			continue
+		}
 		if !account.IsSurplusAISchedulableType() || !account.IsSchedulable() {
 			continue
 		}

@@ -41,6 +41,7 @@ func TestGeminiMessagesCompatService_IsBetterAccountUsesLowestSharingRate(t *tes
 	ctx := WithRequestingUserID(t.Context(), 99)
 
 	require.False(t, svc.isBetterGeminiAccount(ctx, cheap, expensive), "feature-off path must keep legacy priority ordering")
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
 	ctx = WithSharingRangeFilterEnabled(ctx, true)
 	require.True(t, svc.isBetterGeminiAccount(ctx, cheap, expensive), "lower effective price must outrank priority for a new selection")
 	require.False(t, svc.isBetterGeminiAccount(ctx, expensive, cheap))

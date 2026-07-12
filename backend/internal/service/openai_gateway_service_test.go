@@ -750,6 +750,7 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 func openAISharingRateSchedulingTestContext(enabled bool) context.Context {
 	ctx := WithRequestingUserID(context.Background(), 999)
 	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithDynamicSharingPoolEnabled(ctx, enabled)
 	return WithSharingRangeFilterEnabled(ctx, enabled)
 }
 

@@ -831,10 +831,11 @@ func (s *GatewayService) withGroupContext(ctx context.Context, group *Group) con
 	if !IsGroupContextValid(group) {
 		return ctx
 	}
-	if existing, ok := ctx.Value(ctxkey.Group).(*Group); ok && existing != nil && existing.ID == group.ID && IsGroupContextValid(existing) {
-		return ctx
-	}
-	return context.WithValue(ctx, ctxkey.Group, group)
+	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	dynamicPool := group.IsDynamicSharingPool()
+	ctx = WithDynamicSharingPoolEnabled(ctx, dynamicPool)
+	filterEnabled := dynamicPool && s.settingService != nil && s.settingService.IsSharingRangeFilterEnabled(ctx)
+	return WithSharingRangeFilterEnabled(ctx, filterEnabled)
 }
 
 func (s *GatewayService) groupFromContext(ctx context.Context, groupID int64) *Group {

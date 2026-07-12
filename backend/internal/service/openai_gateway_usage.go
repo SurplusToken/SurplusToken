@@ -231,7 +231,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
 	}
-	sharingBillingEnabled := s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx)
+	sharingBillingEnabled := shouldApplySharingRateBilling(ctx, apiKey.Group,
+		s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx))
 	sharingDecision := applySharingRateBilling(
 		ctx,
 		cost,

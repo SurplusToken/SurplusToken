@@ -243,10 +243,13 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
+          <template #cell-rate_multiplier="{ value, row }">
+            <span v-if="row.dynamic_sharing_pool" class="badge badge-primary">
+              {{ t("admin.groups.dynamicSharingPool.badge") }}
+            </span>
+            <span v-else class="text-sm text-gray-700 dark:text-gray-300">
+              {{ value }}x
+            </span>
           </template>
 
           <template #cell-is_exclusive="{ value }">
@@ -547,6 +550,33 @@
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
         <div>
+          <label class="input-label">{{ t("admin.groups.dynamicSharingPool.title") }}</label>
+          <button
+            type="button"
+            :aria-pressed="createForm.dynamic_sharing_pool"
+            class="flex items-center gap-3"
+            @click="createForm.dynamic_sharing_pool = !createForm.dynamic_sharing_pool"
+          >
+            <span
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.dynamic_sharing_pool ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.dynamic_sharing_pool ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </span>
+            <span class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t("admin.groups.dynamicSharingPool.enable") }}
+            </span>
+          </button>
+          <p class="input-hint">{{ t("admin.groups.dynamicSharingPool.hint") }}</p>
+        </div>
+        <div>
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -557,9 +587,14 @@
             min="0.001"
             required
             class="input"
+            :disabled="createForm.dynamic_sharing_pool"
             data-tour="group-form-multiplier"
           />
-          <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
+          <p class="input-hint">
+            {{ createForm.dynamic_sharing_pool
+              ? t("admin.groups.dynamicSharingPool.rateHint")
+              : t("admin.groups.rateMultiplierHint") }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -657,6 +692,7 @@
             <Select
               v-model="createForm.subscription_type"
               :options="subscriptionTypeOptions"
+              :disabled="createForm.dynamic_sharing_pool"
             />
             <p class="input-hint">
               {{ t("admin.groups.subscription.typeHint") }}
@@ -2025,6 +2061,34 @@
           </p>
         </div>
         <div>
+          <label class="input-label">{{ t("admin.groups.dynamicSharingPool.title") }}</label>
+          <button
+            type="button"
+            :aria-pressed="editForm.dynamic_sharing_pool"
+            :disabled="editForm.subscription_type === 'subscription'"
+            class="flex items-center gap-3 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="editForm.dynamic_sharing_pool = !editForm.dynamic_sharing_pool"
+          >
+            <span
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.dynamic_sharing_pool ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.dynamic_sharing_pool ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </span>
+            <span class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t("admin.groups.dynamicSharingPool.enable") }}
+            </span>
+          </button>
+          <p class="input-hint">{{ t("admin.groups.dynamicSharingPool.hint") }}</p>
+        </div>
+        <div>
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -2035,8 +2099,12 @@
             min="0.001"
             required
             class="input"
+            :disabled="editForm.dynamic_sharing_pool"
             data-tour="group-form-multiplier"
           />
+          <p v-if="editForm.dynamic_sharing_pool" class="input-hint">
+            {{ t("admin.groups.dynamicSharingPool.rateHint") }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -3867,6 +3935,7 @@ const createForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  dynamic_sharing_pool: false,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -4211,6 +4280,7 @@ const editForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  dynamic_sharing_pool: false,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -4596,6 +4666,7 @@ const closeCreateModal = () => {
   createForm.description = "";
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
+  createForm.dynamic_sharing_pool = false;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
@@ -4757,6 +4828,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
+  editForm.dynamic_sharing_pool = group.dynamic_sharing_pool ?? false;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
@@ -4991,6 +5063,23 @@ const confirmDelete = async () => {
 };
 
 // 监听 subscription_type 变化，订阅模式时 is_exclusive 默认为 true；标准模式清空高峰配置
+watch(
+  () => createForm.dynamic_sharing_pool,
+  (enabled) => {
+    if (!enabled) return;
+    createForm.rate_multiplier = 1.0;
+    createForm.subscription_type = "standard";
+    createForm.peak_rate_enabled = false;
+  },
+);
+
+watch(
+  () => editForm.dynamic_sharing_pool,
+  (enabled) => {
+    if (enabled) editForm.rate_multiplier = 1.0;
+  },
+);
+
 watch(
   () => createForm.subscription_type,
   (newVal) => {

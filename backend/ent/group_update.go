@@ -117,6 +117,20 @@ func (_u *GroupUpdate) AddRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (_u *GroupUpdate) SetDynamicSharingPool(v bool) *GroupUpdate {
+	_u.mutation.SetDynamicSharingPool(v)
+	return _u
+}
+
+// SetNillableDynamicSharingPool sets the "dynamic_sharing_pool" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicSharingPool(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicSharingPool(*v)
+	}
+	return _u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_u *GroupUpdate) SetPeakRateEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetPeakRateEnabled(v)
@@ -1225,6 +1239,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.DynamicSharingPool(); ok {
+		_spec.SetField(group.FieldDynamicSharingPool, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
 	}
@@ -1838,6 +1855,20 @@ func (_u *GroupUpdateOne) SetNillableRateMultiplier(v *float64) *GroupUpdateOne 
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *GroupUpdateOne) AddRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (_u *GroupUpdateOne) SetDynamicSharingPool(v bool) *GroupUpdateOne {
+	_u.mutation.SetDynamicSharingPool(v)
+	return _u
+}
+
+// SetNillableDynamicSharingPool sets the "dynamic_sharing_pool" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicSharingPool(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicSharingPool(*v)
+	}
 	return _u
 }
 
@@ -2978,6 +3009,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicSharingPool(); ok {
+		_spec.SetField(group.FieldDynamicSharingPool, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)

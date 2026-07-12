@@ -3342,5 +3342,6 @@ func newSchedulerSharingRateService(accounts []Account, cfg *config.Config, conc
 func schedulerSharingRateContext(enabled bool) context.Context {
 	ctx := WithRequestingUserID(context.Background(), 79999)
 	ctx = WithSharingRateAcceptedRange(ctx, nil, nil)
+	ctx = WithDynamicSharingPoolEnabled(ctx, enabled)
 	return WithSharingRangeFilterEnabled(ctx, enabled)
 }

@@ -105,6 +105,20 @@ func (_c *GroupCreate) SetNillableRateMultiplier(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (_c *GroupCreate) SetDynamicSharingPool(v bool) *GroupCreate {
+	_c.mutation.SetDynamicSharingPool(v)
+	return _c
+}
+
+// SetNillableDynamicSharingPool sets the "dynamic_sharing_pool" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicSharingPool(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicSharingPool(*v)
+	}
+	return _c
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_c *GroupCreate) SetPeakRateEnabled(v bool) *GroupCreate {
 	_c.mutation.SetPeakRateEnabled(v)
@@ -808,6 +822,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.DynamicSharingPool(); !ok {
+		v := group.DefaultDynamicSharingPool
+		_c.mutation.SetDynamicSharingPool(v)
+	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		v := group.DefaultPeakRateEnabled
 		_c.mutation.SetPeakRateEnabled(v)
@@ -945,6 +963,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "Group.rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.DynamicSharingPool(); !ok {
+		return &ValidationError{Name: "dynamic_sharing_pool", err: errors.New(`ent: missing required field "Group.dynamic_sharing_pool"`)}
 	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		return &ValidationError{Name: "peak_rate_enabled", err: errors.New(`ent: missing required field "Group.peak_rate_enabled"`)}
@@ -1113,6 +1134,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(group.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
+	}
+	if value, ok := _c.mutation.DynamicSharingPool(); ok {
+		_spec.SetField(group.FieldDynamicSharingPool, field.TypeBool, value)
+		_node.DynamicSharingPool = value
 	}
 	if value, ok := _c.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
@@ -1509,6 +1534,18 @@ func (u *GroupUpsert) UpdateRateMultiplier() *GroupUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *GroupUpsert) AddRateMultiplier(v float64) *GroupUpsert {
 	u.Add(group.FieldRateMultiplier, v)
+	return u
+}
+
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (u *GroupUpsert) SetDynamicSharingPool(v bool) *GroupUpsert {
+	u.Set(group.FieldDynamicSharingPool, v)
+	return u
+}
+
+// UpdateDynamicSharingPool sets the "dynamic_sharing_pool" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicSharingPool() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicSharingPool)
 	return u
 }
 
@@ -2323,6 +2360,20 @@ func (u *GroupUpsertOne) AddRateMultiplier(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRateMultiplier() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (u *GroupUpsertOne) SetDynamicSharingPool(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicSharingPool(v)
+	})
+}
+
+// UpdateDynamicSharingPool sets the "dynamic_sharing_pool" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicSharingPool() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicSharingPool()
 	})
 }
 
@@ -3416,6 +3467,20 @@ func (u *GroupUpsertBulk) AddRateMultiplier(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRateMultiplier() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicSharingPool sets the "dynamic_sharing_pool" field.
+func (u *GroupUpsertBulk) SetDynamicSharingPool(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicSharingPool(v)
+	})
+}
+
+// UpdateDynamicSharingPool sets the "dynamic_sharing_pool" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicSharingPool() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicSharingPool()
 	})
 }
 
