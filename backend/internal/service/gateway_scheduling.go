@@ -234,7 +234,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				})
 			}
 
-			if SharingRangeFilterEnabledFromContext(ctx) {
+			if SharingRateActiveFromContext(ctx) {
 				priceFallbacks = append(priceFallbacks, account)
 				if routedCandidate {
 					routingPoolActive = true
@@ -1473,7 +1473,7 @@ func stickyAccountSharingIneligible(ctx context.Context, account *Account) bool 
 		return false
 	}
 	requesterID := RequestingUserIDFromContext(ctx)
-	filterEnabled := SharingRangeFilterEnabledFromContext(ctx)
+	filterEnabled := SharingRateActiveFromContext(ctx)
 	acceptedMin, acceptedMax := SharingRateAcceptedRangeFromContext(ctx)
 	return !account.IsSharingEligibleForConsumer(requesterID, acceptedMin, acceptedMax, filterEnabled)
 }
@@ -1509,7 +1509,7 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 // requesting consumer. It is intentionally inert while the marketplace range
 // filter is disabled, preserving the legacy priority/load selection behavior.
 func filterByMinSharingRate(ctx context.Context, accounts []accountWithLoad) []accountWithLoad {
-	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+	if len(accounts) <= 1 || !SharingRateActiveFromContext(ctx) {
 		return accounts
 	}
 	consumerUserID := RequestingUserIDFromContext(ctx)
@@ -1701,7 +1701,7 @@ func sortAccountsBySharingRatePriorityOnly(ctx context.Context, accounts []*Acco
 }
 
 func sortAccountsBySharingRateTiers(ctx context.Context, accounts []*Account, sortTier func([]*Account)) {
-	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+	if len(accounts) <= 1 || !SharingRateActiveFromContext(ctx) {
 		sortTier(accounts)
 		return
 	}
@@ -1743,7 +1743,7 @@ func sortAccountLoadsBySharingRatePriorityLoadAndLastUsed(ctx context.Context, a
 		})
 		shuffleWithinSortGroups(tier)
 	}
-	if len(accounts) <= 1 || !SharingRangeFilterEnabledFromContext(ctx) {
+	if len(accounts) <= 1 || !SharingRateActiveFromContext(ctx) {
 		sortTier(accounts)
 		return
 	}

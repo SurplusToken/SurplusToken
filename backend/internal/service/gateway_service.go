@@ -1098,7 +1098,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// result, so reading/writing the shared cache would leak one consumer's
 	// filtered list to another (or serve a stale unfiltered list). Bypass the
 	// cache entirely in that case; flag=false keeps pre-feature cache behavior.
-	sharingFilterActive := SharingRangeFilterEnabledFromContext(ctx)
+	sharingFilterActive := SharingRateActiveFromContext(ctx)
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if !sharingFilterActive && s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {

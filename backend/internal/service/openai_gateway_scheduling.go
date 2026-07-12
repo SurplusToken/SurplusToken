@@ -532,7 +532,7 @@ func (s *OpenAIGatewayService) withOpenAIQuotaAutoPauseContext(ctx context.Conte
 // priority/load/LRU order first, then apply compact/capability hard tiers after
 // this helper so price only competes within the same eligible tier.
 func sortOpenAIAccountsBySharingRate(ctx context.Context, accounts []*Account) {
-	if len(accounts) < 2 || !SharingRangeFilterEnabledFromContext(ctx) {
+	if len(accounts) < 2 || !SharingRateActiveFromContext(ctx) {
 		return
 	}
 	sort.SliceStable(accounts, func(i, j int) bool {
@@ -541,7 +541,7 @@ func sortOpenAIAccountsBySharingRate(ctx context.Context, accounts []*Account) {
 }
 
 func sortOpenAIAccountLoadsBySharingRate(ctx context.Context, accounts []accountWithLoad) {
-	if len(accounts) < 2 || !SharingRangeFilterEnabledFromContext(ctx) {
+	if len(accounts) < 2 || !SharingRateActiveFromContext(ctx) {
 		return
 	}
 	sort.SliceStable(accounts, func(i, j int) bool {
@@ -878,7 +878,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 			// Preserve the exact legacy behavior while the marketplace is off. When
 			// enabled, try the next price tier before waiting on a busy new selection.
-			if !SharingRangeFilterEnabledFromContext(ctx) {
+			if !SharingRateActiveFromContext(ctx) {
 				return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 					AccountID:      account.ID,
 					MaxConcurrency: account.Concurrency,

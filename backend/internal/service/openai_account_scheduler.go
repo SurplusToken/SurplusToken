@@ -723,7 +723,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	filtered []*Account,
 	loadMap map[int64]*AccountLoadInfo,
 ) openAIAccountLoadPlan {
-	sharingRateOrdering := SharingRangeFilterEnabledFromContext(ctx)
+	sharingRateOrdering := SharingRateActiveFromContext(ctx)
 	consumerUserID := RequestingUserIDFromContext(ctx)
 	allCandidates := make([]openAIAccountCandidateScore, 0, len(filtered))
 	for _, account := range filtered {

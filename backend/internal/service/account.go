@@ -183,7 +183,7 @@ func (a *Account) EffectiveSharingRateMultiplier(consumerUserID int64) float64 {
 // request. Stored prices have four decimal places, so integer ranks avoid
 // float equality drift when schedulers build price tiers.
 func compareSharingRateForScheduling(ctx context.Context, candidate, current *Account) int {
-	if !DynamicSharingPoolEnabledFromContext(ctx) || !SharingRangeFilterEnabledFromContext(ctx) {
+	if !SharingRateActiveFromContext(ctx) {
 		return 0
 	}
 	consumerUserID := RequestingUserIDFromContext(ctx)
@@ -456,6 +456,20 @@ func DynamicSharingPoolEnabledFromContext(ctx context.Context) bool {
 	return enabled
 }
 
+// SharingRateActiveFromContext reports whether the shared-account-rate marketplace
+// machinery applies to the current request: the consumer's accepted-price filter,
+// price-tiered scheduling, and the per-consumer models list.
+//
+// Sharing rates are scoped to dynamic sharing pool groups — outside such a group the
+// rate is NOT billed (see shouldApplySharingRateBilling), so it must not skew
+// scheduling or the models list there either. A contributed account priced at 0.15
+// would otherwise monopolize an ordinary group's traffic on a price nobody is charged.
+//
+// Every marketplace-aware path must gate on this, never on the raw setting flag alone.
+func SharingRateActiveFromContext(ctx context.Context) bool {
+	return DynamicSharingPoolEnabledFromContext(ctx) && SharingRangeFilterEnabledFromContext(ctx)
+}
+
 // IsSurplusAIOwner reports whether userID is an owner of this account. The owner
 // set is the single primary owner_user_id unioned with the admin-assigned
 // co-owners (account_co_owners), hydrated into CoOwnerUserIDs at load time.
@@ -530,7 +544,7 @@ func filterSurplusAISchedulableAccounts(ctx context.Context, accounts []Account)
 	}
 	requesterID := RequestingUserIDFromContext(ctx)
 	dynamicPool := DynamicSharingPoolEnabledFromContext(ctx)
-	filterEnabled := dynamicPool && SharingRangeFilterEnabledFromContext(ctx)
+	filterEnabled := SharingRateActiveFromContext(ctx)
 	acceptedMin, acceptedMax := SharingRateAcceptedRangeFromContext(ctx)
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
