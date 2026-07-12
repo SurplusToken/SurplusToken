@@ -177,6 +177,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		Platform:                        g.Platform,
 		RateMultiplier:                  g.RateMultiplier,
 		DynamicSharingPool:              g.DynamicSharingPool,
+		AutoSelfUse:                     g.AutoSelfUse,
 		IsExclusive:                     g.IsExclusive,
 		Status:                          g.Status,
 		SubscriptionType:                g.SubscriptionType,

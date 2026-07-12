@@ -114,8 +114,11 @@ type Group struct {
 	Platform           string  `json:"platform"`
 	RateMultiplier     float64 `json:"rate_multiplier"`
 	DynamicSharingPool bool    `json:"dynamic_sharing_pool"`
-	IsExclusive        bool    `json:"is_exclusive"`
-	Status             string  `json:"status"`
+	// AutoSelfUse marks a system-managed contributor self-use group (read-only;
+	// the UI should badge it and disallow manual edits).
+	AutoSelfUse bool   `json:"auto_self_use"`
+	IsExclusive bool   `json:"is_exclusive"`
+	Status      string `json:"status"`
 
 	SubscriptionType string   `json:"subscription_type"`
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`

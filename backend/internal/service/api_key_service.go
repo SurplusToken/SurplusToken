@@ -886,13 +886,11 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 		subscribedGroupIDs[sub.GroupID] = true
 	}
 
-	// 过滤出用户有权限的分组
+	// 过滤出用户有权限的分组。贡献者自用专属分组是订阅型，只有拥有其订阅的
+	// owner 才会通过 canUserBindGroupInternal（其他用户无订阅、自然看不到），
+	// 因此这里无需再对 auto_self_use 特判——owner 可以把自己其它 key 也绑到自用组。
 	availableGroups := make([]Group, 0)
 	for _, group := range allGroups {
-		// 贡献者自用专属分组由系统自动维护、已自动配好专用 Key，不作为普通可选分组展示。
-		if group.AutoSelfUse {
-			continue
-		}
 		if s.canUserBindGroupInternal(user, &group, subscribedGroupIDs) {
 			availableGroups = append(availableGroups, group)
 		}

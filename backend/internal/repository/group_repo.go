@@ -272,11 +272,6 @@ func (r *groupRepository) List(ctx context.Context, params pagination.Pagination
 func (r *groupRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]service.Group, *pagination.PaginationResult, error) {
 	q := r.client.Group.Query()
 
-	// Contributor self-use groups are system-managed, per-user, and hidden from
-	// admin group listings (only reachable via the owner's auto-provisioned
-	// subscription + API key). Excluded here so the count stays accurate too.
-	q = q.Where(group.AutoSelfUse(false))
-
 	if platform != "" {
 		q = q.Where(group.PlatformEQ(platform))
 	}
