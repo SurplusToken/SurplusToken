@@ -329,6 +329,12 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 		}
 		account.GroupIDs = append([]int64(nil), req.GroupIDs...)
 	}
+	// Provision the contributor's private self-use access (free/unlimited/image)
+	// to their own account. Best-effort: never fail the contribution on error —
+	// the account still serves the shared marketplace either way.
+	if err := s.ensureSelfUseAccess(ctx, userID, account); err != nil {
+		logSelfUseProvisioningError(userID, account.ID, err)
+	}
 	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
@@ -402,6 +408,11 @@ func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountI
 	}
 	if err := s.accountRepo.Delete(ctx, accountID); err != nil {
 		return fmt.Errorf("delete user account: %w", err)
+	}
+	// Tear down the contributor's self-use group/subscription/key once they have
+	// no contributed accounts left. Best-effort: never fail the delete on error.
+	if err := s.teardownSelfUseAccessIfEmpty(ctx, userID); err != nil {
+		logSelfUseProvisioningError(userID, accountID, err)
 	}
 	return nil
 }

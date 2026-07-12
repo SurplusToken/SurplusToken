@@ -92,6 +92,14 @@ func (Group) Fields() []ent.Field {
 		field.Int("default_validity_days").
 			Default(30),
 
+		// auto_self_use: 标记该分组为「贡献者自用专属分组」（系统自动创建/维护）。
+		// 此类分组每个贡献用户一个，只包含该用户自己贡献的账号，配为订阅型+无限额，
+		// 供其自用直连（不走平台余额、不受共享限制）。需要从后台分组列表、商城套餐、
+		// 其它用户可选分组等对外场景中隐藏。
+		field.Bool("auto_self_use").
+			Default(false).
+			Comment("是否为贡献者自用专属分组（系统自动维护，对外隐藏）"),
+
 		// 图片生成计费配置（antigravity 和 gemini 平台使用）
 		field.Bool("allow_image_generation").
 			Default(false).

@@ -572,10 +572,11 @@ func ProvideAPIKeyService(
 // ProvideAccountService wires AccountService with optional proxy lookup for user-owned
 // accounts and the shared-account-rate marketplace policy (admin-configurable dynamic
 // floor/cap + owner cooldown), read from SettingService.
-func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, settingService *SettingService) *AccountService {
+func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, settingService *SettingService, subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) *AccountService {
 	svc := NewAccountService(accountRepo, groupRepo)
 	svc.SetProxyRepository(proxyRepo)
 	svc.SetSharingRatePolicy(settingService)
+	svc.SetSelfUseProvisioningDeps(subscriptionSvc, apiKeyService)
 	return svc
 }
 

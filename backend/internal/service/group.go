@@ -39,6 +39,10 @@ type Group struct {
 	MonthlyLimitUSD     *float64
 	DefaultValidityDays int
 
+	// AutoSelfUse 标记该分组为「贡献者自用专属分组」（系统自动维护，对外隐藏）。
+	// 见 ent/schema/group.go 的 auto_self_use 字段说明。
+	AutoSelfUse bool
+
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool

@@ -150,6 +150,11 @@ func DefaultValidityDays(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultValidityDays, v))
 }
 
+// AutoSelfUse applies equality check predicate on the "auto_self_use" field. It's identical to AutoSelfUseEQ.
+func AutoSelfUse(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAutoSelfUse, v))
+}
+
 // AllowImageGeneration applies equality check predicate on the "allow_image_generation" field. It's identical to AllowImageGenerationEQ.
 func AllowImageGeneration(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAllowImageGeneration, v))
@@ -1168,6 +1173,16 @@ func DefaultValidityDaysLT(v int) predicate.Group {
 // DefaultValidityDaysLTE applies the LTE predicate on the "default_validity_days" field.
 func DefaultValidityDaysLTE(v int) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldDefaultValidityDays, v))
+}
+
+// AutoSelfUseEQ applies the EQ predicate on the "auto_self_use" field.
+func AutoSelfUseEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAutoSelfUse, v))
+}
+
+// AutoSelfUseNEQ applies the NEQ predicate on the "auto_self_use" field.
+func AutoSelfUseNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAutoSelfUse, v))
 }
 
 // AllowImageGenerationEQ applies the EQ predicate on the "allow_image_generation" field.

@@ -287,6 +287,20 @@ func (_c *GroupCreate) SetNillableDefaultValidityDays(v *int) *GroupCreate {
 	return _c
 }
 
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (_c *GroupCreate) SetAutoSelfUse(v bool) *GroupCreate {
+	_c.mutation.SetAutoSelfUse(v)
+	return _c
+}
+
+// SetNillableAutoSelfUse sets the "auto_self_use" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAutoSelfUse(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetAutoSelfUse(*v)
+	}
+	return _c
+}
+
 // SetAllowImageGeneration sets the "allow_image_generation" field.
 func (_c *GroupCreate) SetAllowImageGeneration(v bool) *GroupCreate {
 	_c.mutation.SetAllowImageGeneration(v)
@@ -862,6 +876,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDefaultValidityDays
 		_c.mutation.SetDefaultValidityDays(v)
 	}
+	if _, ok := _c.mutation.AutoSelfUse(); !ok {
+		v := group.DefaultAutoSelfUse
+		_c.mutation.SetAutoSelfUse(v)
+	}
 	if _, ok := _c.mutation.AllowImageGeneration(); !ok {
 		v := group.DefaultAllowImageGeneration
 		_c.mutation.SetAllowImageGeneration(v)
@@ -1018,6 +1036,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.DefaultValidityDays(); !ok {
 		return &ValidationError{Name: "default_validity_days", err: errors.New(`ent: missing required field "Group.default_validity_days"`)}
+	}
+	if _, ok := _c.mutation.AutoSelfUse(); !ok {
+		return &ValidationError{Name: "auto_self_use", err: errors.New(`ent: missing required field "Group.auto_self_use"`)}
 	}
 	if _, ok := _c.mutation.AllowImageGeneration(); !ok {
 		return &ValidationError{Name: "allow_image_generation", err: errors.New(`ent: missing required field "Group.allow_image_generation"`)}
@@ -1186,6 +1207,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DefaultValidityDays(); ok {
 		_spec.SetField(group.FieldDefaultValidityDays, field.TypeInt, value)
 		_node.DefaultValidityDays = value
+	}
+	if value, ok := _c.mutation.AutoSelfUse(); ok {
+		_spec.SetField(group.FieldAutoSelfUse, field.TypeBool, value)
+		_node.AutoSelfUse = value
 	}
 	if value, ok := _c.mutation.AllowImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowImageGeneration, field.TypeBool, value)
@@ -1738,6 +1763,18 @@ func (u *GroupUpsert) UpdateDefaultValidityDays() *GroupUpsert {
 // AddDefaultValidityDays adds v to the "default_validity_days" field.
 func (u *GroupUpsert) AddDefaultValidityDays(v int) *GroupUpsert {
 	u.Add(group.FieldDefaultValidityDays, v)
+	return u
+}
+
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (u *GroupUpsert) SetAutoSelfUse(v bool) *GroupUpsert {
+	u.Set(group.FieldAutoSelfUse, v)
+	return u
+}
+
+// UpdateAutoSelfUse sets the "auto_self_use" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAutoSelfUse() *GroupUpsert {
+	u.SetExcluded(group.FieldAutoSelfUse)
 	return u
 }
 
@@ -2598,6 +2635,20 @@ func (u *GroupUpsertOne) AddDefaultValidityDays(v int) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDefaultValidityDays() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultValidityDays()
+	})
+}
+
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (u *GroupUpsertOne) SetAutoSelfUse(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAutoSelfUse(v)
+	})
+}
+
+// UpdateAutoSelfUse sets the "auto_self_use" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAutoSelfUse() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAutoSelfUse()
 	})
 }
 
@@ -3705,6 +3756,20 @@ func (u *GroupUpsertBulk) AddDefaultValidityDays(v int) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDefaultValidityDays() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultValidityDays()
+	})
+}
+
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (u *GroupUpsertBulk) SetAutoSelfUse(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAutoSelfUse(v)
+	})
+}
+
+// UpdateAutoSelfUse sets the "auto_self_use" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAutoSelfUse() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAutoSelfUse()
 	})
 }
 

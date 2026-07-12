@@ -21701,6 +21701,7 @@ type GroupMutation struct {
 	addmonthly_limit_usd                    *float64
 	default_validity_days                   *int
 	adddefault_validity_days                *int
+	auto_self_use                           *bool
 	allow_image_generation                  *bool
 	allow_batch_image_generation            *bool
 	image_rate_independent                  *bool
@@ -22737,6 +22738,42 @@ func (m *GroupMutation) AddedDefaultValidityDays() (r int, exists bool) {
 func (m *GroupMutation) ResetDefaultValidityDays() {
 	m.default_validity_days = nil
 	m.adddefault_validity_days = nil
+}
+
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (m *GroupMutation) SetAutoSelfUse(b bool) {
+	m.auto_self_use = &b
+}
+
+// AutoSelfUse returns the value of the "auto_self_use" field in the mutation.
+func (m *GroupMutation) AutoSelfUse() (r bool, exists bool) {
+	v := m.auto_self_use
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAutoSelfUse returns the old "auto_self_use" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAutoSelfUse(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAutoSelfUse is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAutoSelfUse requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAutoSelfUse: %w", err)
+	}
+	return oldValue.AutoSelfUse, nil
+}
+
+// ResetAutoSelfUse resets all changes to the "auto_self_use" field.
+func (m *GroupMutation) ResetAutoSelfUse() {
+	m.auto_self_use = nil
 }
 
 // SetAllowImageGeneration sets the "allow_image_generation" field.
@@ -24561,7 +24598,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 48)
+	fields := make([]string, 0, 49)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -24618,6 +24655,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.default_validity_days != nil {
 		fields = append(fields, group.FieldDefaultValidityDays)
+	}
+	if m.auto_self_use != nil {
+		fields = append(fields, group.FieldAutoSelfUse)
 	}
 	if m.allow_image_generation != nil {
 		fields = append(fields, group.FieldAllowImageGeneration)
@@ -24752,6 +24792,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.MonthlyLimitUsd()
 	case group.FieldDefaultValidityDays:
 		return m.DefaultValidityDays()
+	case group.FieldAutoSelfUse:
+		return m.AutoSelfUse()
 	case group.FieldAllowImageGeneration:
 		return m.AllowImageGeneration()
 	case group.FieldAllowBatchImageGeneration:
@@ -24857,6 +24899,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldMonthlyLimitUsd(ctx)
 	case group.FieldDefaultValidityDays:
 		return m.OldDefaultValidityDays(ctx)
+	case group.FieldAutoSelfUse:
+		return m.OldAutoSelfUse(ctx)
 	case group.FieldAllowImageGeneration:
 		return m.OldAllowImageGeneration(ctx)
 	case group.FieldAllowBatchImageGeneration:
@@ -25056,6 +25100,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDefaultValidityDays(v)
+		return nil
+	case group.FieldAutoSelfUse:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAutoSelfUse(v)
 		return nil
 	case group.FieldAllowImageGeneration:
 		v, ok := value.(bool)
@@ -25695,6 +25746,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDefaultValidityDays:
 		m.ResetDefaultValidityDays()
+		return nil
+	case group.FieldAutoSelfUse:
+		m.ResetAutoSelfUse()
 		return nil
 	case group.FieldAllowImageGeneration:
 		m.ResetAllowImageGeneration()

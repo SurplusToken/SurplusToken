@@ -352,6 +352,20 @@ func (_u *GroupUpdate) AddDefaultValidityDays(v int) *GroupUpdate {
 	return _u
 }
 
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (_u *GroupUpdate) SetAutoSelfUse(v bool) *GroupUpdate {
+	_u.mutation.SetAutoSelfUse(v)
+	return _u
+}
+
+// SetNillableAutoSelfUse sets the "auto_self_use" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAutoSelfUse(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetAutoSelfUse(*v)
+	}
+	return _u
+}
+
 // SetAllowImageGeneration sets the "allow_image_generation" field.
 func (_u *GroupUpdate) SetAllowImageGeneration(v bool) *GroupUpdate {
 	_u.mutation.SetAllowImageGeneration(v)
@@ -1302,6 +1316,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedDefaultValidityDays(); ok {
 		_spec.AddField(group.FieldDefaultValidityDays, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.AutoSelfUse(); ok {
+		_spec.SetField(group.FieldAutoSelfUse, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.AllowImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowImageGeneration, field.TypeBool, value)
 	}
@@ -2090,6 +2107,20 @@ func (_u *GroupUpdateOne) SetNillableDefaultValidityDays(v *int) *GroupUpdateOne
 // AddDefaultValidityDays adds value to the "default_validity_days" field.
 func (_u *GroupUpdateOne) AddDefaultValidityDays(v int) *GroupUpdateOne {
 	_u.mutation.AddDefaultValidityDays(v)
+	return _u
+}
+
+// SetAutoSelfUse sets the "auto_self_use" field.
+func (_u *GroupUpdateOne) SetAutoSelfUse(v bool) *GroupUpdateOne {
+	_u.mutation.SetAutoSelfUse(v)
+	return _u
+}
+
+// SetNillableAutoSelfUse sets the "auto_self_use" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAutoSelfUse(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAutoSelfUse(*v)
+	}
 	return _u
 }
 
@@ -3072,6 +3103,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedDefaultValidityDays(); ok {
 		_spec.AddField(group.FieldDefaultValidityDays, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AutoSelfUse(); ok {
+		_spec.SetField(group.FieldAutoSelfUse, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.AllowImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowImageGeneration, field.TypeBool, value)

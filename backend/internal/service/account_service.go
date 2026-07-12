@@ -160,6 +160,13 @@ type AccountService struct {
 	groupRepo         GroupRepository
 	proxyRepo         ProxyRepository
 	sharingRatePolicy SharingRatePolicy
+
+	// Optional deps for contributor self-use provisioning (set post-construction
+	// via SetSelfUseProvisioningDeps). When either is nil, self-use provisioning
+	// is inert and account contribution behaves exactly as before. Narrow
+	// interfaces (satisfied by *SubscriptionService / *APIKeyService) for testability.
+	subscriptionSvc selfUseSubscriptionPort
+	apiKeyService   selfUseAPIKeyPort
 }
 
 type groupExistenceBatchChecker interface {
@@ -193,6 +200,14 @@ func (s *AccountService) SetProxyRepository(proxyRepo ProxyRepository) {
 // and the default owner cooldown.
 func (s *AccountService) SetSharingRatePolicy(policy SharingRatePolicy) {
 	s.sharingRatePolicy = policy
+}
+
+// SetSelfUseProvisioningDeps injects the subscription + API-key services used to
+// provision a contributor's self-use group/subscription/key. Optional: when
+// unset, self-use provisioning is skipped and contribution is unchanged.
+func (s *AccountService) SetSelfUseProvisioningDeps(subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) {
+	s.subscriptionSvc = subscriptionSvc
+	s.apiKeyService = apiKeyService
 }
 
 func (s *AccountService) sharingRateBounds(ctx context.Context) (float64, float64) {

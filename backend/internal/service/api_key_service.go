@@ -889,6 +889,10 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	// 过滤出用户有权限的分组
 	availableGroups := make([]Group, 0)
 	for _, group := range allGroups {
+		// 贡献者自用专属分组由系统自动维护、已自动配好专用 Key，不作为普通可选分组展示。
+		if group.AutoSelfUse {
+			continue
+		}
 		if s.canUserBindGroupInternal(user, &group, subscribedGroupIDs) {
 			availableGroups = append(availableGroups, group)
 		}
