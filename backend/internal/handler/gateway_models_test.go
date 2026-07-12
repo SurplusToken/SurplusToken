@@ -166,6 +166,11 @@ func TestGatewayModels_SharingRangeFilteredToZeroDoesNotReturnDefaults(t *testin
 	ctx := service.WithRequestingUserID(req.Context(), 20)
 	ctx = service.WithSharingRateAcceptedRange(ctx, nil, &acceptedMax)
 	ctx = service.WithSharingRangeFilterEnabled(ctx, true)
+	// The accepted-range filter is scoped to dynamic sharing pool groups
+	// (see filterSurplusAISchedulableAccounts): without this flag the filter is
+	// intentionally inert and the account would survive, so the fail-closed
+	// "no defaults" path under test would never be reached.
+	ctx = service.WithDynamicSharingPoolEnabled(ctx, true)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
