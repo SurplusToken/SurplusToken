@@ -108,8 +108,10 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	routingStart := time.Now()
 
 	for {
-		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapabilityForRequest(
 			c.Request.Context(),
+			c,
+			body,
 			apiKey.GroupID,
 			"",
 			"",

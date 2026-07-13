@@ -923,6 +923,26 @@ func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, acco
 	return s.getCodexClientRestrictionDetector().Detect(c, account, policy, body)
 }
 
+// buildCodexClientAccountEligibility snapshots the global restriction policy
+// once for a scheduling attempt and reuses the same detector for every account
+// candidate. The returned function is synchronous and must not outlive the
+// request because it reads headers from c and body without copying them.
+func (s *OpenAIGatewayService) buildCodexClientAccountEligibility(c *gin.Context, body []byte) OpenAIAccountEligibility {
+	policy := CodexRestrictionPolicy{EngineFingerprintSignals: openai.DefaultEngineFingerprintSignals}
+	if s != nil && s.settingService != nil {
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		policy = s.settingService.GetCodexRestrictionPolicy(ctx)
+	}
+	detector := s.getCodexClientRestrictionDetector()
+	return func(_ context.Context, account *Account) bool {
+		result := detector.Detect(c, account, policy, body)
+		return !result.Enabled || result.Matched
+	}
+}
+
 func getAPIKeyIDFromContext(c *gin.Context) int64 {
 	if c == nil {
 		return 0
