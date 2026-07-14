@@ -3607,7 +3607,13 @@ interface TempUnschedRuleForm {
 }
 
 // State
-const surplusAIOAuthOnly = true
+// Admins may add any of the 6 upstream account types (backend allows this via
+// validateSurplusAIUpstreamAccountType). Regular users contribute only OpenAI
+// OAuth accounts, but they use a separate OAuth-only flow in AccountPoolView —
+// this modal is reached only from the admin AccountsView. Gate on isAdmin so the
+// non-OAuth (API Key / upstream / service_account) options stay hidden for any
+// non-admin context.
+const surplusAIOAuthOnly = !authStore.isAdmin
 // Claude（Anthropic）平台的 Console API Key 接入方式对管理员开放；
 // 其余平台与高级接入方式（Bedrock / Vertex Service Account、OpenAI/Gemini API Key 等）维持 OAuth-only。
 const claudeApiKeyExposed = true
