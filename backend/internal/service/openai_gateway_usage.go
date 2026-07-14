@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"go.uber.org/zap"
@@ -242,6 +243,48 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		sharingBillingEnabled,
 		s.accountRepo,
 	)
+
+	// TEMP DIAG: external consumer of an owned account that did NOT get a sharing rate.
+	if account != nil && user != nil && account.OwnerUserID != nil && *account.OwnerUserID > 0 &&
+		user.ID != *account.OwnerUserID && sharingDecision.UsageSharingRateMultiplier == nil {
+		ctxGroupDynamic := false
+		ctxGroupPresent := false
+		if g, ok := ctx.Value(ctxkey.Group).(*Group); ok && g != nil {
+			ctxGroupPresent = true
+			ctxGroupDynamic = g.IsDynamicSharingPool()
+		}
+		akGroupNil := apiKey == nil || apiKey.Group == nil
+		var akGroupID int64
+		var akGroupDynamic bool
+		var akSubType string
+		if apiKey != nil && apiKey.Group != nil {
+			akGroupID = apiKey.Group.ID
+			akGroupDynamic = apiKey.Group.IsDynamicSharingPool()
+			akSubType = apiKey.Group.SubscriptionType
+		}
+		var acctSharingRate float64
+		if account.SharingRateMultiplier != nil {
+			acctSharingRate = *account.SharingRateMultiplier
+		}
+		logger.L().With(
+			zap.String("component", "service.openai_gateway.shrdiag"),
+			zap.Int64("account_id", account.ID),
+			zap.Int64("consumer", user.ID),
+			zap.Int64("owner", *account.OwnerUserID),
+			zap.Bool("acct_is_contributed", account.IsUserContributed()),
+			zap.Float64("acct_sharing_rate", acctSharingRate),
+			zap.Bool("global_billing_enabled", s.settingService != nil && s.settingService.IsSharingPoolBillingEnabled(ctx)),
+			zap.Bool("sharing_billing_enabled", sharingBillingEnabled),
+			zap.Bool("contribution_eligible", sharingDecision.ContributionEligible),
+			zap.Bool("ctx_group_present", ctxGroupPresent),
+			zap.Bool("ctx_group_dynamic", ctxGroupDynamic),
+			zap.Bool("apikey_group_nil", akGroupNil),
+			zap.Int64("apikey_group_id", akGroupID),
+			zap.Bool("apikey_group_dynamic", akGroupDynamic),
+			zap.String("apikey_group_subtype", akSubType),
+			zap.Bool("is_subscription_bill", isSubscriptionBilling),
+		).Warn("shr_diag_rate_not_applied")
+	}
 
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
