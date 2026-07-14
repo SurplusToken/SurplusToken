@@ -94,6 +94,9 @@ type AccountRepository interface {
 	ListCoOwnedAccountIDsByUser(ctx context.Context, userID int64) ([]int64, error)
 	// SetAccountCoOwners 以替换语义设置账号的 co-owner 集合（去重、跳过非正整数）。createdBy 为分配该 co-owner 的管理员用户 ID，可为 nil。
 	SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error
+	// SetAccountPrimaryOwner 设置（ownerUserID>0）或清除（nil/<=0）账号的主 owner_user_id。
+	// 正值 owner 必须指向一个存活用户；挂上主 owner 后账号即成为“用户贡献”账号，可参与动态分组与共享倍率。
+	SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error
 
 	// SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner 之外）
 	// 产生的 SUM(actual_cost)（美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。

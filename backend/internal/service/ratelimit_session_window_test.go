@@ -181,6 +181,10 @@ func (m *sessionWindowMockRepo) ListCoOwnedAccountIDsByUser(context.Context, int
 	panic("unexpected")
 }
 
+func (m *sessionWindowMockRepo) SetAccountPrimaryOwner(context.Context, int64, *int64) error {
+	return nil
+}
+
 func (m *sessionWindowMockRepo) SetAccountCoOwners(context.Context, int64, []int64, *int64) error {
 	panic("unexpected")
 }

@@ -218,6 +218,10 @@ func (m *mockAccountRepoForPlatform) ListCoOwnedAccountIDsByUser(ctx context.Con
 	return nil, nil
 }
 
+func (m *mockAccountRepoForPlatform) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	return nil
+}
+
 func (m *mockAccountRepoForPlatform) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
 	return nil
 }

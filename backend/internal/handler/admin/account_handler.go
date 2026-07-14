@@ -2320,6 +2320,78 @@ func (h *AccountHandler) SetOwners(c *gin.Context) {
 	})
 }
 
+// SetPrimaryOwnerRequest is the request body for assigning/clearing an account's primary owner.
+type SetPrimaryOwnerRequest struct {
+	// UserID: >0 assigns that user as primary owner; nil or <=0 clears it.
+	UserID *int64 `json:"user_id"`
+}
+
+// SetPrimaryOwner assigns or clears the primary owner of an account. Assigning a
+// primary owner makes the account "user-contributed" so admin-managed accounts
+// (e.g. api-key) can join a dynamic sharing pool and carry a sharing rate.
+// PUT /api/v1/admin/accounts/:id/primary-owner
+func (h *AccountHandler) SetPrimaryOwner(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req SetPrimaryOwnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if err := h.adminService.SetAccountPrimaryOwner(c.Request.Context(), accountID, req.UserID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// SetSharingRateRequest is the request body for setting an account's dynamic-pool sharing rate.
+type SetSharingRateRequest struct {
+	Rate float64 `json:"rate"`
+}
+
+// SetSharingRate sets the sharing-rate multiplier (dynamic sharing pool
+// marketplace price) on an admin-managed account. The account must already have
+// a primary owner and be a schedulable type. Admin writes bypass the owner
+// change-cooldown but still honor the configured [floor, cap].
+// PUT /api/v1/admin/accounts/:id/sharing-rate
+func (h *AccountHandler) SetSharingRate(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req SetSharingRateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if err := h.adminService.SetAccountSharingRate(c.Request.Context(), accountID, req.Rate); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {

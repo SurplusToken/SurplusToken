@@ -823,6 +823,33 @@ export async function setAccountOwners(id: number, userIds: number[]): Promise<{
   return data
 }
 
+/**
+ * Assign (userId > 0) or clear (null) the primary owner of an account.
+ * Assigning a primary owner makes an admin-managed account "user-contributed"
+ * so it can join a dynamic sharing pool and carry a sharing rate.
+ * @param id - Account ID
+ * @param userId - The primary owner user ID, or null to clear
+ */
+export async function setAccountPrimaryOwner(id: number, userId: number | null): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/primary-owner`, {
+    user_id: userId
+  })
+  return data
+}
+
+/**
+ * Set the sharing-rate multiplier (dynamic sharing pool marketplace price) on an
+ * admin-managed account. Requires a primary owner and a schedulable type.
+ * @param id - Account ID
+ * @param rate - The sharing-rate multiplier
+ */
+export async function setAccountSharingRate(id: number, rate: number): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/sharing-rate`, {
+    rate
+  })
+  return data
+}
+
 export interface SparkShadowCreatePayload {
   name?: string
   priority?: number
@@ -882,6 +909,8 @@ export const accountsAPI = {
   resetOpenAIQuota,
   getAccountOwners,
   setAccountOwners,
+  setAccountPrimaryOwner,
+  setAccountSharingRate,
   createSparkShadow
 }
 

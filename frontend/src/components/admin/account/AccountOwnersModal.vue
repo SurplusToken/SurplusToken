@@ -40,19 +40,30 @@
       </div>
 
       <template v-else>
-        <!-- Primary owner (read-only) -->
+        <!-- Primary owner (editable) -->
         <div class="space-y-1.5">
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {{ t('admin.accounts.owners.primaryOwner') }}
-          </label>
-          <div
-            class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-300"
-          >
-            {{
-              primaryOwnerUserId !== null
-                ? t('admin.accounts.owners.userIdLabel', { id: primaryOwnerUserId })
-                : t('admin.accounts.owners.noPrimaryOwner')
-            }}
+          <Input
+            v-model="primaryOwnerInput"
+            type="text"
+            :label="t('admin.accounts.owners.primaryOwner')"
+            :placeholder="t('admin.accounts.owners.primaryOwnerPlaceholder')"
+            :hint="t('admin.accounts.owners.primaryOwnerHint')"
+            :disabled="saving"
+          />
+        </div>
+
+        <!-- Dynamic sharing rate (editable; requires a primary owner) -->
+        <div class="space-y-1.5">
+          <Input
+            v-model="sharingRateInput"
+            type="text"
+            :label="t('admin.accounts.owners.sharingRate')"
+            :placeholder="t('admin.accounts.owners.sharingRatePlaceholder')"
+            :hint="t('admin.accounts.owners.sharingRateHint')"
+            :disabled="saving || !hasPrimaryOwner"
+          />
+          <div v-if="!hasPrimaryOwner" class="text-xs text-amber-600 dark:text-amber-400">
+            {{ t('admin.accounts.owners.sharingRateNeedsOwner') }}
           </div>
         </div>
 
@@ -116,6 +127,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import TextArea from '@/components/common/TextArea.vue'
+import Input from '@/components/common/Input.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
@@ -123,7 +135,7 @@ import type { Account } from '@/types'
 
 const { t } = useI18n()
 
-type OwnableAccount = Pick<Account, 'id' | 'name'>
+type OwnableAccount = Pick<Account, 'id' | 'name' | 'sharing_rate_multiplier'>
 
 const props = defineProps<{
   show: boolean
@@ -138,8 +150,29 @@ const emit = defineEmits<{
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
-const primaryOwnerUserId = ref<number | null>(null)
+const primaryOwnerInput = ref('')
+const originalPrimaryOwnerId = ref<number | null>(null)
+const sharingRateInput = ref('')
+const originalSharingRate = ref<number | null>(null)
 const coOwnersInput = ref('')
+
+// Parsed primary owner id: empty -> null (clear); a positive integer -> that id;
+// anything else -> null (treated as cleared, and rejected on save when non-empty).
+const parsedPrimaryOwnerId = computed<number | null>(() => {
+  const raw = primaryOwnerInput.value.trim()
+  if (!raw) return null
+  const id = Number(raw)
+  return Number.isInteger(id) && id > 0 ? id : null
+})
+const hasPrimaryOwner = computed(() => parsedPrimaryOwnerId.value !== null)
+
+// Parsed sharing rate: empty -> null (leave unchanged); a finite number -> that value.
+const parsedSharingRate = computed<number | null>(() => {
+  const raw = sharingRateInput.value.trim()
+  if (!raw) return null
+  const v = Number(raw)
+  return Number.isFinite(v) ? v : null
+})
 
 // Parse the free-form input into a clean list of co-owner user IDs:
 // split on comma/space/newline, keep positive integers, dedupe, drop the primary owner id.
@@ -150,7 +183,7 @@ const parsedCoOwnerIds = computed<number[]>(() => {
     if (!token) continue
     const id = Number(token)
     if (!Number.isInteger(id) || id <= 0) continue
-    if (id === primaryOwnerUserId.value) continue
+    if (id === parsedPrimaryOwnerId.value) continue
     if (seen.has(id)) continue
     seen.add(id)
     result.push(id)
@@ -173,7 +206,10 @@ const resetState = () => {
   loading.value = false
   saving.value = false
   error.value = ''
-  primaryOwnerUserId.value = null
+  primaryOwnerInput.value = ''
+  originalPrimaryOwnerId.value = null
+  sharingRateInput.value = ''
+  originalSharingRate.value = null
   coOwnersInput.value = ''
 }
 
@@ -181,12 +217,17 @@ const loadOwners = async () => {
   if (!props.account) return
   loading.value = true
   error.value = ''
-  primaryOwnerUserId.value = null
-  coOwnersInput.value = ''
+  resetState()
+  loading.value = true
   try {
     const owners = await adminAPI.accounts.getAccountOwners(props.account.id)
-    primaryOwnerUserId.value = owners.primary_owner_user_id
+    originalPrimaryOwnerId.value = owners.primary_owner_user_id
+    primaryOwnerInput.value =
+      owners.primary_owner_user_id !== null ? String(owners.primary_owner_user_id) : ''
     coOwnersInput.value = (owners.co_owner_user_ids || []).join(', ')
+    const rate = props.account.sharing_rate_multiplier
+    originalSharingRate.value = typeof rate === 'number' ? rate : null
+    sharingRateInput.value = typeof rate === 'number' ? String(rate) : ''
   } catch (e) {
     console.error('Failed to load account owners:', e)
     error.value = t('admin.accounts.owners.loadFailed')
@@ -197,9 +238,30 @@ const loadOwners = async () => {
 
 const handleSave = async () => {
   if (!props.account || saving.value) return
+  // Reject a non-empty but invalid primary owner id before touching anything.
+  if (primaryOwnerInput.value.trim() && parsedPrimaryOwnerId.value === null) {
+    error.value = t('admin.accounts.owners.saveFailed')
+    return
+  }
   saving.value = true
+  error.value = ''
   try {
+    // 1) Primary owner first, so the account is contributed before a rate is set.
+    if (parsedPrimaryOwnerId.value !== originalPrimaryOwnerId.value) {
+      await adminAPI.accounts.setAccountPrimaryOwner(props.account.id, parsedPrimaryOwnerId.value)
+      originalPrimaryOwnerId.value = parsedPrimaryOwnerId.value
+    }
+    // 2) Co-owner set (replace semantics).
     await adminAPI.accounts.setAccountOwners(props.account.id, parsedCoOwnerIds.value)
+    // 3) Sharing rate, only when an owner is present and the value actually changed.
+    if (
+      hasPrimaryOwner.value &&
+      parsedSharingRate.value !== null &&
+      parsedSharingRate.value !== originalSharingRate.value
+    ) {
+      await adminAPI.accounts.setAccountSharingRate(props.account.id, parsedSharingRate.value)
+      originalSharingRate.value = parsedSharingRate.value
+    }
     emit('saved')
     emit('close')
   } catch (e) {

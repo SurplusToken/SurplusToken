@@ -447,6 +447,14 @@ func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, 
 	return &account, nil
 }
 
+func (s *stubAdminService) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	return nil
+}
+
+func (s *stubAdminService) SetAccountSharingRate(ctx context.Context, accountID int64, rate float64) error {
+	return nil
+}
+
 func (s *stubAdminService) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy int64) error {
 	return nil
 }

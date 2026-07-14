@@ -339,17 +339,32 @@ func (a *Account) IsOAuth() bool {
 // — are all servable. This governs serving only; user contribution is still
 // restricted to OpenAI OAuth at creation time (see isUserOAuthPlatformAllowed),
 // and contribution reserve/reward still apply only to owner-tied OAuth accounts.
+// SurplusAISchedulableAccountTypes is the single source of truth for the
+// upstream account types admins may add and that the scheduler may serve —
+// including participation in the dynamic sharing pool and its sharing-rate
+// marketplace once the account has been assigned a primary owner.
+var SurplusAISchedulableAccountTypes = []string{
+	AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey,
+	AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount,
+}
+
+// IsSurplusAISchedulableAccountType reports whether accountType is one of the
+// schedulable upstream types. Whitespace is trimmed for defensiveness.
+func IsSurplusAISchedulableAccountType(accountType string) bool {
+	accountType = strings.TrimSpace(accountType)
+	for _, t := range SurplusAISchedulableAccountTypes {
+		if accountType == t {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Account) IsSurplusAISchedulableType() bool {
 	if a == nil {
 		return false
 	}
-	switch a.Type {
-	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey,
-		AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
-		return true
-	default:
-		return false
-	}
+	return IsSurplusAISchedulableAccountType(a.Type)
 }
 
 func (a *Account) IsUserContributed() bool {
@@ -521,13 +536,7 @@ func (a *Account) SurplusAIOwnerUserIDs() []int64 {
 // models (GLM, DeepSeek, Qwen, Kimi). End users remain restricted to OpenAI OAuth
 // via the separate user-contribution path (isUserOAuthPlatformAllowed).
 func isSurplusAIUpstreamAccountTypeAllowed(accountType string) bool {
-	switch strings.TrimSpace(accountType) {
-	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey,
-		AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
-		return true
-	default:
-		return false
-	}
+	return IsSurplusAISchedulableAccountType(accountType)
 }
 
 // validateSurplusAIUpstreamAccountType returns a BadRequest error when accountType

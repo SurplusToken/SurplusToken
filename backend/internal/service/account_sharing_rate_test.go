@@ -253,6 +253,34 @@ func TestFilterSurplusAISchedulableAccounts_DynamicPoolExcludesSystemAccounts(t 
 	require.Equal(t, contributed.ID, dynamic[0].ID)
 }
 
+// An admin-managed api-key account becomes eligible for the dynamic pool once it
+// is assigned a primary owner (making it IsUserContributed); without an owner it
+// stays admin/system-owned and is excluded.
+func TestFilterSurplusAISchedulableAccounts_DynamicPoolIncludesOwnedApiKeyAccount(t *testing.T) {
+	ownerID := int64(10)
+	ownedAPIKey := Account{
+		ID:                    2,
+		Status:                StatusActive,
+		Type:                  AccountTypeAPIKey,
+		Schedulable:           true,
+		OwnerUserID:           &ownerID,
+		SharingRateMultiplier: f64(1.2),
+	}
+	unownedAPIKey := Account{
+		ID:          3,
+		Status:      StatusActive,
+		Type:        AccountTypeAPIKey,
+		Schedulable: true,
+	}
+
+	ctx := WithRequestingUserID(t.Context(), 99)
+	ctx = WithDynamicSharingPoolEnabled(ctx, true)
+
+	got := filterSurplusAISchedulableAccounts(ctx, []Account{ownedAPIKey, unownedAPIKey})
+	require.Len(t, got, 1)
+	require.Equal(t, ownedAPIKey.ID, got[0].ID)
+}
+
 func TestCompareSharingRateForScheduling_FixedGroupIgnoresQuotes(t *testing.T) {
 	ownerID := int64(10)
 	cheap := contributedAccount(ownerID, nil, f64(0.5))

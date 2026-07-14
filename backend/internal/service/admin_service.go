@@ -86,6 +86,10 @@ type AdminService interface {
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	// SetAccountCoOwners 替换账号的 co-owner 集合（去重、跳过非正整数）。createdBy 为操作管理员的用户 ID（0 表示未知，写入 NULL）。
 	SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy int64) error
+	// SetAccountPrimaryOwner 设置（ownerUserID>0）或清除（nil/<=0）账号主 owner，使其成为可参与动态分组/共享倍率的贡献账号。
+	SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error
+	// SetAccountSharingRate 管理员为已挂主 owner 的可调度账号设置共享报价倍率（绕过冷却，仍受 floor/cap 约束）。
+	SetAccountSharingRate(ctx context.Context, accountID int64, rate float64) error
 	// GetAccountCoOwnerUserIDs 返回账号当前的 co-owner 用户 ID 列表。
 	GetAccountCoOwnerUserIDs(ctx context.Context, accountID int64) ([]int64, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)

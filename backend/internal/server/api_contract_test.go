@@ -1933,6 +1933,10 @@ func (s *stubAccountRepo) ListCoOwnedAccountIDsByUser(ctx context.Context, userI
 	return nil, nil
 }
 
+func (s *stubAccountRepo) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	return nil
+}
+
 func (s *stubAccountRepo) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
 	return nil
 }

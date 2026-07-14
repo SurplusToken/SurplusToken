@@ -79,6 +79,54 @@ func (s *adminServiceImpl) SetAccountCoOwners(ctx context.Context, accountID int
 	return s.accountRepo.SetAccountCoOwners(ctx, accountID, userIDs, createdByPtr)
 }
 
+// SetAccountPrimaryOwner 设置（ownerUserID>0）或清除（nil/<=0）账号的主 owner。
+// 挂上主 owner 后账号即成为“用户贡献”账号（IsUserContributed），可进入动态分组并计费共享倍率。
+func (s *adminServiceImpl) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	if _, err := s.accountRepo.GetByID(ctx, accountID); err != nil {
+		return err
+	}
+	return s.accountRepo.SetAccountPrimaryOwner(ctx, accountID, ownerUserID)
+}
+
+// SetAccountSharingRate 让管理员为其管理的账号设置共享报价倍率（动态分组市场价）。
+// 账号必须已挂主 owner（从而是“用户贡献”账号、可进入动态分组）且为可调度类型。
+// 管理员写入绕过 owner 改价冷却，但仍受 [floor, cap] 策略约束。
+func (s *adminServiceImpl) SetAccountSharingRate(ctx context.Context, accountID int64, rate float64) error {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if account.OwnerUserID == nil || *account.OwnerUserID <= 0 {
+		return infraerrors.BadRequest("ACCOUNT_OWNER_REQUIRED", "assign a primary owner before setting a sharing rate")
+	}
+	if !account.IsSurplusAISchedulableType() {
+		return infraerrors.BadRequest("ACCOUNT_TYPE_NOT_ALLOWED", "sharing rate is only supported for schedulable account types")
+	}
+	floor, cap := SharingRateFloorDefault, SharingRateCapDefault
+	if s.settingService != nil {
+		floor, cap = s.settingService.GetSharingRateBounds(ctx)
+	}
+	if err := ValidateSharingRateMultiplier(rate, floor, cap); err != nil {
+		return err
+	}
+	rate = canonicalSharingRate(rate)
+	updater, ok := s.accountRepo.(userAccountSharingRateUpdater)
+	if !ok {
+		return fmt.Errorf("account repository does not support sharing rate updates")
+	}
+	now := time.Now()
+	// Admin override: cooldownCutoff = now makes the cooldown predicate
+	// (sharing_rate_updated_at <= cutoff) always pass.
+	updated, err := updater.UpdateUserAccountSharingRate(ctx, accountID, *account.OwnerUserID, rate, now, now)
+	if err != nil {
+		return fmt.Errorf("update account sharing rate: %w", err)
+	}
+	if !updated {
+		return ErrAccountNotFound
+	}
+	return nil
+}
+
 // GetAccountCoOwnerUserIDs 校验账号存在后，返回其 co-owner 用户 ID 列表。
 func (s *adminServiceImpl) GetAccountCoOwnerUserIDs(ctx context.Context, accountID int64) ([]int64, error) {
 	if _, err := s.accountRepo.GetByID(ctx, accountID); err != nil {

@@ -305,6 +305,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.GET("/:id/owners", h.Admin.Account.GetOwners)
 		accounts.PUT("/:id/owners", h.Admin.Account.SetOwners)
+		accounts.PUT("/:id/primary-owner", h.Admin.Account.SetPrimaryOwner)
+		accounts.PUT("/:id/sharing-rate", h.Admin.Account.SetSharingRate)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)

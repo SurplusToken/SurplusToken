@@ -521,9 +521,11 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 }
 
 // UpdateUserAccountSharingRate 原子地设置贡献账号的共享报价倍率。
-// 单条条件 UPDATE 同时校验：id、主 owner_user_id、type=oauth、未删除、
+// 单条条件 UPDATE 同时校验：id、主 owner_user_id、type 属于可调度类型集合、未删除、
 // 冷却窗口已过（sharing_rate_updated_at 为空或 <= cooldownCutoff），
 // 避免"先读后写"竞态下并发改价互相覆盖或绕过冷却限制。
+// 类型从"仅 oauth"放宽到全部可调度类型，以支持管理员为自有 api-key/透传等账号
+// 挂主 owner 后在动态分组中启用共享倍率。
 // 影响 0 行（权限不符/类型不符/冷却未到/账号已删除）时返回 (false, nil)，
 // 由调用方结合上下文决定具体的业务错误。
 func (r *accountRepository) UpdateUserAccountSharingRate(ctx context.Context, accountID, ownerUserID int64, rate float64, changedAt, cooldownCutoff time.Time) (bool, error) {
@@ -534,10 +536,10 @@ func (r *accountRepository) UpdateUserAccountSharingRate(ctx context.Context, ac
 			updated_at = NOW()
 		WHERE id = $3
 			AND owner_user_id = $4
-			AND type = $5
+			AND type = ANY($5)
 			AND deleted_at IS NULL
 			AND (sharing_rate_updated_at IS NULL OR sharing_rate_updated_at <= $6)
-	`, rate, changedAt, accountID, ownerUserID, service.AccountTypeOAuth, cooldownCutoff)
+	`, rate, changedAt, accountID, ownerUserID, pq.Array(service.SurplusAISchedulableAccountTypes), cooldownCutoff)
 	if err != nil {
 		return false, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
@@ -553,6 +555,51 @@ func (r *accountRepository) UpdateUserAccountSharingRate(ctx context.Context, ac
 	}
 	r.syncSchedulerAccountSnapshot(ctx, accountID)
 	return true, nil
+}
+
+// SetAccountPrimaryOwner sets (ownerUserID != nil && > 0) or clears
+// (nil or <= 0) an account's primary owner_user_id. A positive owner must
+// reference a live (non-deleted) user. Assigning a primary owner is what makes
+// an admin-managed account "user-contributed" so it can join a dynamic sharing
+// pool and carry a sharing rate; clearing it removes that participation.
+func (r *accountRepository) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	var result sql.Result
+	var err error
+	if ownerUserID != nil && *ownerUserID > 0 {
+		exists, existErr := r.client.User.Query().
+			Where(dbuser.IDEQ(*ownerUserID), dbuser.DeletedAtIsNil()).
+			Exist(ctx)
+		if existErr != nil {
+			return existErr
+		}
+		if !exists {
+			return service.ErrUserNotFound
+		}
+		result, err = r.sql.ExecContext(ctx, `
+			UPDATE accounts SET owner_user_id = $1, updated_at = NOW()
+			WHERE id = $2 AND deleted_at IS NULL
+		`, *ownerUserID, accountID)
+	} else {
+		result, err = r.sql.ExecContext(ctx, `
+			UPDATE accounts SET owner_user_id = NULL, updated_at = NOW()
+			WHERE id = $1 AND deleted_at IS NULL
+		`, accountID)
+	}
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue primary owner update failed: account=%d err=%v", accountID, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, accountID)
+	return nil
 }
 
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {

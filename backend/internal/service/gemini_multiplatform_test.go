@@ -208,6 +208,10 @@ func (m *mockAccountRepoForGemini) ListCoOwnedAccountIDsByUser(ctx context.Conte
 	return nil, nil
 }
 
+func (m *mockAccountRepoForGemini) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	return nil
+}
+
 func (m *mockAccountRepoForGemini) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
 	return nil
 }

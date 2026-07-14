@@ -231,6 +231,10 @@ func (s *accountRepoStub) ListCoOwnedAccountIDsByUser(ctx context.Context, userI
 	panic("unexpected ListCoOwnedAccountIDsByUser call")
 }
 
+func (s *accountRepoStub) SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error {
+	return nil
+}
+
 func (s *accountRepoStub) SetAccountCoOwners(ctx context.Context, accountID int64, userIDs []int64, createdBy *int64) error {
 	panic("unexpected SetAccountCoOwners call")
 }
