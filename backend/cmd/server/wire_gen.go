@@ -187,7 +187,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	remoteSessionService := service.ProvideRemoteSessionService(remoteSessionRepository, accountService, kasmClient)
 	accountContributionPoolRepository := repository.NewAccountContributionPoolRepository(db)
 	accountContributionService := service.NewAccountContributionService(accountService, accountContributionPoolRepository)
-	accountPoolHandler := handler.NewAccountPoolHandler(accountService, apiKeyService, accountUsageService, proxyService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, accountTestService, scheduledTestService, rateLimitService, compositeTokenCacheInvalidator, privacyClientFactory, remoteSessionService, accountContributionService)
+	accountPoolHandler := handler.NewAccountPoolHandler(accountService, apiKeyService, accountUsageService, proxyService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, accountTestService, scheduledTestService, rateLimitService, compositeTokenCacheInvalidator, privacyClientFactory, remoteSessionService, accountContributionService, openAIQuotaService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
 	dashboardService := service.NewDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)

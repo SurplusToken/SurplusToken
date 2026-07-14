@@ -115,6 +115,12 @@ func RegisterUserRoutes(
 			// 贡献奖励池（账号级)— 仅主 owner 可查看/分发给 owner 集合。
 			accounts.GET("/pool/:id/contribution-pool", h.AccountPool.GetContributionPool)
 			accounts.POST("/pool/:id/contribution-pool/distribute", h.AccountPool.DistributeContributionPool)
+
+			// OAuth 额度自助（仅 owner，OpenAI OAuth 生效）：
+			//   查询上游 5h/7d 限流窗口、查看/消费限流重置额度（对齐管理端 7d 下的三按钮）。
+			accounts.GET("/pool/:id/usage", h.AccountPool.GetOwnerAccountUsage)
+			accounts.GET("/pool/:id/openai-quota", h.AccountPool.QueryOwnerOpenAIQuota)
+			accounts.POST("/pool/:id/openai-quota/reset", h.AccountPool.ResetOwnerOpenAIQuota)
 		}
 
 		scheduledTests := authenticated.Group("/scheduled-test-plans")

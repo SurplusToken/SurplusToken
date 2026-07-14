@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   AccountPlatform,
+  AccountUsageInfo,
   AccountUsageStatsResponse,
   ClaudeModel,
   CodexSessionImportRequest,
@@ -13,6 +14,7 @@ import type {
   UpdateScheduledTestPlanRequest,
   UserAccountPoolItem,
 } from '@/types'
+import type { OpenAIQuotaUsage, OpenAIQuotaResetResult } from './admin/accounts'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -402,10 +404,39 @@ export async function distributeContributionPool(
   return data
 }
 
+// Owner-only self-service quota controls, mirroring the admin panel's "7d" row
+// (查询 / 次数 / 重置) but gated on account ownership rather than admin role.
+// Only meaningful for OpenAI OAuth accounts the caller contributed.
+
+// 查询: force a fresh active sample of the account's live upstream 5h/7d windows.
+export async function getOwnerAccountUsage(id: number, force = true): Promise<AccountUsageInfo> {
+  const { data } = await apiClient.get<AccountUsageInfo>(`/accounts/pool/${id}/usage`, {
+    params: force ? { force: 'true' } : undefined,
+  })
+  return data
+}
+
+// 次数: query the ChatGPT/Codex rate-limit reset-credit count for an owned account.
+export async function queryOwnerOpenAIQuota(id: number): Promise<OpenAIQuotaUsage> {
+  const { data } = await apiClient.get<OpenAIQuotaUsage>(`/accounts/pool/${id}/openai-quota`)
+  return data
+}
+
+// 重置: consume one rate-limit-reset credit for an owned account.
+export async function resetOwnerOpenAIQuota(id: number): Promise<OpenAIQuotaResetResult> {
+  const { data } = await apiClient.post<OpenAIQuotaResetResult>(
+    `/accounts/pool/${id}/openai-quota/reset`,
+  )
+  return data
+}
+
 export const accountsAPI = {
   listPool,
   getContributionPool,
   distributeContributionPool,
+  getOwnerAccountUsage,
+  queryOwnerOpenAIQuota,
+  resetOwnerOpenAIQuota,
   listProxies,
   testProxy,
   createOAuth,

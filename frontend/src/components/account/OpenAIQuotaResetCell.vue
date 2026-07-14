@@ -134,20 +134,38 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Account } from '@/types'
 import {
   queryOpenAIQuota,
   resetOpenAIQuota,
   type OpenAIQuotaUsage,
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
+import { queryOwnerOpenAIQuota, resetOwnerOpenAIQuota } from '@/api/accounts'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
-const props = defineProps<{
-  account: Account
-}>()
+// Accepts either an admin Account or a user-pool item — only these fields are read.
+interface QuotaAccountLike {
+  id: number
+  platform: string
+  type: string
+  parent_account_id?: number | null
+}
+
+const props = withDefaults(
+  defineProps<{
+    account: QuotaAccountLike
+    // 'admin' (default): /admin/openai/... (admin-only).
+    // 'user': owner-guarded /accounts/pool/... so a contributor can self-serve.
+    scope?: 'admin' | 'user'
+  }>(),
+  { scope: 'admin' }
+)
 
 const { t } = useI18n()
+
+// Route the upstream calls to the admin or the owner-scoped endpoints.
+const queryQuota = computed(() => (props.scope === 'user' ? queryOwnerOpenAIQuota : queryOpenAIQuota))
+const resetQuota = computed(() => (props.scope === 'user' ? resetOwnerOpenAIQuota : resetOpenAIQuota))
 
 // Visible only for OpenAI OAuth accounts.
 const visible = computed(() => props.account.platform === 'openai' && props.account.type === 'oauth')
@@ -267,7 +285,7 @@ const handleQuery = async () => {
   resetMessage.value = null
   showResetCreditDetails.value = false
   try {
-    data.value = await queryOpenAIQuota(props.account.id)
+    data.value = await queryQuota.value(props.account.id)
   } catch (e) {
     error.value = extractErrorMessage(e)
   } finally {
@@ -295,7 +313,7 @@ const confirmReset = async () => {
   error.value = null
   resetMessage.value = null
   try {
-    const result: OpenAIQuotaResetResult = await resetOpenAIQuota(props.account.id)
+    const result: OpenAIQuotaResetResult = await resetQuota.value(props.account.id)
     // Refresh the reset-credit count so the badge reflects the consumed credit.
     // handleQuery clears resetMessage on entry, so the success toast is set
     // AFTER it resolves.

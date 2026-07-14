@@ -273,6 +273,67 @@
                     {{ t('accountPool.fields.reserve') }} {{ formatPercent(account.contribution_weekly_reserve_percent) }}
                   </div>
                 </template>
+
+                <!-- Owner self-service: live upstream windows + reset-credit query/consume.
+                     Mirrors the admin panel's "7d" action row (查询 / 次数 / 重置). -->
+                <div
+                  v-if="account.is_mine && isOpenAIOAuthPool(account)"
+                  class="mt-1.5 space-y-1 border-t border-gray-100 pt-1.5 dark:border-gray-700"
+                >
+                  <template v-if="ownerUsage[account.id]">
+                    <UsageProgressBar
+                      v-if="ownerUsage[account.id]?.five_hour"
+                      label="5h"
+                      :utilization="ownerUsage[account.id]?.five_hour?.utilization ?? 0"
+                      :resets-at="ownerUsage[account.id]?.five_hour?.resets_at"
+                      :window-stats="ownerUsage[account.id]?.five_hour?.window_stats"
+                      :show-now-when-idle="true"
+                      color="indigo"
+                    />
+                    <UsageProgressBar
+                      v-if="ownerUsage[account.id]?.seven_day"
+                      label="7d"
+                      :utilization="ownerUsage[account.id]?.seven_day?.utilization ?? 0"
+                      :resets-at="ownerUsage[account.id]?.seven_day?.resets_at"
+                      :window-stats="ownerUsage[account.id]?.seven_day?.window_stats"
+                      :show-now-when-idle="true"
+                      color="emerald"
+                    />
+                    <div
+                      v-if="ownerUsage[account.id]?.error"
+                      class="text-[10px] text-amber-600 dark:text-amber-400"
+                    >
+                      {{ ownerUsage[account.id]?.error }}
+                    </div>
+                  </template>
+
+                  <OpenAIQuotaResetCell :account="account" scope="user">
+                    <template #pre-actions>
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                        :disabled="ownerUsageLoading[account.id]"
+                        @click="loadOwnerUsage(account.id)"
+                      >
+                        <svg
+                          class="h-2.5 w-2.5"
+                          :class="{ 'animate-spin': ownerUsageLoading[account.id] }"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                        {{ t('admin.accounts.usageWindow.activeQuery') }}
+                      </button>
+                    </template>
+                  </OpenAIQuotaResetCell>
+                </div>
               </div>
             </template>
 
@@ -1309,6 +1370,7 @@ import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
+import OpenAIQuotaResetCell from '@/components/account/OpenAIQuotaResetCell.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
@@ -1324,7 +1386,7 @@ import accountsAPI, {
 } from '@/api/accounts'
 import userAPI from '@/api/user'
 import { userGroupsAPI } from '@/api/groups'
-import type { AccountPlatform, Group, Proxy, UserAccountPoolItem } from '@/types'
+import type { AccountPlatform, AccountUsageInfo, Group, Proxy, UserAccountPoolItem } from '@/types'
 import type { SelectOption } from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -1350,6 +1412,28 @@ interface OAuthFlowExposed {
 }
 
 const { t } = useI18n()
+
+// Owner self-service quota controls (pool "查询/次数/重置"). Only OpenAI OAuth
+// accounts the caller contributed expose them. "查询" fetches the account's live
+// upstream 5h/7d windows on demand (distinct from the contribution-usage bars,
+// which reflect what other consumers spent against the shared budget).
+const ownerUsage = reactive<Record<number, AccountUsageInfo>>({})
+const ownerUsageLoading = reactive<Record<number, boolean>>({})
+
+const isOpenAIOAuthPool = (account: UserAccountPoolItem): boolean =>
+  account.platform === 'openai' && account.type === 'oauth'
+
+const loadOwnerUsage = async (id: number): Promise<void> => {
+  if (ownerUsageLoading[id]) return
+  ownerUsageLoading[id] = true
+  try {
+    ownerUsage[id] = await accountsAPI.getOwnerAccountUsage(id, true)
+  } catch (err) {
+    ownerUsage[id] = { error: extractApiErrorMessage(err) } as AccountUsageInfo
+  } finally {
+    ownerUsageLoading[id] = false
+  }
+}
 const appStore = useAppStore()
 
 const sharingMarketplaceVisible = computed(

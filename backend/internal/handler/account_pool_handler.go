@@ -40,6 +40,7 @@ type AccountPoolHandler struct {
 	privacyClientFactory    service.PrivacyClientFactory
 	remoteSessionService    *service.RemoteSessionService
 	contributionPoolService *service.AccountContributionService
+	openaiQuotaService      *service.OpenAIQuotaService
 }
 
 func NewAccountPoolHandler(
@@ -57,6 +58,7 @@ func NewAccountPoolHandler(
 	privacyClientFactory service.PrivacyClientFactory,
 	remoteSessionService *service.RemoteSessionService,
 	contributionPoolService *service.AccountContributionService,
+	openaiQuotaService *service.OpenAIQuotaService,
 ) *AccountPoolHandler {
 	return &AccountPoolHandler{
 		accountService:          accountService,
@@ -73,6 +75,7 @@ func NewAccountPoolHandler(
 		privacyClientFactory:    privacyClientFactory,
 		remoteSessionService:    remoteSessionService,
 		contributionPoolService: contributionPoolService,
+		openaiQuotaService:      openaiQuotaService,
 	}
 }
 
@@ -1441,6 +1444,90 @@ func (h *AccountPoolHandler) UpdateLimits(c *gin.Context) {
 	items := []service.UserAccountPoolItem{*item}
 	h.hydrateCurrentWindowCost(c.Request.Context(), items)
 	response.Success(c, items[0])
+}
+
+// GetOwnerAccountUsage returns the live upstream 5h/7d rate-limit windows for an
+// OAuth account the caller owns (pool "查询"). Mirrors the admin GetUsage active
+// sample, but gated on account ownership instead of admin role.
+// GET /accounts/pool/:id/usage?force=true
+func (h *AccountPoolHandler) GetOwnerAccountUsage(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+	force := c.Query("force") == "true"
+	usage, err := h.accountUsageService.GetUsage(c.Request.Context(), accountID, force)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, usage)
+}
+
+// QueryOwnerOpenAIQuota queries the ChatGPT/Codex rate-limit reset-credit count
+// for an OpenAI OAuth account the caller owns (pool "次数"). Delegates to the same
+// OpenAIQuotaService the admin panel uses; ownership is enforced here.
+// GET /accounts/pool/:id/openai-quota
+func (h *AccountPoolHandler) QueryOwnerOpenAIQuota(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+	if h.openaiQuotaService == nil {
+		response.InternalError(c, "openai quota service is not configured")
+		return
+	}
+	usage, err := h.openaiQuotaService.QueryUsage(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, usage)
+}
+
+// ResetOwnerOpenAIQuota consumes one rate-limit-reset credit for an OpenAI OAuth
+// account the caller owns (pool "重置"). Shadow accounts are rejected upstream
+// (ErrSparkShadowResetNotSupported → 409), same as the admin path.
+// POST /accounts/pool/:id/openai-quota/reset
+func (h *AccountPoolHandler) ResetOwnerOpenAIQuota(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	accountID, ok := parseAccountIDParam(c)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID); !ok {
+		return
+	}
+	if h.openaiQuotaService == nil {
+		response.InternalError(c, "openai quota service is not configured")
+		return
+	}
+	result, err := h.openaiQuotaService.ResetCredit(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 func parseAccountIDParam(c *gin.Context) (int64, bool) {
