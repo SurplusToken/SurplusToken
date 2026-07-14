@@ -273,6 +273,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
+      requiresAffiliate: true,
       title: 'Affiliate',
       titleKey: 'affiliate.title',
       descriptionKey: 'affiliate.description'
@@ -622,6 +623,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
+      requiresAffiliate: true,
       title: 'Affiliate Invite Records',
       titleKey: 'nav.affiliateInviteRecords',
       descriptionKey: 'admin.affiliates.invitesDescription'
@@ -634,6 +636,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
+      requiresAffiliate: true,
       title: 'Affiliate Rebate Records',
       titleKey: 'nav.affiliateRebateRecords',
       descriptionKey: 'admin.affiliates.rebatesDescription'
@@ -646,6 +649,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
+      requiresAffiliate: true,
       title: 'Affiliate Transfer Records',
       titleKey: 'nav.affiliateTransferRecords',
       descriptionKey: 'admin.affiliates.transfersDescription'
@@ -738,13 +742,13 @@ const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/wechat/payment/callback',
 ]
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
-const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = [
-  '/redeem',
-  '/affiliate',
-  '/admin/redeem',
-  '/admin/promo-codes',
-  '/admin/affiliates',
-]
+// These commercial routes used to be hard-blocked here regardless of admin
+// settings. They now follow the admin toggles instead: affiliate routes are
+// gated by affiliate_enabled via meta.requiresAffiliate below; redeem/promo
+// pages are available like upstream. Nothing is hard-restricted anymore, but
+// the guard is kept as an explicit allowlist so a hard block can't be
+// reintroduced by accident (see payment-guard.spec.ts).
+const SURPLUSAI_INTERNAL_RESTRICTED_PATHS: string[] = []
 
 function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
   if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
@@ -865,7 +869,7 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl) && !appStore.publicSettingsLoaded) {
+  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresAffiliate) && !appStore.publicSettingsLoaded) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -890,6 +894,15 @@ router.beforeEach(async (to, _from, next) => {
     appStore.cachedPublicSettings?.risk_control_enabled === false
   ) {
     next(authStore.isAdmin ? '/admin/settings' : '/dashboard')
+    return
+  }
+
+  if (
+    to.meta.requiresAffiliate &&
+    appStore.publicSettingsLoaded &&
+    appStore.cachedPublicSettings?.affiliate_enabled === false
+  ) {
+    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
     return
   }
 

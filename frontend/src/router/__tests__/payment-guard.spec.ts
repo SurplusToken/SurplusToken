@@ -9,7 +9,7 @@ const routerSource = readFileSync(routerPath, 'utf8')
 
 describe('payment route guard', () => {
   it('does not hard-block user payment routes through SurplusAI internal restrictions', () => {
-    const match = routerSource.match(/const SURPLUSAI_INTERNAL_RESTRICTED_PATHS = \[([\s\S]*?)\]/)
+    const match = routerSource.match(/const SURPLUSAI_INTERNAL_RESTRICTED_PATHS(?::\s*string\[\])?\s*=\s*\[([\s\S]*?)\]/)
     expect(match).not.toBeNull()
 
     const restrictedBlock = match?.[1] ?? ''
