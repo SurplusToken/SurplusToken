@@ -177,6 +177,10 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldStatus,
 				group.FieldSubscriptionType,
 				group.FieldRateMultiplier,
+				// Required so the billing path can detect a dynamic sharing pool
+				// (shouldApplySharingRateBilling); omitting it defaults the field to
+				// false and silently disables sharing-rate billing for every consumer.
+				group.FieldDynamicSharingPool,
 				group.FieldDailyLimitUsd,
 				group.FieldWeeklyLimitUsd,
 				group.FieldMonthlyLimitUsd,
