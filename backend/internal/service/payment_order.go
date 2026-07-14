@@ -105,12 +105,34 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	}
 	resp, err := s.invokeProvider(ctx, order, req, cfg, limitAmount, payAmountStr, payAmount, plan, sel)
 	if err != nil {
-		_, _ = s.entClient.PaymentOrder.UpdateOneID(order.ID).
+		reason := psFailureReason(err)
+		if _, uerr := s.entClient.PaymentOrder.UpdateOneID(order.ID).
 			SetStatus(OrderStatusFailed).
-			Save(ctx)
+			SetFailedAt(time.Now()).
+			SetFailedReason(reason).
+			Save(ctx); uerr != nil {
+			slog.Error("mark order FAILED after provider error", "orderID", order.ID, "error", uerr)
+		}
+		s.writeAuditLog(ctx, order.ID, "CREATE_FAILED", fmt.Sprintf("user:%d", req.UserID), map[string]any{"reason": reason})
 		return nil, err
 	}
 	return resp, nil
+}
+
+// psFailureReason extracts a human-readable failure reason for persisting to
+// payment_orders.failed_reason. For an ApplicationError it prefers the clean
+// Message (e.g. the gateway error text); otherwise it falls back to the full
+// error string.
+func psFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	if appErr := new(infraerrors.ApplicationError); errors.As(err, &appErr) {
+		if appErr.Message != "" {
+			return appErr.Message
+		}
+	}
+	return err.Error()
 }
 
 func (s *PaymentService) validateOrderInput(ctx context.Context, req CreateOrderRequest, cfg *PaymentConfig) (*dbent.SubscriptionPlan, error) {
