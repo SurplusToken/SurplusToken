@@ -1414,6 +1414,7 @@ export interface UsageLog {
   user_id: number
   api_key_id: number
   account_id: number | null
+  account_name?: string | null // Serving account/channel name (dynamic pool transparency)
   request_id: string
   model: string
   service_tier?: string | null
@@ -1438,6 +1439,7 @@ export interface UsageLog {
   total_cost: number
   actual_cost: number
   rate_multiplier: number
+  sharing_rate_multiplier?: number | null // Dynamic sharing pool rate applied at billing (null = 1.0)
   billing_type: number
 
   request_type?: UsageRequestType

@@ -49,7 +49,17 @@
         </template>
 
         <template #cell-account="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
+          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || row.account_name || '-' }}</span>
+        </template>
+
+        <template #cell-sharing_rate="{ row }">
+          <span
+            v-if="row.sharing_rate_multiplier != null"
+            class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200"
+          >
+            ×{{ formatSharingRate(row.sharing_rate_multiplier) }}
+          </span>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
         <template #cell-model="{ row }">
@@ -572,6 +582,12 @@ const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
 
 const formatUserAgent = (ua: string): string => {
   return ua
+}
+
+// Sharing rate multiplier: trim trailing zeros (0.125 -> "0.125", 2 -> "2").
+const formatSharingRate = (v: number): string => {
+  if (!Number.isFinite(v)) return '-'
+  return String(Number(v.toFixed(4)))
 }
 
 // 超过 1 分钟简化为 "Xm Ys"，免去人工换算（超过 1 小时再进位为 "Xh Ym"）

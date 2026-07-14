@@ -286,6 +286,8 @@ export default {
     model: 'Model',
     requestedModel: 'Requested',
     upstreamModel: 'Upstream',
+    account: 'Channel',
+    sharingRate: 'Dynamic Rate',
     reasoningEffort: 'Reasoning Effort',
     endpoint: 'Endpoint',
     endpointDistribution: 'Endpoint Distribution',

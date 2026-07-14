@@ -485,8 +485,12 @@ type UsageLog struct {
 	UserID    int64  `json:"user_id"`
 	APIKeyID  int64  `json:"api_key_id"`
 	AccountID int64  `json:"account_id"`
-	RequestID string `json:"request_id"`
-	Model     string `json:"model"`
+	// AccountName is the name of the upstream account/channel that served the
+	// request, so users can see which channel handled their usage (paired with
+	// sharing_rate_multiplier this shows the dynamic-pool rate). Omitted when unknown.
+	AccountName *string `json:"account_name,omitempty"`
+	RequestID   string  `json:"request_id"`
+	Model       string  `json:"model"`
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string `json:"service_tier,omitempty"`
 	// ReasoningEffort is the request's reasoning effort level.

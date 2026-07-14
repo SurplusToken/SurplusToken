@@ -607,6 +607,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		UserID:                l.UserID,
 		APIKeyID:              l.APIKeyID,
 		AccountID:             l.AccountID,
+		AccountName:           usageLogAccountName(l.Account),
 		RequestID:             l.RequestID,
 		Model:                 requestedModel,
 		ServiceTier:           l.ServiceTier,
@@ -653,6 +654,18 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		Group:                 GroupFromServiceShallow(l.Group),
 		Subscription:          UserSubscriptionFromService(l.Subscription),
 	}
+}
+
+// usageLogAccountName returns the serving account's display name for the
+// user-facing usage DTO, or nil when the account is not hydrated / unnamed.
+// Only the name is exposed (not the account object) so users can see which
+// channel served them without leaking sensitive account internals.
+func usageLogAccountName(a *service.Account) *string {
+	if a == nil || a.Name == "" {
+		return nil
+	}
+	name := a.Name
+	return &name
 }
 
 // UsageLogFromService converts a service UsageLog to DTO for regular users.

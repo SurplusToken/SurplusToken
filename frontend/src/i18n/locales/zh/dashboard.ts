@@ -291,6 +291,8 @@ export default {
     model: '模型',
     requestedModel: '请求',
     upstreamModel: '上游',
+    account: '渠道',
+    sharingRate: '动态倍率',
     reasoningEffort: '推理强度',
     endpoint: '端点',
     endpointDistribution: '端点分布',

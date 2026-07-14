@@ -153,9 +153,12 @@ func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *test
 		IPAddress:             &ipAddress,
 		AccountRateMultiplier: &accountRateMultiplier,
 		AccountStatsCost:      &accountStatsCost,
+		Account:               &service.Account{Name: "miao-plus"},
 	}
 
 	userDTO := UsageLogFromService(log)
+	require.NotNil(t, userDTO.AccountName)
+	require.Equal(t, "miao-plus", *userDTO.AccountName)
 	require.Equal(t, 0.01, userDTO.InputCost)
 	require.Equal(t, 0.02, userDTO.OutputCost)
 	require.Equal(t, 0.03, userDTO.CacheCreationCost)
