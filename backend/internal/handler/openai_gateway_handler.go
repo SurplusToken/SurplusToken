@@ -84,6 +84,13 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	// Carry the resolved serving group so deferred usage billing can detect a
+	// dynamic sharing pool. Without this, shouldApplySharingRateBilling can't
+	// see the group in the background billing context and the sharing rate is
+	// never applied (contributed accounts silently bill external consumers at 1x).
+	if group := parent.Value(ctxkey.Group); group != nil {
+		base = context.WithValue(base, ctxkey.Group, group)
+	}
 	return base
 }
 

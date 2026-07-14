@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,4 +39,30 @@ func TestOpenAISubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 
 	require.Equal(t, "openai-client-request-123", gotClientRequestID)
 	require.Equal(t, "openai-request-456", gotRequestID)
+}
+
+// The deferred usage-billing task must carry the resolved serving group so
+// shouldApplySharingRateBilling can detect a dynamic sharing pool and apply the
+// sharing rate. Regression guard for the bug where external consumers of a
+// contributed account were silently billed at 1x.
+func TestUsageRecordTaskCarriesServingGroup(t *testing.T) {
+	group := &service.Group{
+		ID:                 12,
+		Name:               "dynamic",
+		DynamicSharingPool: true,
+		SubscriptionType:   service.SubscriptionTypeStandard,
+		Status:             service.StatusActive,
+		Hydrated:           true,
+	}
+	parent := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	var gotGroup *service.Group
+	h := &GatewayHandler{}
+	h.submitUsageRecordTask(parent, func(ctx context.Context) {
+		gotGroup, _ = ctx.Value(ctxkey.Group).(*service.Group)
+	})
+
+	require.NotNil(t, gotGroup)
+	require.Equal(t, int64(12), gotGroup.ID)
+	require.True(t, gotGroup.IsDynamicSharingPool())
 }
