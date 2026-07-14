@@ -1,0 +1,20 @@
+export default {
+  chat: {
+    title: 'Chat',
+    subtitle: 'Playground · your own API key',
+    apiKey: 'API Key',
+    newChat: 'New chat',
+    noConversations: 'No conversations yet',
+    emptyState: 'Send a message to start chatting',
+    model: 'Model',
+    noModels: 'No models',
+    noKeys: 'No usable API key yet.',
+    goCreateKey: 'Create one',
+    thinking: 'Thinking…',
+    copy: 'Copy',
+    attach: 'Attach file / image',
+    placeholder: 'Type a message…',
+    disabledPlaceholder: 'Select an API key first',
+    hint: 'Enter to send · Shift+Enter for a new line · 📎 to attach images/files',
+  },
+}

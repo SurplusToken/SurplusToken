@@ -3,6 +3,7 @@ import common from './common'
 import dashboard from './dashboard'
 import admin from './admin'
 import misc from './misc'
+import chat from './chat'
 
 export default {
   ...landing,
@@ -10,4 +11,5 @@ export default {
   ...dashboard,
   admin,
   ...misc,
+  ...chat,
 }
