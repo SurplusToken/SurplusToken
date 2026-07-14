@@ -805,9 +805,20 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, params pagination.PaginationParams, platform, planType, search string) ([]service.Account, *pagination.PaginationResult, error) {
+	// The shared account pool shows OAuth accounts (contributed or system) as
+	// before, plus admin-contributed non-OAuth schedulable accounts (e.g. api-key)
+	// that have been assigned a primary owner — so an admin's owned api-key account
+	// surfaces in the pool with its sharing rate. Non-OAuth accounts are gated on
+	// owner_user_id so uncontributed internal accounts are never exposed here.
 	q := r.client.Account.Query().
 		Where(
-			dbaccount.TypeEQ(service.AccountTypeOAuth),
+			dbaccount.Or(
+				dbaccount.TypeEQ(service.AccountTypeOAuth),
+				dbaccount.And(
+					dbaccount.TypeIn(service.SurplusAISchedulableAccountTypes...),
+					dbaccount.OwnerUserIDNotNil(),
+				),
+			),
 			dbaccount.PlatformIn(service.PlatformAnthropic, service.PlatformOpenAI),
 		)
 
