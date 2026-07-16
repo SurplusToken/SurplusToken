@@ -95,6 +95,17 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	Kasm                    KasmConfig                    `mapstructure:"kasm"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	Chat                    ChatConfig                    `mapstructure:"chat"`
+}
+
+// ChatConfig controls the account-scoped chat playground and its independent
+// PostgreSQL database. Keeping this database separate prevents chat history
+// growth from consuming space or connections on the primary database.
+type ChatConfig struct {
+	Enabled            bool           `mapstructure:"enabled"`
+	Database           DatabaseConfig `mapstructure:"database"`
+	MaxHistoryMessages int            `mapstructure:"max_history_messages"`
+	MaxMessageChars    int            `mapstructure:"max_message_chars"`
 }
 
 // KasmConfig holds settings for the Kasm Workspaces "远程连接" (remote browser)
@@ -1792,6 +1803,21 @@ func setDefaults() {
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
 	viper.SetDefault("database.user_platform_quota_flush_interval_ms", 2000)
 	viper.SetDefault("database.user_platform_quota_flush_batch_size", 1000)
+
+	// Chat playground (independent PostgreSQL database)
+	viper.SetDefault("chat.enabled", false)
+	viper.SetDefault("chat.database.host", "localhost")
+	viper.SetDefault("chat.database.port", 5432)
+	viper.SetDefault("chat.database.user", "postgres")
+	viper.SetDefault("chat.database.password", "postgres")
+	viper.SetDefault("chat.database.dbname", "sub2api_chat")
+	viper.SetDefault("chat.database.sslmode", "prefer")
+	viper.SetDefault("chat.database.max_open_conns", 32)
+	viper.SetDefault("chat.database.max_idle_conns", 8)
+	viper.SetDefault("chat.database.conn_max_lifetime_minutes", 30)
+	viper.SetDefault("chat.database.conn_max_idle_time_minutes", 5)
+	viper.SetDefault("chat.max_history_messages", 100)
+	viper.SetDefault("chat.max_message_chars", 120000)
 
 	// Redis
 	viper.SetDefault("redis.host", "localhost")

@@ -84,6 +84,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // channelMonitorRunner
 		nil, // quotaFlusher
 		nil, // remoteSession
+		nil, // chatDB
 	)
 
 	require.NotPanics(t, func() {

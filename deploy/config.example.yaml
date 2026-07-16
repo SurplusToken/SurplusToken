@@ -821,6 +821,26 @@ database:
   conn_max_idle_time_minutes: 5
 
 # =============================================================================
+# Chat Playground (independent PostgreSQL database)
+# 对话操练场（独立 PostgreSQL 数据库）
+# =============================================================================
+chat:
+  enabled: false
+  database:
+    host: "localhost"
+    port: 5432
+    user: "sub2api_chat"
+    password: "your_chat_database_password_here"
+    dbname: "sub2api_chat"
+    sslmode: "prefer"
+    max_open_conns: 32
+    max_idle_conns: 8
+    conn_max_lifetime_minutes: 30
+    conn_max_idle_time_minutes: 5
+  max_history_messages: 100
+  max_message_chars: 120000
+
+# =============================================================================
 # Redis Configuration
 # Redis 配置
 # =============================================================================

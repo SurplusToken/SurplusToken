@@ -587,6 +587,11 @@ func ProvideProxyService(proxyRepo ProxyRepository, proxyProber ProxyExitInfoPro
 	return svc
 }
 
+// ProvideChatService applies chat-specific history and message limits.
+func ProvideChatService(repo ChatRepository, cfg *config.Config) *ChatService {
+	return NewChatService(repo, cfg.Chat.MaxHistoryMessages, cfg.Chat.MaxMessageChars)
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -605,6 +610,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
+	ProvideChatService,
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,

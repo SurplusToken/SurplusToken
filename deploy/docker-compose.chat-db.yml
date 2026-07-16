@@ -1,0 +1,45 @@
+# Optional override for the independent chat-history PostgreSQL database.
+#
+# Usage:
+#   CHAT_DB_DATA_DIR=/absolute/path/on/hdd \
+#   docker compose -f docker-compose.yml -f docker-compose.chat-db.yml up -d
+services:
+  sub2api:
+    environment:
+      - CHAT_ENABLED=true
+      - CHAT_DATABASE_HOST=chat-postgres
+      - CHAT_DATABASE_PORT=5432
+      - CHAT_DATABASE_USER=${CHAT_POSTGRES_USER:-sub2api_chat}
+      - CHAT_DATABASE_PASSWORD=${CHAT_POSTGRES_PASSWORD:?CHAT_POSTGRES_PASSWORD is required}
+      - CHAT_DATABASE_DBNAME=${CHAT_POSTGRES_DB:-sub2api_chat}
+      - CHAT_DATABASE_SSLMODE=disable
+      - CHAT_DATABASE_MAX_OPEN_CONNS=${CHAT_DATABASE_MAX_OPEN_CONNS:-32}
+      - CHAT_DATABASE_MAX_IDLE_CONNS=${CHAT_DATABASE_MAX_IDLE_CONNS:-8}
+      - CHAT_DATABASE_CONN_MAX_LIFETIME_MINUTES=${CHAT_DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
+      - CHAT_DATABASE_CONN_MAX_IDLE_TIME_MINUTES=${CHAT_DATABASE_CONN_MAX_IDLE_TIME_MINUTES:-5}
+      - CHAT_MAX_HISTORY_MESSAGES=${CHAT_MAX_HISTORY_MESSAGES:-100}
+      - CHAT_MAX_MESSAGE_CHARS=${CHAT_MAX_MESSAGE_CHARS:-120000}
+    depends_on:
+      chat-postgres:
+        condition: service_healthy
+
+  chat-postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    volumes:
+      - ${CHAT_DB_DATA_DIR:?CHAT_DB_DATA_DIR must be an absolute mounted-disk path}:/var/lib/postgresql/data
+    environment:
+      - PGDATA=/var/lib/postgresql/data
+      - POSTGRES_USER=${CHAT_POSTGRES_USER:-sub2api_chat}
+      - POSTGRES_PASSWORD=${CHAT_POSTGRES_PASSWORD:?CHAT_POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${CHAT_POSTGRES_DB:-sub2api_chat}
+      - TZ=${TZ:-Asia/Shanghai}
+    networks:
+      - sub2api-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CHAT_POSTGRES_USER:-sub2api_chat} -d ${CHAT_POSTGRES_DB:-sub2api_chat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Intentionally no host port. The application connects over the Compose network.

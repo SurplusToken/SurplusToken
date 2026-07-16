@@ -2047,6 +2047,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	openToolID := ""
 	openToolName := ""
 	seenToolJSON := ""
+	seenCitationURLs := make(map[string]struct{})
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -2219,6 +2220,28 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				}
 				flusher.Flush()
 			}
+		}
+
+		if openBlockIndex >= 0 && openBlockType == "text" {
+			for _, citation := range extractGeminiGroundingCitations(geminiResp) {
+				citationURL, _ := citation["url"].(string)
+				if citationURL == "" {
+					continue
+				}
+				if _, exists := seenCitationURLs[citationURL]; exists {
+					continue
+				}
+				seenCitationURLs[citationURL] = struct{}{}
+				writeSSE(c.Writer, "content_block_delta", map[string]any{
+					"type":  "content_block_delta",
+					"index": openBlockIndex,
+					"delta": map[string]any{
+						"type":     "citations_delta",
+						"citation": citation,
+					},
+				})
+			}
+			flusher.Flush()
 		}
 
 		if u := extractGeminiUsage(unwrappedBytes); u != nil {
@@ -2755,6 +2778,8 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	}
 
 	contentBlocks := make([]any, 0)
+	groundingCitations := extractGeminiGroundingCitations(geminiResp)
+	groundingCitationsAttached := false
 	sawToolUse := false
 	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
 		if cand, ok := candidates[0].(map[string]any); ok {
@@ -2766,10 +2791,15 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							continue
 						}
 						if text, ok := pm["text"].(string); ok && text != "" {
-							contentBlocks = append(contentBlocks, map[string]any{
+							textBlock := map[string]any{
 								"type": "text",
 								"text": text,
-							})
+							}
+							if !groundingCitationsAttached && len(groundingCitations) > 0 {
+								textBlock["citations"] = groundingCitations
+								groundingCitationsAttached = true
+							}
+							contentBlocks = append(contentBlocks, textBlock)
 						}
 						if fc, ok := pm["functionCall"].(map[string]any); ok {
 							name, _ := fc["name"].(string)
@@ -2811,6 +2841,37 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	}
 
 	return resp, usage
+}
+
+func extractGeminiGroundingCitations(geminiResp map[string]any) []map[string]any {
+	seen := make(map[string]struct{})
+	var citations []map[string]any
+	candidates, _ := geminiResp["candidates"].([]any)
+	for _, rawCandidate := range candidates {
+		candidate, _ := rawCandidate.(map[string]any)
+		grounding, _ := candidate["groundingMetadata"].(map[string]any)
+		chunks, _ := grounding["groundingChunks"].([]any)
+		for _, rawChunk := range chunks {
+			chunk, _ := rawChunk.(map[string]any)
+			web, _ := chunk["web"].(map[string]any)
+			uri, _ := web["uri"].(string)
+			uri = strings.TrimSpace(uri)
+			if uri == "" {
+				continue
+			}
+			if _, exists := seen[uri]; exists {
+				continue
+			}
+			seen[uri] = struct{}{}
+			title, _ := web["title"].(string)
+			citations = append(citations, map[string]any{
+				"type":  "web_search_result_location",
+				"url":   uri,
+				"title": strings.TrimSpace(title),
+			})
+		}
+	}
+	return citations
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {
@@ -3504,6 +3565,15 @@ func convertClaudeGenerationConfig(req map[string]any) map[string]any {
 	}
 	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
 		out["stopSequences"] = stopSeq
+	}
+	if outputConfig, ok := req["output_config"].(map[string]any); ok {
+		if effort, ok := outputConfig["effort"].(string); ok {
+			effort = strings.ToLower(strings.TrimSpace(effort))
+			switch effort {
+			case "minimal", "low", "medium", "high":
+				out["thinkingConfig"] = map[string]any{"thinkingLevel": effort}
+			}
+		}
 	}
 	if len(out) == 0 {
 		return nil

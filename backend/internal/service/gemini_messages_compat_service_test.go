@@ -554,6 +554,50 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToo
 	}
 }
 
+func TestConvertClaudeMessagesToGeminiGenerateContent_MapsOfficialThinkingLevel(t *testing.T) {
+	body := []byte(`{
+		"model":"gemini-3.5-flash",
+		"max_tokens":8192,
+		"messages":[{"role":"user","content":"hello"}],
+		"output_config":{"effort":"medium"}
+	}`)
+
+	out, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(out, &payload))
+	generationConfig, ok := payload["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	thinkingConfig, ok := generationConfig["thinkingConfig"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "medium", thinkingConfig["thinkingLevel"])
+}
+
+func TestConvertGeminiToClaudeMessage_PreservesGroundingCitations(t *testing.T) {
+	geminiResponse := map[string]any{
+		"candidates": []any{map[string]any{
+			"content": map[string]any{"parts": []any{map[string]any{"text": "answer"}}},
+			"groundingMetadata": map[string]any{
+				"groundingChunks": []any{map[string]any{
+					"web": map[string]any{"uri": "https://example.com/research", "title": "Research"},
+				}},
+			},
+		}},
+	}
+
+	response, _ := convertGeminiToClaudeMessage(geminiResponse, "gemini-3.5-flash", []byte(`{}`))
+	content, ok := response["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	textBlock, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	citations, ok := textBlock["citations"].([]map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "web_search_result_location", citations[0]["type"])
+	require.Equal(t, "https://example.com/research", citations[0]["url"])
+	require.Equal(t, "Research", citations[0]["title"])
+}
+
 func TestEnsureGeminiFunctionCallThoughtSignatures_InsertsWhenMissing(t *testing.T) {
 	geminiReq := map[string]any{
 		"contents": []any{

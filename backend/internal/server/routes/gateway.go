@@ -139,9 +139,11 @@ func RegisterGatewayRoutes(
 		})
 		// Codex CLI / Codex app refresh their model picker from the provider's
 		// /models endpoint with a client_version query and expect the ChatGPT
-		// Codex manifest format; other clients keep the OpenAI-style list.
+		// Codex manifest format. The built-in Chat uses codex_manifest=1 to
+		// consume the same per-model capability catalog without pinning a client
+		// version; other clients keep the OpenAI-style list.
 		gateway.GET("/models", func(c *gin.Context) {
-			if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
+			if isOpenAIGatewayPlatform(c) && (c.Query("client_version") != "" || c.Query("codex_manifest") == "1") {
 				h.OpenAIGateway.CodexModels(c)
 				return
 			}

@@ -211,14 +211,15 @@ func normalizeOpenAICodexCompactReasoningEffortForAccount(c *gin.Context, accoun
 }
 
 func normalizeOpenAICodexCompactReasoningEffort(body []byte, effectiveModel string) ([]byte, bool, error) {
+	effort := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if !isOpenAIGPT56Model(effectiveModel) ||
-		!strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()), "max") {
+		(!strings.EqualFold(effort, "max") && !strings.EqualFold(effort, "ultra")) {
 		return body, false, nil
 	}
 
-	// Codex Ultra 在客户端编排层会下发 max；ChatGPT compact 端点目前只接受到
-	// xhigh。这里只降级 OpenAI OAuth 的 GPT-5.6 compact 子请求，普通 Responses、
-	// API Key 请求和其他平台的 OAuth 请求保留 max。
+	// The ChatGPT compact endpoint currently accepts up to xhigh. Only compact
+	// subrequests are downgraded; ordinary Responses requests preserve the exact
+	// max or ultra value advertised by the subscription model manifest.
 	normalized, err := sjson.SetBytes(body, "reasoning.effort", "xhigh")
 	if err != nil {
 		return body, false, fmt.Errorf("normalize codex compact reasoning effort: %w", err)
@@ -1248,8 +1249,9 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 }
 
 func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
-	if strings.EqualFold(strings.TrimSpace(raw), "max") && isOpenAIGPT56Model(model) {
-		return "max"
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "ultra" || (value == "max" && isOpenAIGPT56Model(model)) {
+		return value
 	}
 	return normalizeOpenAIReasoningEffort(raw)
 }

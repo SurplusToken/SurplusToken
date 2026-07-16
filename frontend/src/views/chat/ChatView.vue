@@ -9,8 +9,9 @@
         <ConversationList
           :conversations="store.conversations"
           :current-id="store.currentConvId"
-          @new="store.newConversation()"
+          @new="void store.newConversation()"
           @select="store.selectConversation"
+          @delete="onDeleteConversation"
         />
       </aside>
 
@@ -67,10 +68,15 @@
         <!-- Composer -->
         <ChatComposer
           :models="store.models"
+          :model-catalog="store.modelCatalog"
           :current-model-id="store.currentModelId"
+          :platform="store.selectedKey?.group?.platform"
+          :reasoning-effort="store.currentReasoningEffort"
+          :reasoning-options="store.currentReasoningOptions"
           :sending="store.sending"
           :disabled="!store.hasKey"
           @update:model="store.setModel"
+          @update:reasoning="store.setReasoningEffort"
           @send="onSend"
         />
       </section>
@@ -104,7 +110,11 @@ function onKeyChange(e: Event) {
 }
 
 function onSend(payload: { text: string; attachments: Attachment[] }) {
-  store.sendMessage(payload.text, payload.attachments)
+  void store.sendMessage(payload.text, payload.attachments)
+}
+
+function onDeleteConversation(id: number) {
+  if (window.confirm(t('chat.deleteConfirm'))) void store.removeConversation(id)
 }
 
 function scrollToBottom() {

@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -13,7 +16,10 @@ func RegisterUserRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
 	jwtAuth middleware.JWTAuthMiddleware,
+	apiKeyAuth middleware.APIKeyAuthMiddleware,
 	settingService *service.SettingService,
+	opsService *service.OpsService,
+	cfg *config.Config,
 ) {
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
@@ -67,6 +73,43 @@ func RegisterUserRoutes(
 			keys.POST("", h.APIKey.Create)
 			keys.PUT("/:id", h.APIKey.Update)
 			keys.DELETE("/:id", h.APIKey.Delete)
+		}
+
+		// 服务端持久化 Chat。completion 路由先由 JWT 识别用户，再将用户选择且
+		// 确认归属的 API Key 注入现有网关中间件链，复用计费、限流和平台分流。
+		chat := authenticated.Group("/chat")
+		{
+			chat.GET("/conversations", h.Chat.ListConversations)
+			chat.POST("/conversations", h.Chat.CreateConversation)
+			chat.PATCH("/conversations/:id", h.Chat.UpdateConversation)
+			chat.DELETE("/conversations/:id", h.Chat.DeleteConversation)
+			chat.GET("/conversations/:id/messages", h.Chat.ListMessages)
+
+			bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
+			clientRequestID := middleware.ClientRequestID()
+			opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
+			endpointNorm := handler.InboundEndpointMiddleware()
+			requireGroup := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
+			chat.POST("/conversations/:id/completions",
+				bodyLimit,
+				clientRequestID,
+				opsErrorLogger,
+				h.Chat.PrepareCompletion,
+				h.Chat.CaptureCompletion,
+				endpointNorm,
+				gin.HandlerFunc(apiKeyAuth),
+				requireGroup,
+				func(c *gin.Context) {
+					switch getGroupPlatform(c) {
+					case service.PlatformOpenAI, service.PlatformGrok:
+						h.OpenAIGateway.Responses(c)
+					case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity:
+						h.Gateway.Messages(c)
+					default:
+						c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "chat_error", "message": "Unsupported chat platform"}})
+					}
+				},
+			)
 		}
 
 		// 用户可用分组（非管理员接口）

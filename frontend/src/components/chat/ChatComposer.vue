@@ -1,17 +1,38 @@
 <template>
   <div class="border-t border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-900">
     <!-- Model row -->
-    <div class="mb-2 flex items-center gap-2">
-      <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('chat.model') }}</label>
-      <select
-        :value="currentModelId"
-        :disabled="disabled || models.length === 0"
-        class="max-w-[240px] truncate rounded-lg border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
-        @change="onModelChange"
-      >
-        <option v-if="models.length === 0" value="">{{ t('chat.noModels') }}</option>
-        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-      </select>
+    <div class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div class="flex min-w-0 items-center gap-2">
+        <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('chat.model') }}</label>
+        <select
+          :value="currentModelId"
+          :disabled="disabled || models.length === 0"
+          class="max-w-[240px] truncate rounded-lg border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
+          @change="onModelChange"
+        >
+          <option v-if="models.length === 0" value="">{{ t('chat.noModels') }}</option>
+          <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('chat.reasoning') }}</span>
+        <select
+          :value="reasoningEffort"
+          :disabled="disabled || sending"
+          class="h-7 rounded-md border border-gray-200 bg-gray-50 py-1 pl-2 pr-7 text-xs text-gray-800 focus:border-primary-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-100"
+          @change="onReasoningChange"
+        >
+          <option
+            v-for="option in availableReasoningOptions"
+            :key="option.value"
+            :value="option.value"
+            :title="option.description"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
     </div>
 
     <!-- Attachment chips -->
@@ -82,17 +103,47 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Attachment, AttachmentKind } from '@/api/chat'
+import { reasoningEffortsForPlatform } from '@/api/chat'
+import type {
+  Attachment,
+  AttachmentKind,
+  ChatModelOption,
+  ReasoningEffort,
+  ReasoningOption,
+} from '@/api/chat'
 
-const props = defineProps<{ models: string[]; currentModelId: string; sending: boolean; disabled?: boolean }>()
+const props = defineProps<{
+  models: string[]
+  modelCatalog?: ChatModelOption[]
+  currentModelId: string
+  platform?: string
+  reasoningOptions?: ReasoningOption[]
+  reasoningEffort: ReasoningEffort
+  sending: boolean
+  disabled?: boolean
+}>()
 const emit = defineEmits<{
   (e: 'update:model', id: string): void
+  (e: 'update:reasoning', effort: ReasoningEffort): void
   (e: 'send', payload: { text: string; attachments: Attachment[] }): void
 }>()
 
 const { t } = useI18n()
+const modelOptions = computed<ChatModelOption[]>(() =>
+  props.modelCatalog?.length
+    ? props.modelCatalog
+    : props.models.map((id) => ({ id, label: id, reasoningOptions: [] })),
+)
+const availableReasoningOptions = computed<ReasoningOption[]>(() =>
+  props.reasoningOptions?.length
+    ? props.reasoningOptions
+    : reasoningEffortsForPlatform(props.platform, props.currentModelId).map((value) => ({
+        value,
+        label: value || 'Default',
+      })),
+)
 const draft = ref('')
 const taRef = ref<HTMLTextAreaElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -152,6 +203,10 @@ function removeAttachment(id: string) {
 
 function onModelChange(e: Event) {
   emit('update:model', (e.target as HTMLSelectElement).value)
+}
+
+function onReasoningChange(e: Event) {
+  emit('update:reasoning', (e.target as HTMLSelectElement).value as ReasoningEffort)
 }
 
 function autoGrow() {

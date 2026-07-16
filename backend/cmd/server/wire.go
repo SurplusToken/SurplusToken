@@ -107,6 +107,7 @@ func provideCleanup(
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	remoteSession *service.RemoteSessionService,
+	chatDB *repository.ChatDB,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -292,6 +293,12 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"ChatDB", func() error {
+				if chatDB == nil {
+					return nil
+				}
+				return chatDB.Close()
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil
