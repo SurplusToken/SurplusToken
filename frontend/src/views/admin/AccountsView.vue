@@ -234,6 +234,7 @@
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                  :compatible-provider="getOpenAICompatibleProvider(row)"
                   :plan-type="row.credentials?.plan_type || row.parent_plan_type"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
                   :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
@@ -1178,6 +1179,11 @@ function getAntigravityTierLabel(row: any): string | null {
 // 供名称单元格 v-if/标题/文本三处共用,避免同一回退链在模板里重复三次。
 function accountDisplayEmail(row: any): string {
   return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
+}
+
+function getOpenAICompatibleProvider(row: Account): string | undefined {
+  const provider = row.extra?.openai_compatible_provider
+  return typeof provider === 'string' ? provider : undefined
 }
 
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'

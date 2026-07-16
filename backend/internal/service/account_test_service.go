@@ -505,7 +505,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
 	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+		if account.IsKimiOAuth() {
+			testModelID = "kimi-for-coding"
+		} else if account.IsKimi() {
+			testModelID = "kimi-k3"
+		} else {
+			testModelID = openai.DefaultTestModel
+		}
 	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
@@ -542,7 +548,20 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	var apiURL string
 	var isOAuth bool
 
-	if credentialAccount.IsOAuth() {
+	if credentialAccount.IsKimi() {
+		authToken = credentialAccount.GetOpenAIAccessToken()
+		if credentialAccount.Type == AccountTypeAPIKey {
+			authToken = credentialAccount.GetOpenAIApiKey()
+		}
+		if authToken == "" {
+			return s.sendErrorAndEnd(c, "No Kimi credential available")
+		}
+		baseURL, err := s.validateUpstreamBaseURL(credentialAccount.GetOpenAIBaseURL())
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Kimi base URL: %s", err.Error()))
+		}
+		return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, baseURL, authToken)
+	} else if credentialAccount.IsOAuth() {
 		isOAuth = true
 		// OAuth - use Bearer token with ChatGPT internal API
 		authToken = credentialAccount.GetOpenAIAccessToken()
@@ -760,8 +779,8 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 	return s.processOpenAIStream(c, resp.Body)
 }
 
-// testOpenAIChatCompletionsConnection tests an OpenAI-compatible APIKey account
-// through the raw /v1/chat/completions endpoint.
+// testOpenAIChatCompletionsConnection tests an OpenAI-compatible account through
+// the raw /v1/chat/completions endpoint.
 func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c *gin.Context,
 	account *Account,
@@ -793,6 +812,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
+	if account.IsKimiOAuth() {
+		applyKimiCodeHeaders(req.Header, account.ID)
+	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
@@ -827,6 +849,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 // resulting capability state on the account.
 func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account *Account, testModelID string) error {
 	ctx := c.Request.Context()
+	if account.IsKimi() {
+		return s.sendErrorAndEnd(c, "Kimi does not support the OpenAI compact endpoint")
+	}
 
 	authToken := ""
 	apiURL := ""

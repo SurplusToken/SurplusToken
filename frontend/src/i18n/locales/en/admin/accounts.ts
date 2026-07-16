@@ -876,6 +876,19 @@ export default {
           pleaseEnterRefreshToken: 'Please enter Refresh Token',
           pleaseEnterSessionToken: 'Please enter Session Token'
         },
+        kimi: {
+          title: 'Kimi Coding Plan Authorization',
+          codingPlan: 'Coding Plan device authorization',
+          apiKey: 'Kimi API platform key',
+          description: 'Open the Kimi authorization page and confirm the code below. The account is created automatically after approval.',
+          userCode: 'Verification code',
+          openAuthorization: 'Open authorization page',
+          waiting: 'Waiting for Kimi authorization. Keep this window open.',
+          ready: 'The verification code is ready.',
+          start: 'Start Kimi authorization',
+          authorizing: 'Waiting for authorization...',
+          createFailed: 'Failed to create Kimi OAuth account'
+        },
         grok: {
           title: 'Grok Account Authorization',
           followSteps: 'Follow these steps to authorize your xAI/Grok account:',

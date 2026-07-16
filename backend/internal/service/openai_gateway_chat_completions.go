@@ -84,6 +84,16 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
+	if account.IsKimi() {
+		if strings.TrimSpace(promptCacheKey) != "" && !gjson.GetBytes(body, "prompt_cache_key").Exists() {
+			var err error
+			body, err = sjson.SetBytes(body, "prompt_cache_key", strings.TrimSpace(promptCacheKey))
+			if err != nil {
+				return nil, fmt.Errorf("inject Kimi prompt_cache_key: %w", err)
+			}
+		}
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。

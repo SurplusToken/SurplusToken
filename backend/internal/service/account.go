@@ -604,6 +604,21 @@ func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
+func (a *Account) OpenAICompatibleProvider() string {
+	if a == nil || a.Platform != PlatformOpenAI {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(a.getExtraString("openai_compatible_provider")))
+}
+
+func (a *Account) IsKimi() bool {
+	return a.OpenAICompatibleProvider() == "kimi"
+}
+
+func (a *Account) IsKimiOAuth() bool {
+	return a.IsKimi() && a.Type == AccountTypeOAuth
+}
+
 func (a *Account) IsOpenAICompatible() bool {
 	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
 }
@@ -1595,7 +1610,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() {
 		return ""
 	}
-	if a.Type == AccountTypeAPIKey {
+	if a.Type == AccountTypeAPIKey || a.IsKimiOAuth() {
 		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
 			return baseURL

@@ -962,6 +962,19 @@ export default {
           pleaseEnterRefreshToken: '请输入 Refresh Token',
           pleaseEnterSessionToken: '请输入 Session Token'
         },
+        kimi: {
+          title: 'Kimi Coding Plan 授权',
+          codingPlan: 'Coding Plan 设备授权',
+          apiKey: 'Kimi 开放平台 API Key',
+          description: '打开 Kimi 认证页面并确认下方验证码。授权成功后账号会自动创建。',
+          userCode: '验证码',
+          openAuthorization: '打开认证页面',
+          waiting: '等待 Kimi 完成授权，请不要关闭此窗口。',
+          ready: '验证码已生成。',
+          start: '开始 Kimi 授权',
+          authorizing: '等待授权...',
+          createFailed: '创建 Kimi OAuth 账号失败'
+        },
         grok: {
           title: 'Grok 账号授权',
           followSteps: '请按照以下步骤授权您的 xAI/Grok 账号：',

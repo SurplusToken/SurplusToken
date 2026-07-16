@@ -462,9 +462,31 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
-	// ---- 月之暗面 Kimi（K 系列）----
-	// Source: https://platform.moonshot.cn/docs/pricing/overview (元/百万 tokens 口径)
-	//       交叉验证：https://www.tmtpost.com/7961404.html (USD 口径)
+	// ---- Kimi Code ----
+	// Official CNY prices:
+	// https://platform.kimi.com/docs/pricing/chat-k3
+	// https://platform.kimi.com/docs/pricing/chat-k27-code
+	// BillingService uses USD, so the fallback converts at the repository-wide
+	// domestic-model reference rate ¥7.14 = $1. Channel pricing can override it.
+	s.fallbackPrices["kimi-k3"] = &ModelPricing{
+		InputPricePerToken:     2.80112e-6,  // ¥20.00/MTok
+		OutputPricePerToken:    14.0056e-6,  // ¥100.00/MTok
+		CacheReadPricePerToken: 0.280112e-6, // ¥2.00/MTok
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["kimi-k2.7-code"] = &ModelPricing{
+		InputPricePerToken:     0.910364e-6, // ¥6.50/MTok
+		OutputPricePerToken:    3.78151e-6,  // ¥27.00/MTok
+		CacheReadPricePerToken: 0.182073e-6, // ¥1.30/MTok
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["kimi-k2.7-code-highspeed"] = &ModelPricing{
+		InputPricePerToken:     1.82073e-6,  // ¥13.00/MTok
+		OutputPricePerToken:    7.56303e-6,  // ¥54.00/MTok
+		CacheReadPricePerToken: 0.364146e-6, // ¥2.60/MTok
+		SupportsCacheBreakdown: false,
+	}
+	// Legacy open-platform models retained for existing non-Coding channels.
 	// Moonshot V1 (¥2/¥5/¥10 多 tier) 公开页未直接标注 USD 价，本分支不覆盖，避免误计价。
 	// K2-0905 / K2-0711 官方页面未保留定价，不覆盖。
 	s.fallbackPrices["kimi-k2.6"] = &ModelPricing{
@@ -473,13 +495,14 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.15e-6, // $0.15 per MTok (cache hit, ¥1.10)
 		SupportsCacheBreakdown: false,
 	}
-	// kimi-for-coding 走 Kimi Coding endpoint，按当前 K2.6 coding 档位兜底计费。
+	// Kimi Code stable aliases currently map to K2.7 Code.
 	s.fallbackPrices["kimi-for-coding"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6,
-		OutputPricePerToken:    4e-6,
-		CacheReadPricePerToken: 0.15e-6,
+		InputPricePerToken:     0.910364e-6,
+		OutputPricePerToken:    3.78151e-6,
+		CacheReadPricePerToken: 0.182073e-6,
 		SupportsCacheBreakdown: false,
 	}
+	s.fallbackPrices["kimi-for-coding-highspeed"] = s.fallbackPrices["kimi-k2.7-code-highspeed"]
 	s.fallbackPrices["kimi-k2.5"] = &ModelPricing{
 		InputPricePerToken:     0.60e-6, // $0.60 per MTok
 		OutputPricePerToken:    3e-6,    // $3.00 per MTok
@@ -675,10 +698,19 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["glm-4-32b-0414-128k"]
 	}
 
-	// 月之暗面 Kimi（kimi-k2.6 / kimi-for-coding / kimi-k2.5 / kimi-k2-thinking / kimi-k2）
+	// Kimi Code aliases must be checked from most specific to least specific.
 	// K2-0905 / K2-0711 官方未保留定价，不进入 fallback。
+	if modelLower == "k3" || modelLower == "kimi-k3" || strings.HasSuffix(modelLower, "/k3") {
+		return s.fallbackPrices["kimi-k3"]
+	}
+	if strings.Contains(modelLower, "kimi-for-coding-highspeed") || strings.Contains(modelLower, "kimi-k2.7-code-highspeed") {
+		return s.fallbackPrices["kimi-k2.7-code-highspeed"]
+	}
 	if strings.Contains(modelLower, "kimi-for-coding") {
 		return s.fallbackPrices["kimi-for-coding"]
+	}
+	if strings.Contains(modelLower, "kimi-k2.7-code") {
+		return s.fallbackPrices["kimi-k2.7-code"]
 	}
 	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
 		return s.fallbackPrices["kimi-k2.6"]

@@ -135,18 +135,21 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 	return buildOpenAIChatCompletionsURL(validatedURL), nil
 }
 
-// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
-func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
-	apiKey = account.GetOpenAIApiKey()
-	if apiKey == "" {
-		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
+// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点。
+// API Key 使用 api_key，Kimi Coding Plan OAuth 使用 access_token。
+func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, account *Account) (token string, targetURL string, err error) {
+	token, tokenKind, err := s.GetAccessToken(ctx, account)
+	if err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", "", fmt.Errorf("account %d missing %s credential", account.ID, tokenKind)
 	}
 	targetURL, err = s.openAIChatCompletionsTargetURL(account)
 	if err != nil {
 		return "", "", err
 	}
-	return apiKey, targetURL, nil
+	return token, targetURL, nil
 }
 
 // sendCCUpstreamRequest 构建并发送 CC 上游请求：分离的上游 context、OpenAI HTTP
@@ -199,6 +202,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	if account.Platform == PlatformGrok {
 		applyGrokCLIHeaders(upstreamReq.Header)
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
+	}
+	if account.IsKimiOAuth() {
+		applyKimiCodeHeaders(upstreamReq.Header, account.ID)
 	}
 
 	proxyURL := ""

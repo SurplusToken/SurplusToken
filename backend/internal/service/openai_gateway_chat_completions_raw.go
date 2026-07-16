@@ -39,8 +39,8 @@ var openaiCCRawAllowedHeaders = map[string]bool{
 // forwardAsRawChatCompletions 直转客户端的 Chat Completions 请求到上游
 // `{base_url}/v1/chat/completions`，**不**做 CC↔Responses 协议转换。
 //
-// 适用场景：account.platform=openai && account.type=apikey && 上游已被探测确认
-// 不支持 /v1/responses 端点（如 DeepSeek/Kimi/GLM/Qwen 等第三方 OpenAI 兼容上游）。
+// 适用场景：第三方 OpenAI 兼容账号已被探测/配置为不支持 /v1/responses，
+// 或平台本身固定使用 Chat Completions（如 Kimi Coding Plan OAuth / Kimi API Key）。
 //
 // 与 ForwardAsChatCompletions 的关键差异：
 //
@@ -48,8 +48,8 @@ var openaiCCRawAllowedHeaders = map[string]bool{
 //   - 上游 URL 拼到 /v1/chat/completions 而非 /v1/responses
 //   - 流式响应 SSE 直接透传给客户端（上游 chunk 已是 CC 格式）
 //   - 非流式响应 JSON 直接透传，仅按需提取 usage
-//   - 不应用 codex OAuth transform（APIKey 路径无 OAuth）
-//   - 不注入 prompt_cache_key（OAuth 专属机制）
+//   - 不应用 Codex OAuth transform
+//   - prompt_cache_key 由调用入口按平台能力注入
 //
 // 调用入口：openai_gateway_chat_completions.go::ForwardAsChatCompletions
 // 在函数顶部按 openai_compat.ShouldUseResponsesAPI 分流。
@@ -164,6 +164,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	customUA := account.GetOpenAIUserAgent()
 	if customUA == "" && account.Platform == PlatformGrok {
 		customUA = "sub2api-grok/1.0"
+	}
+	if customUA == "" && account.IsKimiOAuth() {
+		customUA = "surplusai-kimi-code/1.0"
 	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {

@@ -1007,7 +1007,7 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 	if account.IsCredentialShadow() {
 		return ""
 	}
-	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsKimi() {
 		return ""
 	}
 	if s.privacyClientFactory == nil {

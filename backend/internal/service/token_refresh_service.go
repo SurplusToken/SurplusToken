@@ -105,6 +105,15 @@ func (s *TokenRefreshService) SetRefreshAPI(api *OAuthRefreshAPI) {
 	s.refreshAPI = api
 }
 
+func (s *TokenRefreshService) SetKimiOAuthService(kimiOAuthService *KimiOAuthService) {
+	if s == nil || kimiOAuthService == nil {
+		return
+	}
+	refresher := NewKimiTokenRefresher(kimiOAuthService)
+	s.refreshers = append(s.refreshers, refresher)
+	s.executors = append(s.executors, refresher)
+}
+
 // SetRefreshPolicy 注入后台刷新调用侧策略（用于显式化平台/场景差异行为）。
 func (s *TokenRefreshService) SetRefreshPolicy(policy BackgroundRefreshPolicy) {
 	s.refreshPolicy = policy
@@ -500,7 +509,7 @@ func isNonRetryableRefreshError(err error) bool {
 // ensureOpenAIPrivacy 检查 OpenAI OAuth 账号是否已设置 privacy_mode，
 // 未设置则调用 disableOpenAITraining 并持久化结果到 Extra。
 func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *Account) {
-	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsKimi() {
 		return
 	}
 	if s.privacyClientFactory == nil {

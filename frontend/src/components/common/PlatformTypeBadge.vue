@@ -3,7 +3,15 @@
     <!-- Row 1: Platform + Type -->
     <div class="inline-flex items-center overflow-hidden rounded-md">
       <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
-        <PlatformIcon :platform="platform" size="xs" />
+        <span
+          v-if="compatibleProvider === 'kimi'"
+          class="flex h-3 w-3 items-center justify-center rounded-sm bg-gray-950 text-[8px] font-semibold text-white"
+        >K</span>
+        <span
+          v-else-if="compatibleProvider === 'zhipu'"
+          class="flex h-3 w-3 items-center justify-center rounded-sm bg-cyan-600 text-[8px] font-semibold text-white"
+        >Z</span>
+        <PlatformIcon v-else :platform="platform" size="xs" />
         <span>{{ platformLabel }}</span>
       </span>
       <span :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
@@ -68,11 +76,14 @@ interface Props {
   planType?: string
   privacyMode?: string
   subscriptionExpiresAt?: string
+  compatibleProvider?: string
 }
 
 const props = defineProps<Props>()
 
 const platformLabel = computed(() => {
+  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') return 'Kimi'
+  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') return '智谱 GLM'
   if (props.platform === 'anthropic') return 'Anthropic'
   if (props.platform === 'openai') return 'OpenAI'
   if (props.platform === 'antigravity') return 'Antigravity'
@@ -123,6 +134,12 @@ const planLabel = computed(() => {
 })
 
 const platformClass = computed(() => {
+  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') {
+    return 'bg-gray-100 text-gray-950 dark:bg-gray-100 dark:text-gray-950'
+  }
+  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') {
+    return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+  }
   if (props.platform === 'anthropic') {
     return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
   }
@@ -139,6 +156,12 @@ const platformClass = computed(() => {
 })
 
 const typeClass = computed(() => {
+  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') {
+    return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+  }
+  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') {
+    return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300'
+  }
   if (props.platform === 'anthropic') {
     return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
   }

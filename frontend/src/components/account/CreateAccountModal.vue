@@ -75,7 +75,7 @@
             type="button"
             @click="form.platform = 'anthropic'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
               form.platform === 'anthropic'
                 ? 'bg-white text-orange-600 shadow-sm dark:bg-dark-600 dark:text-orange-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -86,10 +86,11 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'openai'"
+            data-testid="platform-openai"
+            @click="selectOpenAICompatibleProvider('openai')"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'openai'
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'openai' && openAICompatibleProvider === 'openai'
                 ? 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -111,9 +112,38 @@
           </button>
           <button
             type="button"
+            data-testid="platform-kimi"
+            @click="selectOpenAICompatibleProvider('kimi')"
+            :class="[
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'openai' && openAICompatibleProvider === 'kimi'
+                ? 'bg-white text-gray-950 shadow-sm dark:bg-dark-600 dark:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <span class="flex h-4 w-4 items-center justify-center rounded-sm bg-gray-950 text-[10px] font-semibold text-white dark:bg-white dark:text-gray-950">K</span>
+            Kimi
+          </button>
+          <button
+            v-if="!surplusAIOAuthOnly"
+            type="button"
+            data-testid="platform-zhipu"
+            @click="selectOpenAICompatibleProvider('zhipu')"
+            :class="[
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'openai' && openAICompatibleProvider === 'zhipu'
+                ? 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <span class="flex h-4 w-4 items-center justify-center rounded-sm bg-cyan-600 text-[10px] font-semibold text-white">Z</span>
+            智谱 GLM
+          </button>
+          <button
+            type="button"
             @click="form.platform = 'gemini'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
               form.platform === 'gemini'
                 ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -138,7 +168,7 @@
             type="button"
             @click="form.platform = 'antigravity'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
               form.platform === 'antigravity'
                 ? 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -151,7 +181,7 @@
             type="button"
             @click="form.platform = 'grok'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
               form.platform === 'grok'
                 ? 'bg-white text-zinc-900 shadow-sm dark:bg-dark-600 dark:text-zinc-100'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -297,7 +327,7 @@
       </div>
 
       <!-- Account Type Selection (OpenAI) -->
-      <div v-if="form.platform === 'openai'">
+      <div v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
           <button
@@ -353,6 +383,54 @@
             </div>
           </button>
 
+        </div>
+      </div>
+
+      <!-- Account Type Selection (Kimi Code) -->
+      <div v-if="form.platform === 'openai' && openAICompatibleProvider === 'kimi'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div
+          class="mt-2 grid gap-3"
+          :class="surplusAIOAuthOnly ? 'grid-cols-1' : 'grid-cols-2'"
+          data-tour="account-form-type"
+        >
+          <button
+            type="button"
+            data-testid="kimi-account-type-oauth"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-gray-900 bg-gray-50 dark:border-gray-100 dark:bg-dark-700'
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-500'
+            ]"
+          >
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gray-950 text-xs font-semibold text-white dark:bg-white dark:text-gray-950">K</div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauth.kimi.codingPlan') }}</span>
+            </div>
+          </button>
+          <button
+            v-if="!surplusAIOAuthOnly"
+            type="button"
+            data-testid="kimi-account-type-api-key"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+            ]"
+          >
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauth.kimi.apiKey') }}</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -1120,15 +1198,7 @@
             v-model="apiKeyBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : form.platform === 'grok'
-                    ? 'https://api.x.ai/v1'
-                    : 'https://api.anthropic.com'
-            "
+            :placeholder="apiKeyBaseUrlPlaceholder"
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
@@ -1139,15 +1209,7 @@
             type="password"
             required
             class="input font-mono"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'sk-proj-...'
-                : form.platform === 'gemini'
-                  ? 'AIza...'
-                  : form.platform === 'grok'
-                    ? 'xai-...'
-                    : 'sk-ant-...'
-            "
+            :placeholder="apiKeyPlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
@@ -1232,7 +1294,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+              <ModelWhitelistSelector v-model="allowedModels" :platform="modelWhitelistPlatform" :sync-credentials="syncPreviewCredentials" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -2720,7 +2782,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="form.platform === 'openai'"
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2750,7 +2812,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2839,7 +2901,7 @@
 
       <!-- OpenAI OAuth Codex 官方客户端限制开关 -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2895,7 +2957,7 @@
 
       <!-- OpenAI Compact 能力配置 -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -2934,7 +2996,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'openai' && accountCategory === 'apikey'"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3083,7 +3145,47 @@
 
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
+      <div
+        v-if="form.platform === 'openai' && openAICompatibleProvider === 'kimi'"
+        class="space-y-5"
+        data-testid="kimi-device-authorization"
+      >
+        <div class="border-b border-gray-200 pb-4 dark:border-dark-600">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.accounts.oauth.kimi.title') }}</h3>
+          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauth.kimi.description') }}</p>
+        </div>
+
+        <div v-if="kimiOAuth.userCode.value" class="space-y-3">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.oauth.kimi.userCode') }}</label>
+            <div class="mt-1 flex items-center gap-3">
+              <code class="min-w-0 flex-1 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-center text-xl font-semibold text-gray-950 dark:border-dark-500 dark:bg-dark-700 dark:text-white">{{ kimiOAuth.userCode.value }}</code>
+              <a :href="kimiOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary whitespace-nowrap">
+                {{ t('admin.accounts.oauth.kimi.openAuthorization') }}
+              </a>
+            </div>
+          </div>
+          <p class="text-sm text-gray-600 dark:text-gray-300">
+            {{ kimiOAuth.polling.value ? t('admin.accounts.oauth.kimi.waiting') : t('admin.accounts.oauth.kimi.ready') }}
+          </p>
+        </div>
+
+        <div v-if="kimiOAuth.error.value" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
+          {{ kimiOAuth.error.value }}
+        </div>
+
+        <button
+          type="button"
+          class="btn btn-primary w-full"
+          :disabled="kimiOAuth.loading.value || kimiOAuth.polling.value"
+          @click="handleKimiAuthorization"
+        >
+          {{ kimiOAuth.loading.value || kimiOAuth.polling.value ? t('admin.accounts.oauth.kimi.authorizing') : t('admin.accounts.oauth.kimi.start') }}
+        </button>
+      </div>
+
       <OAuthAuthorizationFlow
+        v-else
         ref="oauthFlowRef"
         add-method="oauth"
         :auth-url="currentAuthUrl"
@@ -3159,7 +3261,7 @@
           {{ t('common.back') }}
         </button>
         <button
-          v-if="isManualInputMethod"
+          v-if="isManualInputMethod && openAICompatibleProvider !== 'kimi'"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
@@ -3450,6 +3552,7 @@ import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
+import { useKimiOAuth } from '@/composables/useKimiOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -3485,6 +3588,10 @@ import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/forma
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
+  OPENAI_COMPATIBLE_PROVIDER_PRESETS,
+  type OpenAICompatibleProvider
+} from '@/constants/openAICompatibleProviders'
+import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
@@ -3514,6 +3621,7 @@ const { t } = useI18n()
 const authStore = useAuthStore()
 
 const oauthStepTitle = computed(() => {
+  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return t('admin.accounts.oauth.kimi.title')
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
@@ -3536,6 +3644,24 @@ const apiKeyHint = computed(() => {
   return t('admin.accounts.apiKeyHint')
 })
 
+const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (form.platform === 'openai') {
+    return OPENAI_COMPATIBLE_PROVIDER_PRESETS[openAICompatibleProvider.value].baseUrl
+  }
+  if (form.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (form.platform === 'grok') return 'https://api.x.ai/v1'
+  return 'https://api.anthropic.com'
+})
+
+const apiKeyPlaceholder = computed(() => {
+  if (form.platform === 'openai') {
+    return OPENAI_COMPATIBLE_PROVIDER_PRESETS[openAICompatibleProvider.value].apiKeyPlaceholder
+  }
+  if (form.platform === 'gemini') return 'AIza...'
+  if (form.platform === 'grok') return 'xai-...'
+  return 'sk-ant-...'
+})
+
 interface Props {
   show: boolean
   proxies: Proxy[]
@@ -3556,9 +3682,11 @@ const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
 const grokOAuth = useGrokOAuth() // For Grok OAuth
+const kimiOAuth = useKimiOAuth() // For Kimi Code device OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
+  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.authUrl.value
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
@@ -3567,6 +3695,7 @@ const currentAuthUrl = computed(() => {
 })
 
 const currentSessionId = computed(() => {
+  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.sessionId.value
   if (form.platform === 'openai') return openaiOAuth.sessionId.value
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
@@ -3575,6 +3704,7 @@ const currentSessionId = computed(() => {
 })
 
 const currentOAuthLoading = computed(() => {
+  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.loading.value || kimiOAuth.polling.value
   if (form.platform === 'openai') return openaiOAuth.loading.value
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
@@ -3583,6 +3713,7 @@ const currentOAuthLoading = computed(() => {
 })
 
 const currentOAuthError = computed(() => {
+  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.error.value
   if (form.platform === 'openai') return openaiOAuth.error.value
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
@@ -3620,6 +3751,7 @@ const claudeApiKeyExposed = true
 const step = ref(1)
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+const openAICompatibleProvider = ref<OpenAICompatibleProvider>('openai')
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
@@ -3987,6 +4119,57 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const getOpenAIProviderBaseUrl = (
+  provider: OpenAICompatibleProvider,
+  category = accountCategory.value
+) => {
+  const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
+  if (provider === 'kimi' && category === 'oauth-based') {
+    return preset.oauthBaseUrl || preset.baseUrl
+  }
+  return preset.baseUrl
+}
+
+const getOpenAIProviderModelCatalog = (
+  provider: OpenAICompatibleProvider,
+  category = accountCategory.value
+) => {
+  const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
+  if (provider === 'kimi' && category === 'oauth-based') {
+    return preset.oauthModelCatalogPlatform || preset.modelCatalogPlatform
+  }
+  return preset.modelCatalogPlatform
+}
+
+const modelWhitelistPlatform = computed(() => {
+  if (form.platform !== 'openai') return form.platform
+  return getOpenAIProviderModelCatalog(openAICompatibleProvider.value)
+})
+
+const selectOpenAICompatibleProvider = (provider: OpenAICompatibleProvider) => {
+  const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
+  openAICompatibleProvider.value = provider
+  form.platform = 'openai'
+
+  if (provider === 'kimi') {
+    accountCategory.value = 'oauth-based'
+    form.type = 'oauth'
+  } else if (provider !== 'openai') {
+    accountCategory.value = 'apikey'
+    form.type = 'apikey'
+  }
+  const baseUrl = getOpenAIProviderBaseUrl(provider)
+  const modelCatalog = getOpenAIProviderModelCatalog(provider)
+  apiKeyBaseUrl.value = baseUrl
+  modelRestrictionMode.value = 'whitelist'
+  allowedModels.value = [...getModelsByPlatform(modelCatalog)]
+  modelMappings.value = []
+  openaiPassthroughEnabled.value = false
+  openAIResponsesMode.value = preset.responsesMode
+  openAIEndpointCapabilities.value = [...preset.endpointCapabilities]
+  openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+}
+
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   if (claudeApiKeyExposed && form.platform === 'anthropic' && accountCategory.value === 'apikey') {
@@ -4100,17 +4283,25 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    if (newPlatform !== 'openai') {
+      openAICompatibleProvider.value = 'openai'
+    }
+    const openAIPreset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[openAICompatibleProvider.value]
+    const openAIBaseUrl = getOpenAIProviderBaseUrl(openAICompatibleProvider.value)
+    const openAIModelCatalog = getOpenAIProviderModelCatalog(openAICompatibleProvider.value)
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
       (newPlatform === 'openai')
-        ? 'https://api.openai.com'
+        ? openAIBaseUrl
         : newPlatform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
           : newPlatform === 'grok'
             ? 'https://api.x.ai/v1'
             : 'https://api.anthropic.com'
     // Clear model-related settings
-    allowedModels.value = []
+    allowedModels.value = newPlatform === 'openai'
+      ? [...getModelsByPlatform(openAIModelCatalog)]
+      : []
     modelMappings.value = []
     if (surplusAIOAuthOnly) {
       accountCategory.value = 'oauth-based'
@@ -4170,6 +4361,13 @@ watch(
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
+    } else {
+      openAIResponsesMode.value = openAIPreset.responsesMode
+      openAIEndpointCapabilities.value = [...openAIPreset.endpointCapabilities]
+      if (!surplusAIOAuthOnly && openAICompatibleProvider.value === 'zhipu') {
+        accountCategory.value = 'apikey'
+        form.type = 'apikey'
+      }
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
@@ -4183,6 +4381,7 @@ watch(
     // Reset OAuth states
     oauth.resetState()
     openaiOAuth.resetState()
+    kimiOAuth.resetState()
 
     geminiOAuth.resetState()
     antigravityOAuth.resetState()
@@ -4203,6 +4402,20 @@ watch(
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
+  }
+)
+
+watch(
+  [accountCategory, openAICompatibleProvider],
+  ([category, provider], [previousCategory, previousProvider]) => {
+    if (form.platform !== 'openai' || provider !== 'kimi') return
+    if (category === previousCategory && provider === previousProvider) return
+
+    const modelCatalog = getOpenAIProviderModelCatalog(provider, category)
+    apiKeyBaseUrl.value = getOpenAIProviderBaseUrl(provider, category)
+    modelRestrictionMode.value = 'whitelist'
+    allowedModels.value = [...getModelsByPlatform(modelCatalog)]
+    modelMappings.value = []
   }
 )
 
@@ -4541,6 +4754,7 @@ const resetForm = () => {
   form.group_ids = []
   form.expires_at = null
   accountCategory.value = 'oauth-based'
+  openAICompatibleProvider.value = 'openai'
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
@@ -4620,6 +4834,7 @@ const resetForm = () => {
   geminiTierAIStudio.value = 'aistudio_free'
   oauth.resetState()
   openaiOAuth.resetState()
+  kimiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
@@ -4631,6 +4846,7 @@ const resetForm = () => {
 const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
+  kimiOAuth.resetState()
   emit('close')
 }
 
@@ -4640,6 +4856,11 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
+  if (openAICompatibleProvider.value !== 'openai') {
+    extra.openai_compatible_provider = openAICompatibleProvider.value
+  } else {
+    delete extra.openai_compatible_provider
+  }
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
@@ -5044,10 +5265,51 @@ const goBackToBasicInfo = () => {
   step.value = 1
   oauth.resetState()
   openaiOAuth.resetState()
+  kimiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
+}
+
+const handleKimiAuthorization = async () => {
+  const token = await kimiOAuth.authorize(form.proxy_id)
+  if (!token) return
+
+  try {
+    const credentialExtras: Record<string, unknown> = {}
+    const modelMapping = buildModelMappingObject(
+      modelRestrictionMode.value,
+      allowedModels.value,
+      modelMappings.value
+    )
+    if (modelMapping) credentialExtras.model_mapping = modelMapping
+    if (!applyTempUnschedConfig(credentialExtras)) return
+    await adminAPI.kimi.createOAuthAccount({
+      name: form.name,
+      notes: form.notes || null,
+      token,
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      load_factor: form.load_factor ?? undefined,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value,
+      credential_extras: credentialExtras
+    })
+    appStore.showSuccess(t('admin.accounts.accountCreated'))
+    emit('created')
+    handleClose()
+  } catch (error: any) {
+    kimiOAuth.error.value =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message ||
+      t('admin.accounts.oauth.kimi.createFailed')
+    appStore.showError(kimiOAuth.error.value)
+  }
 }
 
 const handleGenerateUrl = async () => {

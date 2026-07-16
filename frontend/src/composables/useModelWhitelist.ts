@@ -1,3 +1,9 @@
+import {
+  KIMI_API_MODELS,
+  KIMI_CODE_MODELS,
+  ZHIPU_CODING_MODELS
+} from '@/constants/openAICompatibleProviders'
+
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
@@ -87,6 +93,7 @@ const antigravityModels = [
 
 // 智谱 GLM
 const zhipuModels = [
+  ...ZHIPU_CODING_MODELS,
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
   'glm-4-air', 'glm-4-airx', 'glm-4-long', 'glm-4-flash',
   'glm-4v-plus', 'glm-4.5', 'glm-4.6',
@@ -182,6 +189,9 @@ const moonshotModels = [
   'kimi-latest'
 ]
 
+const kimiCodeModels = [...KIMI_CODE_MODELS]
+const kimiAPIModels = [...KIMI_API_MODELS]
+
 // 字节跳动 豆包
 const doubaoModels = [
   'doubao-pro-256k', 'doubao-pro-128k', 'doubao-pro-32k', 'doubao-pro-4k',
@@ -242,6 +252,8 @@ const allModelsList: string[] = [
   ...cohereModels,
   ...yiModels,
   ...moonshotModels,
+  ...kimiCodeModels,
+  ...kimiAPIModels,
   ...doubaoModels,
   ...minimaxModels,
   ...baiduModels,
@@ -423,6 +435,8 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot': return moonshotModels
+    case 'kimi-code': return kimiCodeModels
+    case 'kimi-api': return kimiAPIModels
     case 'doubao': return doubaoModels
     case 'minimax': return minimaxModels
     case 'baidu': return baiduModels
