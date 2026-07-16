@@ -59,4 +59,10 @@ describe('CreateAccountModal OpenAI-compatible provider presets', () => {
     expect(modalSource).toContain("const token = await kimiOAuth.authorize(form.proxy_id)")
     expect(modalSource).toContain('await adminAPI.kimi.createOAuthAccount')
   })
+
+  it('keeps whitelist auto-fill on the resolved Kimi catalog', () => {
+    expect(modalSource).toContain('[modelRestrictionMode, modelWhitelistPlatform]')
+    expect(modalSource).toContain('allowedModels.value = [...getModelsByPlatform(platform)]')
+    expect(modalSource).not.toContain('[modelRestrictionMode, () => form.platform]')
+  })
 })
