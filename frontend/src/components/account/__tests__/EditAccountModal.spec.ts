@@ -73,6 +73,10 @@ const ModelWhitelistSelectorStub = defineComponent({
     modelValue: {
       type: Array,
       default: () => []
+    },
+    platform: {
+      type: String,
+      default: ''
     }
   },
   emits: ['update:modelValue'],
@@ -88,6 +92,7 @@ const ModelWhitelistSelectorStub = defineComponent({
       <span data-testid="model-whitelist-value">
         {{ Array.isArray(modelValue) ? modelValue.join(',') : '' }}
       </span>
+      <span data-testid="model-whitelist-platform">{{ platform }}</span>
     </div>
   `
 })
@@ -290,6 +295,24 @@ function buildOpenAISetupTokenAccount() {
   } as any
 }
 
+function buildKimiAccount(type: 'oauth' | 'apikey') {
+  return {
+    ...buildAccount(),
+    id: type === 'oauth' ? 7 : 8,
+    name: type === 'oauth' ? 'Kimi Coding Plan' : 'Kimi API Key',
+    type,
+    credentials: {
+      model_mapping: type === 'oauth'
+        ? { 'kimi-for-coding': 'kimi-for-coding' }
+        : { 'kimi-k3': 'kimi-k3' }
+    },
+    extra: {
+      openai_compatible_provider: 'kimi',
+      openai_responses_mode: 'force_chat_completions'
+    }
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -314,6 +337,15 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it.each([
+    ['oauth', 'kimi-code'],
+    ['apikey', 'kimi-api']
+  ] as const)('uses the Kimi %s model catalog when editing', (type, expectedPlatform) => {
+    const wrapper = mountModal(buildKimiAccount(type))
+
+    expect(wrapper.get('[data-testid="model-whitelist-platform"]').text()).toBe(expectedPlatform)
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

@@ -143,7 +143,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector v-model="allowedModels" :platform="modelWhitelistPlatform" :account-id="account?.id" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -574,7 +574,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector v-model="allowedModels" :platform="modelWhitelistPlatform" :account-id="account?.id" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -786,7 +786,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector v-model="allowedModels" :platform="modelWhitelistPlatform" :account-id="account?.id" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -2592,6 +2592,7 @@ import {
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import { OPENAI_COMPATIBLE_PROVIDER_PRESETS } from '@/constants/openAICompatibleProviders'
 
 interface Props {
   show: boolean
@@ -2613,6 +2614,21 @@ const authStore = useAuthStore()
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
+const modelWhitelistPlatform = computed(() => {
+  const account = props.account
+  if (!account) return 'anthropic'
+  if (account.platform !== 'openai') return account.platform
+
+  const provider = account.extra?.openai_compatible_provider
+  if (provider !== 'kimi' && provider !== 'zhipu') return account.platform
+
+  const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
+  if (provider === 'kimi' && account.type === 'oauth') {
+    return preset.oauthModelCatalogPlatform || preset.modelCatalogPlatform
+  }
+  return preset.modelCatalogPlatform
+})
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
