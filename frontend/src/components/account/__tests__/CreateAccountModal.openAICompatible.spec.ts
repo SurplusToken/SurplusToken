@@ -64,5 +64,7 @@ describe('CreateAccountModal OpenAI-compatible provider presets', () => {
     expect(modalSource).toContain('[modelRestrictionMode, modelWhitelistPlatform]')
     expect(modalSource).toContain('allowedModels.value = [...getModelsByPlatform(platform)]')
     expect(modalSource).not.toContain('[modelRestrictionMode, () => form.platform]')
+    expect(modalSource.match(/:platform="modelWhitelistPlatform"/g)).toHaveLength(2)
+    expect(modalSource).not.toMatch(/<ModelWhitelistSelector[^>]*:platform="form\.platform"/)
   })
 })
