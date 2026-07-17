@@ -1947,7 +1947,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai'"
+        v-if="account?.platform === 'openai' || (account?.platform === 'kimi' && account?.type === 'oauth')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="space-y-2">
@@ -4512,6 +4512,36 @@ const handleSubmit = async () => {
         }
       }
 
+      updatePayload.extra = newExtra
+    }
+
+    // Kimi Coding Plan uses the same rolling 5h/7d quota snapshot keys as the
+    // shared scheduler. Keep API-key accounts out: Moonshot pay-as-you-go keys
+    // do not expose Coding Plan windows.
+    if (props.account.platform === 'kimi' && props.account.type === 'oauth') {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
+        newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
+      } else {
+        delete newExtra.auto_pause_5h_threshold
+      }
+      if (autoPause7dThreshold.value != null && autoPause7dThreshold.value > 0) {
+        newExtra.auto_pause_7d_threshold = autoPause7dThreshold.value / 100
+      } else {
+        delete newExtra.auto_pause_7d_threshold
+      }
+      if (autoPause5hDisabled.value) {
+        newExtra.auto_pause_5h_disabled = true
+      } else {
+        delete newExtra.auto_pause_5h_disabled
+      }
+      if (autoPause7dDisabled.value) {
+        newExtra.auto_pause_7d_disabled = true
+      } else {
+        delete newExtra.auto_pause_7d_disabled
+      }
       updatePayload.extra = newExtra
     }
 

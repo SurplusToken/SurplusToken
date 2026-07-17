@@ -313,6 +313,13 @@ function buildKimiAccount(type: 'oauth' | 'apikey') {
   } as any
 }
 
+function buildFirstClassKimiAccount(type: 'oauth' | 'apikey') {
+  return {
+    ...buildKimiAccount(type),
+    platform: 'kimi'
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -604,6 +611,35 @@ describe('EditAccountModal', () => {
 	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_5h_disabled).toBe(true)
 	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_7d_disabled).toBeUndefined()
 	})
+
+  it('shows and persists quota auto-pause controls for Kimi Coding Plan OAuth', async () => {
+    const account = buildFirstClassKimiAccount('oauth')
+    account.extra = {
+      auto_pause_5h_threshold: 0.9,
+      auto_pause_7d_threshold: 0.8
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="auto-pause-5h-disabled"]').trigger('click')
+    await wrapper.get('[data-testid="auto-pause-7d-threshold"]').setValue('97')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_5h_disabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_7d_threshold).toBe(0.97)
+  })
+
+  it('does not show Coding Plan quota controls for Kimi API keys', () => {
+    const wrapper = mountModal(buildFirstClassKimiAccount('apikey'))
+
+    expect(wrapper.find('[data-testid="auto-pause-5h-disabled"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="auto-pause-7d-disabled"]').exists()).toBe(false)
+  })
 
   it('keeps at least one OpenAI APIKey endpoint capability selected', async () => {
     const account = buildAccount()

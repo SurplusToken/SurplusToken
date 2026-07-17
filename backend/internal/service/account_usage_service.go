@@ -345,7 +345,11 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	}
 
 	if account.IsKimiOAuth() {
-		return s.getKimiCodeUsage(ctx, account)
+		usage, usageErr := s.getKimiCodeUsage(ctx, account)
+		if usageErr == nil {
+			s.syncKimiCodeUsageSnapshot(ctx, account.ID, usage)
+		}
+		return usage, usageErr
 	}
 
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {
@@ -769,6 +773,49 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 		return nil, fmt.Errorf("Kimi usage response did not contain supported quota windows")
 	}
 	return result, nil
+}
+
+func (s *AccountUsageService) syncKimiCodeUsageSnapshot(ctx context.Context, accountID int64, usage *UsageInfo) {
+	updates := kimiCodeUsageSnapshotUpdates(usage, time.Now().UTC())
+	if len(updates) > 0 {
+		if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
+			slog.Warn("sync_kimi_usage_snapshot_failed", "account_id", accountID, "error", err)
+		}
+	}
+	if usage != nil && usage.FiveHour != nil && usage.FiveHour.ResetsAt != nil {
+		if err := s.accountRepo.UpdateSessionWindowEnd(ctx, accountID, *usage.FiveHour.ResetsAt); err != nil {
+			slog.Warn("sync_kimi_usage_session_window_end_failed", "account_id", accountID, "error", err)
+		}
+	}
+}
+
+func kimiCodeUsageSnapshotUpdates(usage *UsageInfo, updatedAt time.Time) map[string]any {
+	updates := make(map[string]any, 11)
+	if usage == nil {
+		return updates
+	}
+	if usage.FiveHour != nil {
+		updates["session_window_utilization"] = usage.FiveHour.Utilization / 100
+		updates["codex_5h_used_percent"] = usage.FiveHour.Utilization
+		updates["codex_5h_window_minutes"] = 300
+		if usage.FiveHour.ResetsAt != nil {
+			updates["codex_5h_reset_at"] = usage.FiveHour.ResetsAt.UTC().Format(time.RFC3339)
+		}
+	}
+	if usage.SevenDay != nil {
+		updates["passive_usage_7d_utilization"] = usage.SevenDay.Utilization / 100
+		updates["codex_7d_used_percent"] = usage.SevenDay.Utilization
+		updates["codex_7d_window_minutes"] = 7 * 24 * 60
+		if usage.SevenDay.ResetsAt != nil {
+			updates["passive_usage_7d_reset"] = usage.SevenDay.ResetsAt.Unix()
+			updates["codex_7d_reset_at"] = usage.SevenDay.ResetsAt.UTC().Format(time.RFC3339)
+		}
+	}
+	if len(updates) > 0 {
+		updates["codex_usage_updated_at"] = updatedAt.UTC().Format(time.RFC3339)
+		updates["passive_usage_sampled_at"] = updatedAt.UTC().Format(time.RFC3339)
+	}
+	return updates
 }
 
 func kimiUsageMap(value any) (map[string]any, bool) {
