@@ -708,7 +708,8 @@ func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, 
 }
 
 func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountID int64) error {
-	if _, err := s.getOwnedUserPoolAccount(ctx, userID, accountID); err != nil {
+	account, err := s.getOwnedUserPoolAccount(ctx, userID, accountID)
+	if err != nil {
 		return err
 	}
 	if err := s.accountRepo.Delete(ctx, accountID); err != nil {
@@ -716,7 +717,7 @@ func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountI
 	}
 	// Tear down the contributor's self-use group/subscription/key once they have
 	// no contributed accounts left. Best-effort: never fail the delete on error.
-	if err := s.teardownSelfUseAccessIfEmpty(ctx, userID); err != nil {
+	if err := s.teardownSelfUseAccessIfEmpty(ctx, userID, account.Platform); err != nil {
 		logSelfUseProvisioningError(userID, accountID, err)
 	}
 	return nil

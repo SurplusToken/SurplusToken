@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
@@ -15,7 +16,7 @@ import (
 // unlimited path to their OWN contributed accounts by reusing the existing
 // subscription machinery (subscription usage never touches platform balance):
 //
-//   - one per-user "self-use" group (auto_self_use=true, subscription-type,
+//   - one per-user, per-platform "self-use" group (auto_self_use=true, subscription-type,
 //     unlimited limits, image generation enabled) holding only that user's own
 //     contributed accounts;
 //   - a long-lived UserSubscription binding the user to that group;
@@ -76,12 +77,13 @@ func (s *AccountService) ensureSelfUseAccess(ctx context.Context, userID int64, 
 		return nil
 	}
 
-	groupID, found, err := s.findUserSelfUseGroupID(ctx, userID)
+	platform := normalizeSelfUsePlatform(account.Platform)
+	groupID, found, err := s.findUserSelfUseGroupID(ctx, userID, platform)
 	if err != nil {
 		return fmt.Errorf("lookup self-use group: %w", err)
 	}
 	if !found {
-		groupID, err = s.createSelfUseGroup(ctx, userID, account.Platform)
+		groupID, err = s.createSelfUseGroup(ctx, userID, platform)
 		if err != nil {
 			return fmt.Errorf("create self-use group: %w", err)
 		}
@@ -104,16 +106,16 @@ func (s *AccountService) ensureSelfUseAccess(ctx context.Context, userID int64, 
 		return fmt.Errorf("assign self-use subscription: %w", err)
 	}
 
-	if err := s.ensureSelfUseAPIKey(ctx, userID, groupID); err != nil {
+	if err := s.ensureSelfUseAPIKey(ctx, userID, groupID, platform); err != nil {
 		return fmt.Errorf("ensure self-use api key: %w", err)
 	}
 	return nil
 }
 
-// findUserSelfUseGroupID resolves the user's existing self-use group (if any) via
-// their active subscriptions → the group flagged auto_self_use. A user has at
-// most one such group, so the first match is authoritative.
-func (s *AccountService) findUserSelfUseGroupID(ctx context.Context, userID int64) (int64, bool, error) {
+// findUserSelfUseGroupID resolves the user's existing self-use group for one
+// platform via active subscriptions. A user may own one such group per platform.
+func (s *AccountService) findUserSelfUseGroupID(ctx context.Context, userID int64, platform string) (int64, bool, error) {
+	platform = normalizeSelfUsePlatform(platform)
 	subs, err := s.subscriptionSvc.ListActiveUserSubscriptions(ctx, userID)
 	if err != nil {
 		return 0, false, err
@@ -126,17 +128,30 @@ func (s *AccountService) findUserSelfUseGroupID(ctx context.Context, userID int6
 			}
 			return 0, false, err
 		}
-		if g != nil && g.AutoSelfUse {
+		if g != nil && g.AutoSelfUse && normalizeSelfUsePlatform(g.Platform) == platform {
 			return g.ID, true, nil
 		}
 	}
 	return 0, false, nil
 }
 
-// selfUseGroupNameFor builds the per-user self-use group name. It must be unique
-// per user because groups.name has a partial unique index (see the prefix comment).
-func selfUseGroupNameFor(ownerUserID int64) string {
-	return fmt.Sprintf("%s #%d", selfUseGroupNamePrefix, ownerUserID)
+func normalizeSelfUsePlatform(platform string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "" {
+		return PlatformOpenAI
+	}
+	return platform
+}
+
+// selfUseGroupNameFor builds the per-user, per-platform self-use group name.
+// Keep the legacy OpenAI name so existing groups remain recognizable; every
+// additional platform gets an explicit suffix and cannot collide with it.
+func selfUseGroupNameFor(ownerUserID int64, platform string) string {
+	platform = normalizeSelfUsePlatform(platform)
+	if platform == PlatformOpenAI {
+		return fmt.Sprintf("%s #%d", selfUseGroupNamePrefix, ownerUserID)
+	}
+	return fmt.Sprintf("%s [%s] #%d", selfUseGroupNamePrefix, platform, ownerUserID)
 }
 
 // createSelfUseGroup creates the per-user self-use group: subscription-type,
@@ -144,11 +159,9 @@ func selfUseGroupNameFor(ownerUserID int64) string {
 // Each contributor gets their OWN group holding only their own accounts; other
 // users hold no subscription to it and therefore can never bind or see it.
 func (s *AccountService) createSelfUseGroup(ctx context.Context, ownerUserID int64, platform string) (int64, error) {
-	if platform == "" {
-		platform = PlatformOpenAI
-	}
+	platform = normalizeSelfUsePlatform(platform)
 	group := &Group{
-		Name:                 selfUseGroupNameFor(ownerUserID),
+		Name:                 selfUseGroupNameFor(ownerUserID, platform),
 		Description:          "系统自动创建：贡献者自用专属分组（仅含本人贡献的账号，按订阅计费、不扣平台余额）",
 		Platform:             platform,
 		RateMultiplier:       1.0,
@@ -168,7 +181,7 @@ func (s *AccountService) createSelfUseGroup(ctx context.Context, ownerUserID int
 
 // ensureSelfUseAPIKey creates the unlimited-quota self-use API key bound to the
 // group, unless the user already has a key on it.
-func (s *AccountService) ensureSelfUseAPIKey(ctx context.Context, userID, groupID int64) error {
+func (s *AccountService) ensureSelfUseAPIKey(ctx context.Context, userID, groupID int64, platform string) error {
 	existing, _, err := s.apiKeyService.List(ctx, userID, pagination.PaginationParams{Page: 1, PageSize: 1}, APIKeyListFilters{GroupID: &groupID})
 	if err != nil {
 		return err
@@ -177,7 +190,7 @@ func (s *AccountService) ensureSelfUseAPIKey(ctx context.Context, userID, groupI
 		return nil
 	}
 	if _, err := s.apiKeyService.Create(ctx, userID, CreateAPIKeyRequest{
-		Name:    selfUseAPIKeyName,
+		Name:    selfUseAPIKeyNameFor(platform),
 		GroupID: &groupID,
 		Quota:   0, // unlimited: subscription-billed, platform balance untouched
 	}); err != nil {
@@ -186,15 +199,23 @@ func (s *AccountService) ensureSelfUseAPIKey(ctx context.Context, userID, groupI
 	return nil
 }
 
+func selfUseAPIKeyNameFor(platform string) string {
+	platform = normalizeSelfUsePlatform(platform)
+	if platform == PlatformOpenAI {
+		return selfUseAPIKeyName
+	}
+	return fmt.Sprintf("%s [%s]", selfUseAPIKeyName, platform)
+}
+
 // teardownSelfUseAccessIfEmpty revokes the user's self-use subscription, deletes
 // the self-use API key(s), and soft-deletes the self-use group once the user has
 // no remaining (non-deleted) contributed accounts in it. No-op otherwise, and
 // idempotent. Best-effort: callers log but do not fail the delete on error.
-func (s *AccountService) teardownSelfUseAccessIfEmpty(ctx context.Context, userID int64) error {
+func (s *AccountService) teardownSelfUseAccessIfEmpty(ctx context.Context, userID int64, platform string) error {
 	if !s.selfUseProvisioningEnabled() || userID <= 0 {
 		return nil
 	}
-	groupID, found, err := s.findUserSelfUseGroupID(ctx, userID)
+	groupID, found, err := s.findUserSelfUseGroupID(ctx, userID, platform)
 	if err != nil {
 		return fmt.Errorf("lookup self-use group: %w", err)
 	}
@@ -242,7 +263,7 @@ func (s *AccountService) deleteSelfUseAPIKeys(ctx context.Context, userID, group
 }
 
 // BackfillSelfUseForUser provisions self-use access for a contributor's EXISTING
-// OAuth accounts — those contributed before this feature shipped, which never ran
+// accounts — those contributed before this feature shipped, which never ran
 // through the on-contribution hook. Idempotent (reuses ensureSelfUseAccess), so it
 // is safe to re-run. Returns the number of owned accounts (re)provisioned.
 func (s *AccountService) BackfillSelfUseForUser(ctx context.Context, ownerUserID int64) (int, error) {
@@ -252,19 +273,22 @@ func (s *AccountService) BackfillSelfUseForUser(ctx context.Context, ownerUserID
 	if ownerUserID <= 0 {
 		return 0, errors.New("owner user id required")
 	}
-	// User contribution is OpenAI-OAuth only (see isUserOAuthPlatformAllowed), so
-	// that is the only platform to scan.
-	accounts, err := s.ListOwnedUserOAuthAccounts(ctx, ownerUserID, PlatformOpenAI)
-	if err != nil {
-		return 0, err
-	}
 	provisioned := 0
-	for i := range accounts {
-		acc := accounts[i]
-		if err := s.ensureSelfUseAccess(ctx, ownerUserID, &acc); err != nil {
-			return provisioned, fmt.Errorf("backfill self-use for account %d: %w", acc.ID, err)
+	for _, platform := range []string{PlatformOpenAI, PlatformKimi} {
+		accounts, err := s.accountRepo.ListByPlatform(ctx, platform)
+		if err != nil {
+			return provisioned, fmt.Errorf("list %s accounts for self-use backfill: %w", platform, err)
 		}
-		provisioned++
+		for i := range accounts {
+			acc := accounts[i]
+			if acc.OwnerUserID == nil || *acc.OwnerUserID != ownerUserID || !acc.IsSurplusAISchedulableType() {
+				continue
+			}
+			if err := s.ensureSelfUseAccess(ctx, ownerUserID, &acc); err != nil {
+				return provisioned, fmt.Errorf("backfill self-use for account %d: %w", acc.ID, err)
+			}
+			provisioned++
+		}
 	}
 	return provisioned, nil
 }

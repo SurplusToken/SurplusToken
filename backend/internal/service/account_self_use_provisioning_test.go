@@ -27,7 +27,9 @@ func (f *selfUseSubFake) ListActiveUserSubscriptions(_ context.Context, _ int64)
 func (f *selfUseSubFake) AssignOrExtendSubscription(_ context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error) {
 	f.assignCalls++
 	f.lastAssign = input
-	return &UserSubscription{ID: 555, UserID: input.UserID, GroupID: input.GroupID}, false, nil
+	sub := UserSubscription{ID: int64(555 + f.assignCalls), UserID: input.UserID, GroupID: input.GroupID}
+	f.active = append(f.active, sub)
+	return &sub, false, nil
 }
 
 func (f *selfUseSubFake) GetActiveSubscription(_ context.Context, _, _ int64) (*UserSubscription, error) {
@@ -145,6 +147,8 @@ func TestEnsureSelfUseAccess_FirstContribution(t *testing.T) {
 	require.Nil(t, gr.created.WeeklyLimitUSD)
 	require.Nil(t, gr.created.MonthlyLimitUSD)
 	require.Equal(t, StatusActive, gr.created.Status)
+	require.Equal(t, PlatformOpenAI, gr.created.Platform)
+	require.Equal(t, "自用直连（系统自动） #7", gr.created.Name)
 
 	// The account is bound to the new group (additively).
 	require.Equal(t, []int64{42}, gr.bound[900])
@@ -185,7 +189,7 @@ func TestEnsureSelfUseAccess_SecondContributorGetsOwnGroup(t *testing.T) {
 func TestEnsureSelfUseAccess_ReusesExistingGroup(t *testing.T) {
 	gr := &selfUseGroupRepoFake{
 		byID: map[int64]*Group{
-			900: {ID: 900, AutoSelfUse: true, SubscriptionType: SubscriptionTypeSubscription},
+			900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true, SubscriptionType: SubscriptionTypeSubscription},
 		},
 	}
 	sub := &selfUseSubFake{active: []UserSubscription{{ID: 1, UserID: 7, GroupID: 900}}}
@@ -202,9 +206,73 @@ func TestEnsureSelfUseAccess_ReusesExistingGroup(t *testing.T) {
 	require.Equal(t, 0, key.createCalls)
 }
 
+func TestEnsureSelfUseAccess_SameContributorGetsSeparatePlatformGroups(t *testing.T) {
+	gr := &selfUseGroupRepoFake{}
+	sub := &selfUseSubFake{}
+	key := &selfUseKeyFake{}
+	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: key}
+
+	require.NoError(t, svc.ensureSelfUseAccess(context.Background(), 7, &Account{ID: 42, Platform: PlatformOpenAI}))
+	require.NoError(t, svc.ensureSelfUseAccess(context.Background(), 7, &Account{ID: 43, Platform: PlatformKimi}))
+
+	require.Len(t, gr.createdAll, 2)
+	require.Equal(t, PlatformOpenAI, gr.createdAll[0].Platform)
+	require.Equal(t, PlatformKimi, gr.createdAll[1].Platform)
+	require.Equal(t, "自用直连（系统自动） #7", gr.createdAll[0].Name)
+	require.Equal(t, "自用直连（系统自动） [kimi] #7", gr.createdAll[1].Name)
+	require.Equal(t, []int64{42}, gr.bound[gr.createdAll[0].ID])
+	require.Equal(t, []int64{43}, gr.bound[gr.createdAll[1].ID])
+}
+
+func TestFindUserSelfUseGroupID_FiltersByPlatform(t *testing.T) {
+	gr := &selfUseGroupRepoFake{byID: map[int64]*Group{
+		900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true},
+		901: {ID: 901, Platform: PlatformKimi, AutoSelfUse: true},
+	}}
+	sub := &selfUseSubFake{active: []UserSubscription{
+		{ID: 1, UserID: 7, GroupID: 900},
+		{ID: 2, UserID: 7, GroupID: 901},
+	}}
+	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: &selfUseKeyFake{}}
+
+	groupID, found, err := svc.findUserSelfUseGroupID(context.Background(), 7, PlatformKimi)
+
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(901), groupID)
+}
+
+func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiPlatforms(t *testing.T) {
+	ownerID := int64(7)
+	otherOwnerID := int64(8)
+	accountRepo := &accountPoolRepoStub{accounts: []Account{
+		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
+		{ID: 43, Platform: PlatformKimi, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
+		{ID: 44, Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &ownerID},
+		{ID: 45, Platform: PlatformKimi, Type: AccountTypeOAuth, OwnerUserID: &otherOwnerID},
+	}}
+	groupRepo := &selfUseGroupRepoFake{}
+	svc := &AccountService{
+		accountRepo:     accountRepo,
+		groupRepo:       groupRepo,
+		subscriptionSvc: &selfUseSubFake{},
+		apiKeyService:   &selfUseKeyFake{},
+	}
+
+	count, err := svc.BackfillSelfUseForUser(context.Background(), ownerID)
+
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+	require.Len(t, groupRepo.createdAll, 2)
+	require.Equal(t, PlatformOpenAI, groupRepo.createdAll[0].Platform)
+	require.Equal(t, PlatformKimi, groupRepo.createdAll[1].Platform)
+	require.Equal(t, []int64{42}, groupRepo.bound[groupRepo.createdAll[0].ID])
+	require.Equal(t, []int64{43, 44}, groupRepo.bound[groupRepo.createdAll[1].ID])
+}
+
 func TestTeardownSelfUseAccess_EmptyGroupRevokesEverything(t *testing.T) {
 	gr := &selfUseGroupRepoFake{
-		byID:         map[int64]*Group{900: {ID: 900, AutoSelfUse: true}},
+		byID:         map[int64]*Group{900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true}},
 		accountCount: 0, // no live accounts left
 	}
 	sub := &selfUseSubFake{
@@ -214,7 +282,7 @@ func TestTeardownSelfUseAccess_EmptyGroupRevokesEverything(t *testing.T) {
 	key := &selfUseKeyFake{existing: []APIKey{{ID: 5}}}
 	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: key}
 
-	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7))
+	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7, PlatformOpenAI))
 	require.Equal(t, []int64{1}, sub.revokedIDs)
 	require.Equal(t, []int64{5}, key.deletedIDs)
 	require.Equal(t, []int64{900}, gr.deletedIDs)
@@ -222,14 +290,14 @@ func TestTeardownSelfUseAccess_EmptyGroupRevokesEverything(t *testing.T) {
 
 func TestTeardownSelfUseAccess_KeepsWhenAccountsRemain(t *testing.T) {
 	gr := &selfUseGroupRepoFake{
-		byID:         map[int64]*Group{900: {ID: 900, AutoSelfUse: true}},
+		byID:         map[int64]*Group{900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true}},
 		accountCount: 2, // other contributed accounts remain
 	}
 	sub := &selfUseSubFake{active: []UserSubscription{{ID: 1, UserID: 7, GroupID: 900}}}
 	key := &selfUseKeyFake{existing: []APIKey{{ID: 5}}}
 	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: key}
 
-	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7))
+	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7, PlatformOpenAI))
 	require.Empty(t, sub.revokedIDs)
 	require.Empty(t, key.deletedIDs)
 	require.Empty(t, gr.deletedIDs)
