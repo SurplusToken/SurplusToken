@@ -134,6 +134,16 @@ type setUserAccountSchedulablePayload struct {
 	Schedulable *bool `json:"schedulable"`
 }
 
+type updateDynamicPoolSharingRateRangePayload struct {
+	Min dto.NullableFloat64Field `json:"min"`
+	Max dto.NullableFloat64Field `json:"max"`
+}
+
+type dynamicPoolSharingRateRangeResponse struct {
+	Min *float64 `json:"min"`
+	Max *float64 `json:"max"`
+}
+
 type updateUserAccountLimitsPayload struct {
 	ContributionFiveHourReservePercent *float64 `json:"contribution_5h_reserve_percent"`
 	ContributionWeeklyReservePercent   *float64 `json:"contribution_weekly_reserve_percent"`
@@ -357,7 +367,51 @@ func (h *AccountPoolHandler) ListDynamicPools(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	ranges, err := h.apiKeyService.GetDynamicPoolSharingRateRanges(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	for i := range summaries {
+		if accepted, ok := ranges[summaries[i].GroupID]; ok {
+			summaries[i].AcceptedRateMin = accepted.Min
+			summaries[i].AcceptedRateMax = accepted.Max
+		}
+	}
 	response.Success(c, summaries)
+}
+
+func (h *AccountPoolHandler) UpdateDynamicPoolSharingRateRange(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var payload updateDynamicPoolSharingRateRangePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request payload")
+		return
+	}
+	if !payload.Min.Set || !payload.Max.Set {
+		response.BadRequest(c, "Both min and max must be provided")
+		return
+	}
+	minValue, maxValue, err := h.accountService.NormalizeSharingRateAcceptedRange(c.Request.Context(), payload.Min.Value, payload.Max.Value)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	accepted, err := h.apiKeyService.UpdateDynamicPoolSharingRateRange(c.Request.Context(), subject.UserID, groupID, minValue, maxValue)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dynamicPoolSharingRateRangeResponse{Min: accepted.Min, Max: accepted.Max})
 }
 
 func (h *AccountPoolHandler) StartKimiDeviceAuthorization(c *gin.Context) {

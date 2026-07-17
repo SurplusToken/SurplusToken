@@ -22,6 +22,27 @@ type authRepoStub struct {
 	listKeysByGroupID func(ctx context.Context, groupID int64) ([]string, error)
 }
 
+type dynamicPoolRangeRepoStub struct {
+	UserGroupRateRepository
+	ranges map[int64]SharingRateRange
+}
+
+func (s *dynamicPoolRangeRepoStub) GetRPMOverrideByUserAndGroup(context.Context, int64, int64) (*int, error) {
+	return nil, nil
+}
+
+func (s *dynamicPoolRangeRepoStub) GetSharingRateRangesByUser(context.Context, int64) (map[int64]SharingRateRange, error) {
+	return s.ranges, nil
+}
+
+func (s *dynamicPoolRangeRepoStub) GetSharingRateRangeByUserAndGroup(_ context.Context, _, groupID int64) (SharingRateRange, error) {
+	return s.ranges[groupID], nil
+}
+
+func (s *dynamicPoolRangeRepoStub) UpdateSharingRateRangeByUserAndGroup(context.Context, int64, int64, *float64, *float64) error {
+	panic("unexpected UpdateSharingRateRangeByUserAndGroup call")
+}
+
 func (s *authRepoStub) Create(ctx context.Context, key *APIKey) error {
 	panic("unexpected Create call")
 }
@@ -311,6 +332,30 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesSharingRateMinMax(t *testing.T
 	require.NotNil(t, roundTrip.User.SharingRateMax)
 	require.Equal(t, min, *roundTrip.User.SharingRateMin)
 	require.Equal(t, max, *roundTrip.User.SharingRateMax)
+}
+
+func TestAPIKeyService_SnapshotUsesDynamicGroupSharingRateRange(t *testing.T) {
+	legacyMin, legacyMax := 0.1, 4.8
+	groupMin, groupMax := 0.8, 1.4
+	groupID := int64(23)
+	repo := &dynamicPoolRangeRepoStub{ranges: map[int64]SharingRateRange{
+		groupID: {Min: &groupMin, Max: &groupMax},
+	}}
+	svc := NewAPIKeyService(nil, nil, nil, nil, repo, nil, &config.Config{})
+	apiKey := &APIKey{
+		ID: 1, UserID: 2, Key: "k-dynamic-range", Status: StatusActive,
+		GroupID: &groupID,
+		Group:   &Group{ID: groupID, DynamicSharingPool: true, SubscriptionType: SubscriptionTypeStandard},
+		User: &User{
+			ID: 2, Status: StatusActive, Role: RoleUser, Balance: 10, Concurrency: 3,
+			SharingRateMin: &legacyMin, SharingRateMax: &legacyMax,
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+
+	require.Equal(t, groupMin, *snapshot.User.SharingRateMin)
+	require.Equal(t, groupMax, *snapshot.User.SharingRateMax)
 }
 
 func TestAPIKeyService_SnapshotRoundTrip_PreservesNilSharingRateMinMax(t *testing.T) {

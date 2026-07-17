@@ -227,6 +227,25 @@ func (s *AccountService) sharingRateCooldownMinutes(ctx context.Context) int {
 	return s.sharingRatePolicy.GetSharingRateOwnerCooldownMinutes(ctx)
 }
 
+func (s *AccountService) NormalizeSharingRateAcceptedRange(ctx context.Context, min, max *float64) (*float64, *float64, error) {
+	if err := ValidateSharingRateAcceptedRange(min, max); err != nil {
+		return nil, nil, err
+	}
+	if min != nil {
+		value := canonicalSharingRate(*min)
+		min = &value
+	}
+	if max != nil {
+		value := canonicalSharingRate(*max)
+		max = &value
+	}
+	_, capValue := s.sharingRateBounds(ctx)
+	if (min != nil && *min > capValue) || (max != nil && *max > capValue) {
+		return nil, nil, ErrSharingRateOutOfRange
+	}
+	return min, max, nil
+}
+
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
 	if err := validateSurplusAIUpstreamAccountType(req.Type); err != nil {

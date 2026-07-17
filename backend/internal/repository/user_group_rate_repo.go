@@ -169,6 +169,80 @@ func (r *userGroupRateRepository) GetRPMOverrideByUserAndGroup(ctx context.Conte
 	return &v, nil
 }
 
+func (r *userGroupRateRepository) GetSharingRateRangesByUser(ctx context.Context, userID int64) (map[int64]service.SharingRateRange, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT group_id, sharing_rate_min, sharing_rate_max
+		FROM user_group_rate_multipliers
+		WHERE user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	ranges := make(map[int64]service.SharingRateRange)
+	for rows.Next() {
+		var groupID int64
+		var minValue, maxValue sql.NullFloat64
+		if err := rows.Scan(&groupID, &minValue, &maxValue); err != nil {
+			return nil, err
+		}
+		var min, max *float64
+		if minValue.Valid {
+			value := minValue.Float64
+			min = &value
+		}
+		if maxValue.Valid {
+			value := maxValue.Float64
+			max = &value
+		}
+		ranges[groupID] = service.SharingRateRange{Min: min, Max: max}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ranges, nil
+}
+
+func (r *userGroupRateRepository) GetSharingRateRangeByUserAndGroup(ctx context.Context, userID, groupID int64) (service.SharingRateRange, error) {
+	var minValue, maxValue sql.NullFloat64
+	err := scanSingleRow(ctx, r.sql, `
+		SELECT sharing_rate_min, sharing_rate_max
+		FROM user_group_rate_multipliers
+		WHERE user_id = $1 AND group_id = $2
+	`, []any{userID, groupID}, &minValue, &maxValue)
+	if err == sql.ErrNoRows {
+		return service.SharingRateRange{}, nil
+	}
+	if err != nil {
+		return service.SharingRateRange{}, err
+	}
+	var min, max *float64
+	if minValue.Valid {
+		value := minValue.Float64
+		min = &value
+	}
+	if maxValue.Valid {
+		value := maxValue.Float64
+		max = &value
+	}
+	return service.SharingRateRange{Min: min, Max: max}, nil
+}
+
+func (r *userGroupRateRepository) UpdateSharingRateRangeByUserAndGroup(ctx context.Context, userID, groupID int64, min, max *float64) error {
+	_, err := r.sql.ExecContext(ctx, `
+		INSERT INTO user_group_rate_multipliers (
+			user_id, group_id, sharing_rate_min, sharing_rate_max, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, NOW(), NOW())
+		ON CONFLICT (user_id, group_id)
+		DO UPDATE SET
+			sharing_rate_min = EXCLUDED.sharing_rate_min,
+			sharing_rate_max = EXCLUDED.sharing_rate_max,
+			updated_at = NOW()
+	`, userID, groupID, min, max)
+	return err
+}
+
 // SyncUserGroupRates 同步用户的分组专属 rate_multiplier。
 //   - 传入空 map：清空该用户所有行的 rate_multiplier；若 rpm_override 也为 NULL 则整行删除。
 //   - 值为 nil：清空对应行的 rate_multiplier（保留 rpm_override）。
@@ -183,7 +257,7 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 			return err
 		}
 		_, err := r.sql.ExecContext(ctx,
-			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL`,
+			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND sharing_rate_min IS NULL AND sharing_rate_max IS NULL`,
 			userID)
 		return err
 	}
@@ -209,7 +283,7 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 			return err
 		}
 		if _, err := r.sql.ExecContext(ctx,
-			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = ANY($2) AND rate_multiplier IS NULL AND rpm_override IS NULL`,
+			`DELETE FROM user_group_rate_multipliers WHERE user_id = $1 AND group_id = ANY($2) AND rate_multiplier IS NULL AND rpm_override IS NULL AND sharing_rate_min IS NULL AND sharing_rate_max IS NULL`,
 			userID, pq.Array(clearGroupIDs)); err != nil {
 			return err
 		}
@@ -271,7 +345,7 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND sharing_rate_min IS NULL AND sharing_rate_max IS NULL
 	`, groupID); err != nil {
 		return err
 	}
@@ -349,7 +423,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND sharing_rate_min IS NULL AND sharing_rate_max IS NULL
 	`, groupID); err != nil {
 		return err
 	}
@@ -382,7 +456,7 @@ func (r *userGroupRateRepository) ClearGroupRPMOverrides(ctx context.Context, gr
 	}
 	_, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL AND sharing_rate_min IS NULL AND sharing_rate_max IS NULL
 	`, groupID)
 	return err
 }

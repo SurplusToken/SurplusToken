@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 17 // v17: include dynamic sharing pool and web search per-call pricing
+const apiKeyAuthSnapshotVersion = 18 // v18: use per-dynamic-group accepted sharing-rate ranges
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -247,6 +247,18 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			snapshot.User.UserGroupRPMOverride = override
 		}
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
+		if apiKey.Group != nil && apiKey.Group.IsDynamicSharingPool() {
+			// Dynamic pools use their own user+group range. Start unbounded so the
+			// removed legacy profile range cannot leak into a different group.
+			snapshot.User.SharingRateMin = nil
+			snapshot.User.SharingRateMax = nil
+			if rangeRepo, ok := s.userGroupRateRepo.(UserGroupSharingRateRangeRepository); ok {
+				if accepted, rangeErr := rangeRepo.GetSharingRateRangeByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID); rangeErr == nil {
+					snapshot.User.SharingRateMin = accepted.Min
+					snapshot.User.SharingRateMax = accepted.Max
+				}
+			}
+		}
 	}
 	if apiKey.Group != nil {
 		snapshot.Group = &APIKeyAuthGroupSnapshot{

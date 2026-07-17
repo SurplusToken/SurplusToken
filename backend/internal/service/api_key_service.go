@@ -22,13 +22,14 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound     = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed    = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists       = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort     = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited  = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrInvalidIPPattern   = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrAPIKeyNotFound      = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed     = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists        = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort      = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars  = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited   = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrInvalidIPPattern    = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrGroupNotDynamicPool = infraerrors.BadRequest("GROUP_NOT_DYNAMIC_SHARING_POOL", "group is not a dynamic sharing pool")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -928,6 +929,50 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 		return nil, fmt.Errorf("get user group rates: %w", err)
 	}
 	return rates, nil
+}
+
+func (s *APIKeyService) GetDynamicPoolSharingRateRanges(ctx context.Context, userID int64) (map[int64]SharingRateRange, error) {
+	rangeRepo, ok := s.userGroupRateRepo.(UserGroupSharingRateRangeRepository)
+	if !ok {
+		return map[int64]SharingRateRange{}, nil
+	}
+	ranges, err := rangeRepo.GetSharingRateRangesByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get dynamic pool sharing rate ranges: %w", err)
+	}
+	return ranges, nil
+}
+
+func (s *APIKeyService) UpdateDynamicPoolSharingRateRange(ctx context.Context, userID, groupID int64, min, max *float64) (SharingRateRange, error) {
+	if err := ValidateSharingRateAcceptedRange(min, max); err != nil {
+		return SharingRateRange{}, err
+	}
+	groups, err := s.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return SharingRateRange{}, err
+	}
+	var target *Group
+	for i := range groups {
+		if groups[i].ID == groupID {
+			target = &groups[i]
+			break
+		}
+	}
+	if target == nil {
+		return SharingRateRange{}, ErrGroupNotAllowed
+	}
+	if !target.IsDynamicSharingPool() {
+		return SharingRateRange{}, ErrGroupNotDynamicPool
+	}
+	rangeRepo, ok := s.userGroupRateRepo.(UserGroupSharingRateRangeRepository)
+	if !ok {
+		return SharingRateRange{}, fmt.Errorf("user group sharing rate repository not configured")
+	}
+	if err := rangeRepo.UpdateSharingRateRangeByUserAndGroup(ctx, userID, groupID, min, max); err != nil {
+		return SharingRateRange{}, fmt.Errorf("update dynamic pool sharing rate range: %w", err)
+	}
+	s.InvalidateAuthCacheByUserID(ctx, userID)
+	return SharingRateRange{Min: min, Max: max}, nil
 }
 
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)

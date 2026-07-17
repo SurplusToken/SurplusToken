@@ -138,6 +138,7 @@ func RegisterUserRoutes(
 		{
 			accounts.GET("/pool", h.AccountPool.ListPool)
 			accounts.GET("/pool/dynamic-groups", h.AccountPool.ListDynamicPools)
+			accounts.PUT("/pool/dynamic-groups/:group_id/sharing-rate-range", h.AccountPool.UpdateDynamicPoolSharingRateRange)
 			accounts.GET("/proxies", h.AccountPool.ListProxies)
 			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
 			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)

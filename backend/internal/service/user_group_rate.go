@@ -61,3 +61,11 @@ type UserGroupRateRepository interface {
 	// DeleteByUserID 删除指定用户的所有专属条目（用户删除时调用）
 	DeleteByUserID(ctx context.Context, userID int64) error
 }
+
+// UserGroupSharingRateRangeRepository is the optional dynamic-pool extension
+// implemented by repositories backed by the current schema.
+type UserGroupSharingRateRangeRepository interface {
+	GetSharingRateRangesByUser(ctx context.Context, userID int64) (map[int64]SharingRateRange, error)
+	GetSharingRateRangeByUserAndGroup(ctx context.Context, userID, groupID int64) (SharingRateRange, error)
+	UpdateSharingRateRangeByUserAndGroup(ctx context.Context, userID, groupID int64, min, max *float64) error
+}

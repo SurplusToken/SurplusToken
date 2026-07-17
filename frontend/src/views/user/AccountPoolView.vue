@@ -99,17 +99,17 @@
             </p>
             <div v-else class="mt-2 divide-y divide-gray-100 dark:divide-dark-700">
               <div v-for="pool in dynamicPools" :key="pool.group_id" class="py-2.5 first:pt-1.5 last:pb-0">
-                <button
-                  type="button"
-                  class="grid w-full gap-2 text-left lg:grid-cols-[minmax(11rem,1.2fr)_minmax(15rem,1.5fr)_minmax(12rem,1fr)_auto] lg:items-center"
-                  :aria-expanded="expandedDynamicPools.has(pool.group_id)"
-                  @click="toggleDynamicPool(pool.group_id)"
-                >
-                  <span class="flex min-w-0 items-center gap-2">
+                <div class="grid w-full gap-2 lg:grid-cols-[minmax(11rem,1.1fr)_minmax(13rem,1.2fr)_minmax(8rem,0.7fr)_minmax(18rem,1fr)_auto] lg:items-center">
+                  <button
+                    type="button"
+                    class="flex min-w-0 items-center gap-2 text-left"
+                    :aria-expanded="expandedDynamicPools.has(pool.group_id)"
+                    @click="toggleDynamicPool(pool.group_id)"
+                  >
                     <PlatformIcon :platform="pool.platform" size="sm" />
                     <span class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ pool.group_name }}</span>
                     <span :class="dynamicPoolStatusClass(pool)">{{ dynamicPoolStatusLabel(pool) }}</span>
-                  </span>
+                  </button>
                   <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-dark-200">
                     <span>{{ t('accountPool.dynamicPools.poolAvailability', { available: pool.available_accounts, total: pool.total_accounts }) }}</span>
                     <span>{{ t('accountPool.dynamicPools.mineAvailability', { available: pool.mine_available, total: pool.mine_total }) }}</span>
@@ -121,8 +121,55 @@
                     <span>{{ t('accountPool.dynamicPools.rate') }}</span>
                     <strong class="font-mono font-semibold text-gray-800 dark:text-gray-100">{{ dynamicPoolRateRange(pool) }}</strong>
                   </span>
-                  <Icon name="chevronDown" size="sm" class="justify-self-end text-gray-400 transition-transform" :class="expandedDynamicPools.has(pool.group_id) ? 'rotate-180' : ''" />
-                </button>
+                  <form class="flex min-w-0 items-center gap-1.5" @submit.prevent="saveDynamicPoolRange(pool)">
+                    <span class="shrink-0 text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.dynamicPools.acceptedRange') }}</span>
+                    <input
+                      v-model="dynamicPoolRangeDrafts[pool.group_id].min"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.01"
+                      :min="sharingRateFloor"
+                      :max="sharingRateCap"
+                      :placeholder="t('accountPool.dynamicPools.unbounded')"
+                      :aria-label="t('accountPool.dynamicPools.minimum')"
+                      class="input h-8 min-w-0 w-20 px-2 py-1 text-center font-mono text-xs"
+                      @input="markDynamicPoolRangeDirty(pool.group_id)"
+                    />
+                    <span class="text-xs text-gray-400">-</span>
+                    <input
+                      v-model="dynamicPoolRangeDrafts[pool.group_id].max"
+                      type="number"
+                      inputmode="decimal"
+                      step="0.01"
+                      :min="sharingRateFloor"
+                      :max="sharingRateCap"
+                      :placeholder="t('accountPool.dynamicPools.unbounded')"
+                      :aria-label="t('accountPool.dynamicPools.maximum')"
+                      class="input h-8 min-w-0 w-20 px-2 py-1 text-center font-mono text-xs"
+                      @input="markDynamicPoolRangeDirty(pool.group_id)"
+                    />
+                    <button
+                      type="submit"
+                      class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary-600 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:text-gray-300 dark:text-primary-400 dark:hover:bg-primary-900/20 dark:disabled:text-dark-500"
+                      :title="t('accountPool.dynamicPools.saveRange')"
+                      :aria-label="t('accountPool.dynamicPools.saveRange')"
+                      :disabled="!dirtyDynamicPoolRanges.has(pool.group_id) || savingDynamicPoolRanges.has(pool.group_id)"
+                    >
+                      <Icon name="refresh" size="sm" :class="savingDynamicPoolRanges.has(pool.group_id) ? 'animate-spin' : 'hidden'" />
+                      <Icon name="check" size="sm" :class="savingDynamicPoolRanges.has(pool.group_id) ? 'hidden' : ''" />
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center justify-self-end rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-white"
+                    :title="t('accountPool.dynamicPools.toggleDetails')"
+                    :aria-label="t('accountPool.dynamicPools.toggleDetails')"
+                    :aria-expanded="expandedDynamicPools.has(pool.group_id)"
+                    @click="toggleDynamicPool(pool.group_id)"
+                  >
+                    <Icon name="chevronDown" size="sm" class="transition-transform" :class="expandedDynamicPools.has(pool.group_id) ? 'rotate-180' : ''" />
+                  </button>
+                </div>
 
                 <div v-if="expandedDynamicPools.has(pool.group_id)" class="mt-2 overflow-hidden bg-gray-50 dark:bg-dark-900/40">
                   <div class="grid grid-cols-[minmax(0,1fr)_5rem_5rem] gap-3 border-b border-gray-200 px-3 py-1.5 text-[11px] font-medium text-gray-500 dark:border-dark-700 dark:text-dark-300">
@@ -1788,6 +1835,9 @@ const accounts = ref<UserAccountPoolItem[]>([])
 const dynamicPools = ref<UserDynamicPoolSummary[]>([])
 const dynamicPoolsLoading = ref(false)
 const expandedDynamicPools = reactive(new Set<number>())
+const dynamicPoolRangeDrafts = reactive<Record<number, { min: string; max: string }>>({})
+const dirtyDynamicPoolRanges = reactive(new Set<number>())
+const savingDynamicPoolRanges = reactive(new Set<number>())
 const availableGroups = ref<Group[]>([])
 const proxies = ref<Proxy[]>([])
 const loading = ref(false)
@@ -2331,6 +2381,71 @@ function toggleDynamicPool(groupID: number) {
   else expandedDynamicPools.add(groupID)
 }
 
+function formatDynamicPoolRangeBound(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return ''
+  return String(value)
+}
+
+function syncDynamicPoolRangeDraft(pool: UserDynamicPoolSummary) {
+  if (dirtyDynamicPoolRanges.has(pool.group_id) || savingDynamicPoolRanges.has(pool.group_id)) return
+  dynamicPoolRangeDrafts[pool.group_id] = {
+    min: formatDynamicPoolRangeBound(pool.accepted_rate_min),
+    max: formatDynamicPoolRangeBound(pool.accepted_rate_max),
+  }
+}
+
+function markDynamicPoolRangeDirty(groupID: number) {
+  dirtyDynamicPoolRanges.add(groupID)
+}
+
+function parseDynamicPoolRangeBound(value: string | number): number | null | undefined {
+  const normalized = String(value ?? '').trim()
+  if (normalized === '') return null
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+async function saveDynamicPoolRange(pool: UserDynamicPoolSummary) {
+  const draft = dynamicPoolRangeDrafts[pool.group_id]
+  if (!draft || savingDynamicPoolRanges.has(pool.group_id)) return
+
+  const min = parseDynamicPoolRangeBound(draft.min)
+  const max = parseDynamicPoolRangeBound(draft.max)
+  if (
+    min === undefined ||
+    max === undefined ||
+    (min !== null && (min < sharingRateFloor.value || min > sharingRateCap.value)) ||
+    (max !== null && (max < sharingRateFloor.value || max > sharingRateCap.value))
+  ) {
+    appStore.showError(t('accountPool.dynamicPools.rangeOutOfBounds', {
+      floor: sharingRateFloor.value,
+      cap: sharingRateCap.value,
+    }))
+    return
+  }
+  if (min !== null && max !== null && min > max) {
+    appStore.showError(t('accountPool.dynamicPools.rangeInvalidOrder'))
+    return
+  }
+
+  savingDynamicPoolRanges.add(pool.group_id)
+  try {
+    const saved = await accountsAPI.updateDynamicPoolSharingRateRange(pool.group_id, { min, max })
+    pool.accepted_rate_min = saved.min
+    pool.accepted_rate_max = saved.max
+    dirtyDynamicPoolRanges.delete(pool.group_id)
+    dynamicPoolRangeDrafts[pool.group_id] = {
+      min: formatDynamicPoolRangeBound(saved.min),
+      max: formatDynamicPoolRangeBound(saved.max),
+    }
+    appStore.showSuccess(t('accountPool.dynamicPools.rangeSaved'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.dynamicPools.rangeSaveFailed')))
+  } finally {
+    savingDynamicPoolRanges.delete(pool.group_id)
+  }
+}
+
 function dynamicPoolStatusLabel(pool: UserDynamicPoolSummary): string {
   if (pool.available_accounts >= 3) return t('accountPool.dynamicPools.statusSufficient')
   if (pool.available_accounts > 0) return t('accountPool.dynamicPools.statusLimited')
@@ -2819,7 +2934,9 @@ async function loadAccounts() {
 async function loadDynamicPools() {
   dynamicPoolsLoading.value = true
   try {
-    dynamicPools.value = await accountsAPI.listDynamicPools()
+    const pools = await accountsAPI.listDynamicPools()
+    for (const pool of pools) syncDynamicPoolRangeDraft(pool)
+    dynamicPools.value = pools
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.dynamicPools.loadFailed')))
   } finally {

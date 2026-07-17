@@ -3,8 +3,10 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountPoolView from '../AccountPoolView.vue'
 
-const { listPool, listProxies, getContributionSummary, getAvailableGroups, appState } = vi.hoisted(() => ({
+const { listPool, listDynamicPools, updateDynamicPoolSharingRateRange, listProxies, getContributionSummary, getAvailableGroups, appState } = vi.hoisted(() => ({
   listPool: vi.fn(),
+  listDynamicPools: vi.fn(),
+  updateDynamicPoolSharingRateRange: vi.fn(),
   listProxies: vi.fn(),
   getContributionSummary: vi.fn(),
   getAvailableGroups: vi.fn(),
@@ -20,6 +22,8 @@ vi.mock('@/api/accounts', async () => {
     ...actual,
     default: {
       listPool,
+      listDynamicPools,
+      updateDynamicPoolSharingRateRange,
       listProxies,
       testProxy: vi.fn(),
       getContributionPool: vi.fn(),
@@ -79,6 +83,8 @@ function mountView() {
 describe('AccountPoolView sharing rate column', () => {
   beforeEach(() => {
     listPool.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
+    listDynamicPools.mockResolvedValue([])
+    updateDynamicPoolSharingRateRange.mockResolvedValue({ min: null, max: null })
     listProxies.mockResolvedValue([])
     getContributionSummary.mockResolvedValue({})
     getAvailableGroups.mockResolvedValue([])
@@ -111,6 +117,44 @@ describe('AccountPoolView sharing rate column', () => {
 
     expect(wrapper.get('[data-testid="account-pool-columns"]').attributes('data-columns'))
       .not.toContain('sharing_rate')
+    wrapper.unmount()
+  })
+
+  it('saves an accepted rate range for the edited dynamic group', async () => {
+    appState.cachedPublicSettings = {
+      sharing_pool_display_enabled: true,
+      sharing_rate_floor: 0,
+      sharing_rate_cap: 5,
+    }
+    appState.fetchPublicSettings.mockResolvedValue(appState.cachedPublicSettings)
+    listDynamicPools.mockResolvedValue([{
+      group_id: 23,
+      group_name: 'GPT Pool',
+      platform: 'openai',
+      total_accounts: 2,
+      available_accounts: 2,
+      limited_accounts: 0,
+      mine_total: 0,
+      mine_available: 0,
+      min_sharing_rate: 0.9,
+      max_sharing_rate: 1.5,
+      accepted_rate_min: 0.8,
+      accepted_rate_max: 1.4,
+      models: [],
+      sources: [],
+      accounts: [],
+      updated_at: new Date().toISOString(),
+    }])
+    updateDynamicPoolSharingRateRange.mockResolvedValue({ min: 0.85, max: 1.35 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('input[aria-label="accountPool.dynamicPools.minimum"]').setValue('0.85')
+    await wrapper.get('input[aria-label="accountPool.dynamicPools.maximum"]').setValue('1.35')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(updateDynamicPoolSharingRateRange).toHaveBeenCalledWith(23, { min: 0.85, max: 1.35 })
     wrapper.unmount()
   })
 })

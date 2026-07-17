@@ -84,10 +84,17 @@ export interface UserDynamicPoolSummary {
   mine_available: number
   min_sharing_rate: number | null
   max_sharing_rate: number | null
+  accepted_rate_min: number | null
+  accepted_rate_max: number | null
   models: string[]
   sources: UserDynamicPoolSource[]
   accounts: UserDynamicPoolAccount[]
   updated_at: string
+}
+
+export interface DynamicPoolSharingRateRange {
+  min: number | null
+  max: number | null
 }
 
 export interface UpdateUserAccountScopeRequest {
@@ -214,6 +221,17 @@ export async function createOAuth(payload: CreateUserOAuthAccountRequest): Promi
 
 export async function listDynamicPools(): Promise<UserDynamicPoolSummary[]> {
   const { data } = await apiClient.get<UserDynamicPoolSummary[]>('/accounts/pool/dynamic-groups')
+  return data
+}
+
+export async function updateDynamicPoolSharingRateRange(
+  groupId: number,
+  range: DynamicPoolSharingRateRange,
+): Promise<DynamicPoolSharingRateRange> {
+  const { data } = await apiClient.put<DynamicPoolSharingRateRange>(
+    `/accounts/pool/dynamic-groups/${groupId}/sharing-rate-range`,
+    range,
+  )
   return data
 }
 
@@ -510,6 +528,7 @@ export async function resetOwnerOpenAIQuota(id: number): Promise<OpenAIQuotaRese
 export const accountsAPI = {
   listPool,
   listDynamicPools,
+  updateDynamicPoolSharingRateRange,
   getContributionPool,
   distributeContributionPool,
   getOwnerAccountUsage,

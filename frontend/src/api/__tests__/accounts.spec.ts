@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { post, patch } = vi.hoisted(() => ({
+const { post, patch, put } = vi.hoisted(() => ({
   post: vi.fn(),
   patch: vi.fn(),
+  put: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({
@@ -10,6 +11,7 @@ vi.mock('@/api/client', () => ({
     get: vi.fn(),
     post,
     patch,
+    put,
     delete: vi.fn(),
   },
 }))
@@ -20,8 +22,10 @@ describe('user accounts api', () => {
   beforeEach(() => {
     post.mockReset()
     patch.mockReset()
+    put.mockReset()
     post.mockResolvedValue({ data: {} })
     patch.mockResolvedValue({ data: {} })
+    put.mockResolvedValue({ data: {} })
   })
 
   it('validates OpenAI refresh tokens through the user account pool endpoint', async () => {
@@ -53,6 +57,18 @@ describe('user accounts api', () => {
     expect(patch).toHaveBeenCalledWith('/accounts/7/scope', {
       sharing_rate_multiplier: 0,
     })
+  })
+
+  it('updates the accepted sharing rate range for one dynamic group', async () => {
+    put.mockResolvedValue({ data: { min: 0.8, max: 1.4 } })
+
+    const result = await accountsAPI.updateDynamicPoolSharingRateRange(23, { min: 0.8, max: 1.4 })
+
+    expect(put).toHaveBeenCalledWith(
+      '/accounts/pool/dynamic-groups/23/sharing-rate-range',
+      { min: 0.8, max: 1.4 },
+    )
+    expect(result).toEqual({ min: 0.8, max: 1.4 })
   })
 
   it('requires an explicit distribution mode and sends the caller idempotency key', async () => {

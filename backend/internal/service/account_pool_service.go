@@ -182,6 +182,8 @@ type UserDynamicPoolSummary struct {
 	MineAvailable     int                      `json:"mine_available"`
 	MinSharingRate    *float64                 `json:"min_sharing_rate"`
 	MaxSharingRate    *float64                 `json:"max_sharing_rate"`
+	AcceptedRateMin   *float64                 `json:"accepted_rate_min"`
+	AcceptedRateMax   *float64                 `json:"accepted_rate_max"`
 	Models            []string                 `json:"models"`
 	Sources           []UserDynamicPoolSource  `json:"sources"`
 	Accounts          []UserDynamicPoolAccount `json:"accounts"`
