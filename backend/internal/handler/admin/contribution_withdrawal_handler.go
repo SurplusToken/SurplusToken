@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -11,6 +12,30 @@ import (
 
 type ContributionWithdrawalHandler struct {
 	service *service.ContributionService
+}
+
+func (h *ContributionWithdrawalHandler) GetQRCode(c *gin.Context) {
+	if h == nil || h.service == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "Admin not authenticated")
+		return
+	}
+	withdrawalID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || withdrawalID <= 0 {
+		response.BadRequest(c, "Invalid withdrawal ID")
+		return
+	}
+	data, contentType, err := h.service.GetWithdrawalQRCode(c.Request.Context(), subject.UserID, withdrawalID, true)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	c.Data(http.StatusOK, contentType, data)
 }
 
 func NewContributionWithdrawalHandler(contributionService *service.ContributionService) *ContributionWithdrawalHandler {

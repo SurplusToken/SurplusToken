@@ -165,6 +165,8 @@ export interface UserContributionSummary {
   contribution_pending_withdrawal_quota: number
   contribution_withdrawn_quota: number
   contribution_transferred_quota: number
+  contribution_monthly_withdrawal_count: number
+  contribution_monthly_withdrawal_limit: number
   created_at: string
   updated_at: string
 }
@@ -193,6 +195,7 @@ export interface ContributionWithdrawal {
   request_note: string
   review_note: string
   payment_reference: string
+  has_payment_qr_code: boolean
   reviewed_by?: number | null
   requested_at: string
   reviewed_at?: string | null
@@ -208,6 +211,7 @@ export interface CreateContributionWithdrawalRequest {
   payment_account: string
   payee_name: string
   request_note?: string
+  payment_qr_code: string
 }
 
 export interface SendVerifyCodeRequest {

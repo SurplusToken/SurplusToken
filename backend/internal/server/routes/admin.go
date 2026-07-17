@@ -119,6 +119,7 @@ func registerContributionWithdrawalRoutes(admin *gin.RouterGroup, h *handler.Han
 	withdrawals := admin.Group("/contribution-withdrawals")
 	{
 		withdrawals.GET("", h.Admin.ContributionWithdrawal.List)
+		withdrawals.GET("/:id/qr-code", h.Admin.ContributionWithdrawal.GetQRCode)
 		withdrawals.PUT("/:id/status", h.Admin.ContributionWithdrawal.Review)
 	}
 }

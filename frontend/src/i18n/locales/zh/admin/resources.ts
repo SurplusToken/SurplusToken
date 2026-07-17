@@ -536,6 +536,8 @@ export default {
       paymentReference: '支付流水号',
       paymentReferenceShort: '流水号',
       paymentReferenceHint: '必填，用于财务核对和避免重复打款。',
+      qrCode: '收款码',
+      qrCodeLoadFailed: '加载收款码失败',
       reviewNote: '审核备注',
       rejectReasonPlaceholder: '请输入驳回原因',
       paidSuccess: '提现申请已标记为已打款',

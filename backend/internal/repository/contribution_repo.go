@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -188,6 +189,13 @@ func (r *contributionRepository) CreateWithdrawal(ctx context.Context, userID in
 			withdrawalID = existingID
 			return nil
 		}
+		monthlyCount, err := monthlyWithdrawalCountTx(txCtx, txClient, userID)
+		if err != nil {
+			return err
+		}
+		if monthlyCount >= service.ContributionWithdrawalMonthlyLimit {
+			return service.ErrContributionWithdrawalMonthlyLimit
+		}
 		pending, err := hasPendingWithdrawalTx(txCtx, txClient, userID)
 		if err != nil {
 			return err
@@ -224,10 +232,10 @@ RETURNING contribution_quota::double precision`, req.Amount, userID)
 		rows, err = txClient.QueryContext(txCtx, `
 INSERT INTO contribution_withdrawals (
     user_id, amount, status, payment_method, payment_account, payee_name,
-    request_note, idempotency_key, request_fingerprint, requested_at, created_at, updated_at
+    request_note, payment_qr_code, idempotency_key, request_fingerprint, requested_at, created_at, updated_at
 )
-VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
-RETURNING id`, userID, req.Amount, req.PaymentMethod, req.PaymentAccount, req.PayeeName, req.RequestNote, req.IdempotencyKey, req.RequestFingerprint)
+VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
+RETURNING id`, userID, req.Amount, req.PaymentMethod, req.PaymentAccount, req.PayeeName, req.RequestNote, req.PaymentQRCode, req.IdempotencyKey, req.RequestFingerprint)
 		if err != nil {
 			return fmt.Errorf("create contribution withdrawal: %w", err)
 		}
@@ -309,7 +317,7 @@ func (r *contributionRepository) ReviewWithdrawal(ctx context.Context, req servi
 		result, err := txClient.ExecContext(txCtx, `
 UPDATE contribution_withdrawals
 SET status = 'paid', review_note = $1, payment_reference = $2,
-    reviewed_by = $3, reviewed_at = NOW(), paid_at = NOW(), updated_at = NOW()
+    payment_qr_code = '', reviewed_by = $3, reviewed_at = NOW(), paid_at = NOW(), updated_at = NOW()
 WHERE id = $4 AND status = 'pending'`, req.ReviewNote, req.PaymentReference, req.AdminUserID, req.WithdrawalID)
 		if err != nil {
 			return fmt.Errorf("mark contribution withdrawal paid: %w", err)
@@ -341,6 +349,30 @@ VALUES ($1, 'withdraw_complete', $2, $3, $4, $5, $6, NOW(), NOW())`,
 		return nil, err
 	}
 	return r.getWithdrawalByID(ctx, req.WithdrawalID)
+}
+
+func (r *contributionRepository) GetWithdrawalQRCodeData(ctx context.Context, requesterUserID, withdrawalID int64, admin bool) (string, error) {
+	client := clientFromContext(ctx, r.client)
+	rows, err := client.QueryContext(ctx, `
+SELECT payment_qr_code
+FROM contribution_withdrawals
+WHERE id = $1 AND ($2 OR user_id = $3)
+LIMIT 1`, withdrawalID, admin, requesterUserID)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		return "", service.ErrContributionWithdrawalNotFound
+	}
+	var dataURL string
+	if err := rows.Scan(&dataURL); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(dataURL) == "" {
+		return "", service.ErrContributionWithdrawalNotFound
+	}
+	return dataURL, rows.Err()
 }
 
 func (r *contributionRepository) getWithdrawalByID(ctx context.Context, withdrawalID int64) (*service.ContributionWithdrawal, error) {
@@ -415,7 +447,7 @@ const contributionWithdrawalSelect = `
 SELECT w.id, w.user_id, COALESCE(u.email, ''), COALESCE(u.username, ''),
        w.amount::double precision, w.status, w.payment_method,
        w.payment_account, w.payee_name, w.request_note, w.review_note,
-       w.payment_reference, w.reviewed_by, w.requested_at, w.reviewed_at,
+       w.payment_reference, (w.payment_qr_code <> ''), w.reviewed_by, w.requested_at, w.reviewed_at,
        w.paid_at, w.cancelled_at, w.created_at, w.updated_at
 FROM contribution_withdrawals w
 JOIN users u ON u.id = w.user_id
@@ -432,7 +464,7 @@ func scanContributionWithdrawal(scanner contributionWithdrawalScanner) (*service
 	if err := scanner.Scan(
 		&out.ID, &out.UserID, &out.UserEmail, &out.Username,
 		&out.Amount, &out.Status, &out.PaymentMethod, &out.PaymentAccount,
-		&out.PayeeName, &out.RequestNote, &out.ReviewNote, &out.PaymentReference,
+		&out.PayeeName, &out.RequestNote, &out.ReviewNote, &out.PaymentReference, &out.HasPaymentQRCode,
 		&reviewedBy, &out.RequestedAt, &reviewedAt, &paidAt, &cancelledAt,
 		&out.CreatedAt, &out.UpdatedAt,
 	); err != nil {
@@ -502,6 +534,27 @@ func hasPendingWithdrawalTx(ctx context.Context, client *dbent.Client, userID in
 	return rows.Next(), rows.Err()
 }
 
+func monthlyWithdrawalCountTx(ctx context.Context, client *dbent.Client, userID int64) (int, error) {
+	rows, err := client.QueryContext(ctx, `
+SELECT COUNT(*)
+FROM contribution_withdrawals
+WHERE user_id = $1
+  AND requested_at >= date_trunc('month', NOW())
+  AND requested_at < date_trunc('month', NOW()) + INTERVAL '1 month'`, userID)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	var count int
+	if err := rows.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, rows.Err()
+}
+
 func lockWithdrawalTx(ctx context.Context, client *dbent.Client, withdrawalID int64) (amount float64, status string, userID int64, err error) {
 	rows, err := client.QueryContext(ctx, `
 SELECT amount::double precision, status, user_id
@@ -538,13 +591,13 @@ WHERE user_id = $2`, amount, userID); err != nil {
 	if status == service.ContributionWithdrawalStatusCancelled {
 		result, err = client.ExecContext(ctx, `
 UPDATE contribution_withdrawals
-SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+SET status = 'cancelled', payment_qr_code = '', cancelled_at = NOW(), updated_at = NOW()
 WHERE id = $1 AND status = 'pending'`, withdrawalID)
 	} else {
 		result, err = client.ExecContext(ctx, `
 UPDATE contribution_withdrawals
 SET status = 'rejected', review_note = $1, payment_reference = $2,
-    reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
+    payment_qr_code = '', reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
 WHERE id = $4 AND status = 'pending'`, reviewNote, paymentReference, adminID, withdrawalID)
 	}
 	if err != nil {
@@ -631,6 +684,13 @@ SELECT user_id,
            FROM user_contribution_ledger
            WHERE user_id = user_contributions.user_id AND action = 'transfer'
        ), 0),
+	   (
+	       SELECT COUNT(*)
+	       FROM contribution_withdrawals
+	       WHERE user_id = user_contributions.user_id
+	         AND requested_at >= date_trunc('month', NOW())
+	         AND requested_at < date_trunc('month', NOW()) + INTERVAL '1 month'
+	   ),
        created_at,
        updated_at
 FROM user_contributions
@@ -655,6 +715,7 @@ WHERE user_id = $1`, userID)
 		&out.ContributionPendingWithdrawalQuota,
 		&out.ContributionWithdrawnQuota,
 		&out.ContributionTransferredQuota,
+		&out.ContributionMonthlyWithdrawalCount,
 		&out.CreatedAt,
 		&out.UpdatedAt,
 	); err != nil {

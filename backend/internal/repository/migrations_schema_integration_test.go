@@ -122,6 +122,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "contribution_withdrawals", "amount", "numeric", 0, false)
 	requireColumn(t, tx, "contribution_withdrawals", "status", "character varying", 20, false)
 	requireColumn(t, tx, "contribution_withdrawals", "payment_account", "character varying", 255, false)
+	requireColumn(t, tx, "contribution_withdrawals", "payment_qr_code", "text", 0, false)
 	requireColumn(t, tx, "contribution_withdrawals", "request_fingerprint", "character varying", 64, false)
 	requireIndex(t, tx, "contribution_withdrawals", "idx_contribution_withdrawals_one_pending_per_user")
 	requireIndex(t, tx, "contribution_withdrawals", "idx_contribution_withdrawals_status_requested")

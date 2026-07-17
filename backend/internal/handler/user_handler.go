@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -345,6 +346,7 @@ type createContributionWithdrawalPayload struct {
 	PaymentAccount string  `json:"payment_account"`
 	PayeeName      string  `json:"payee_name"`
 	RequestNote    string  `json:"request_note"`
+	PaymentQRCode  string  `json:"payment_qr_code"`
 }
 
 // CreateContributionWithdrawal reserves contribution quota and creates a manual payout request.
@@ -370,6 +372,7 @@ func (h *UserHandler) CreateContributionWithdrawal(c *gin.Context) {
 		PaymentAccount: payload.PaymentAccount,
 		PayeeName:      payload.PayeeName,
 		RequestNote:    payload.RequestNote,
+		PaymentQRCode:  payload.PaymentQRCode,
 		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
@@ -377,6 +380,31 @@ func (h *UserHandler) CreateContributionWithdrawal(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// GetContributionWithdrawalQRCode returns the current user's QR code image.
+func (h *UserHandler) GetContributionWithdrawalQRCode(c *gin.Context) {
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	withdrawalID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || withdrawalID <= 0 {
+		response.BadRequest(c, "Invalid withdrawal ID")
+		return
+	}
+	data, contentType, err := h.contributionService.GetWithdrawalQRCode(c.Request.Context(), subject.UserID, withdrawalID, false)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	c.Data(http.StatusOK, contentType, data)
 }
 
 // ListContributionWithdrawals lists the current user's payout requests.

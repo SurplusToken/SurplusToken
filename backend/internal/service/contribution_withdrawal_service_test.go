@@ -21,6 +21,8 @@ type contributionWithdrawalRepoCapture struct {
 	adminSize   int
 }
 
+const validWithdrawalQRCode = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
 func (r *contributionWithdrawalRepoCapture) EnsureUserContribution(context.Context, int64) (*ContributionSummary, error) {
 	return &ContributionSummary{}, nil
 }
@@ -62,6 +64,10 @@ func (r *contributionWithdrawalRepoCapture) ReviewWithdrawal(_ context.Context, 
 	return &ContributionWithdrawal{ID: req.WithdrawalID, UserID: 9, Status: req.Status}, nil
 }
 
+func (r *contributionWithdrawalRepoCapture) GetWithdrawalQRCodeData(context.Context, int64, int64, bool) (string, error) {
+	return validWithdrawalQRCode, nil
+}
+
 func validContributionWithdrawalRequest() CreateContributionWithdrawalRequest {
 	return CreateContributionWithdrawalRequest{
 		Amount:         12.3456789,
@@ -69,6 +75,7 @@ func validContributionWithdrawalRequest() CreateContributionWithdrawalRequest {
 		PaymentAccount: " recipient@example.com ",
 		PayeeName:      " Example User ",
 		RequestNote:    " payout note ",
+		PaymentQRCode:  validWithdrawalQRCode,
 		IdempotencyKey: " withdrawal-1 ",
 	}
 }
@@ -88,6 +95,7 @@ func TestCreateContributionWithdrawalCanonicalizesAndFingerprintsRequest(t *test
 	require.Equal(t, "recipient@example.com", repo.createReq.PaymentAccount)
 	require.Equal(t, "Example User", repo.createReq.PayeeName)
 	require.Equal(t, "payout note", repo.createReq.RequestNote)
+	require.Equal(t, validWithdrawalQRCode, repo.createReq.PaymentQRCode)
 	require.Equal(t, "withdrawal-1", repo.createReq.IdempotencyKey)
 	require.Len(t, repo.createReq.RequestFingerprint, 64)
 
@@ -112,6 +120,11 @@ func TestCreateContributionWithdrawalRejectsInvalidPayloadBeforeRepository(t *te
 		{name: "missing account", mutate: func(req *CreateContributionWithdrawalRequest) { req.PaymentAccount = " " }},
 		{name: "missing payee", mutate: func(req *CreateContributionWithdrawalRequest) { req.PayeeName = " " }},
 		{name: "note too long", mutate: func(req *CreateContributionWithdrawalRequest) { req.RequestNote = strings.Repeat("a", 501) }},
+		{name: "missing qr code", mutate: func(req *CreateContributionWithdrawalRequest) { req.PaymentQRCode = " " }},
+		{name: "fake qr code image", mutate: func(req *CreateContributionWithdrawalRequest) { req.PaymentQRCode = "data:image/png;base64,dGV4dA==" }},
+		{name: "qr code too large", mutate: func(req *CreateContributionWithdrawalRequest) {
+			req.PaymentQRCode = "data:image/png;base64," + strings.Repeat("A", 4*1024*1024)
+		}},
 		{name: "missing idempotency key", mutate: func(req *CreateContributionWithdrawalRequest) { req.IdempotencyKey = " " }},
 	}
 	for _, test := range tests {

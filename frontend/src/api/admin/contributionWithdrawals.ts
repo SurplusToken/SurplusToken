@@ -33,4 +33,11 @@ export async function review(id: number, request: ReviewContributionWithdrawalRe
   return data
 }
 
-export default { list, review }
+export async function getQRCode(id: number): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/admin/contribution-withdrawals/${id}/qr-code`, {
+    responseType: 'blob',
+  })
+  return data
+}
+
+export default { list, review, getQRCode }

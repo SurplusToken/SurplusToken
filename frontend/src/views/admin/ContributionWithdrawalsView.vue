@@ -115,6 +115,17 @@
           </div>
         </div>
 
+        <div v-if="reviewDialog.target?.has_payment_qr_code">
+          <span class="input-label">{{ t('admin.contributionWithdrawals.qrCode') }}</span>
+          <div class="mt-2 flex min-h-64 items-center justify-center rounded-md border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-900">
+            <span v-if="reviewDialog.qrLoading" class="text-sm text-gray-500">{{ t('common.loading') }}</span>
+            <a v-else-if="reviewDialog.qrURL" :href="reviewDialog.qrURL" target="_blank" rel="noopener noreferrer">
+              <img :src="reviewDialog.qrURL" :alt="t('admin.contributionWithdrawals.qrCode')" class="max-h-80 max-w-full object-contain" />
+            </a>
+            <span v-else class="text-sm text-red-500">{{ t('admin.contributionWithdrawals.qrCodeLoadFailed') }}</span>
+          </div>
+        </div>
+
         <label v-if="reviewDialog.mode === 'paid'" class="block">
           <span class="input-label">{{ t('admin.contributionWithdrawals.paymentReference') }}</span>
           <input v-model.trim="reviewDialog.paymentReference" type="text" maxlength="255" required class="input" />
@@ -154,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
@@ -185,6 +196,8 @@ const reviewDialog = reactive<{
   target: ContributionWithdrawal | null
   paymentReference: string
   reviewNote: string
+  qrLoading: boolean
+  qrURL: string
 }>({
   show: false,
   submitting: false,
@@ -192,6 +205,8 @@ const reviewDialog = reactive<{
   target: null,
   paymentReference: '',
   reviewNote: '',
+  qrLoading: false,
+  qrURL: '',
 })
 
 const columns = computed<Column[]>(() => [
@@ -217,6 +232,7 @@ const canSubmitReview = computed(() => {
   if (!reviewDialog.target) return false
   return reviewDialog.mode === 'paid'
     ? reviewDialog.paymentReference.length > 0
+      && (!reviewDialog.target.has_payment_qr_code || reviewDialog.qrURL.length > 0)
     : reviewDialog.reviewNote.length > 0
 })
 
@@ -276,18 +292,38 @@ function handlePageSizeChange(pageSize: number): void {
   void loadWithdrawals()
 }
 
-function openReview(withdrawal: ContributionWithdrawal, mode: 'paid' | 'rejected'): void {
+function revokeReviewQRCode(): void {
+  if (reviewDialog.qrURL) URL.revokeObjectURL(reviewDialog.qrURL)
+  reviewDialog.qrURL = ''
+}
+
+async function openReview(withdrawal: ContributionWithdrawal, mode: 'paid' | 'rejected'): Promise<void> {
+  revokeReviewQRCode()
   reviewDialog.target = withdrawal
   reviewDialog.mode = mode
   reviewDialog.paymentReference = ''
   reviewDialog.reviewNote = ''
   reviewDialog.show = true
+  if (!withdrawal.has_payment_qr_code) return
+  reviewDialog.qrLoading = true
+  try {
+    const blob = await adminAPI.contributionWithdrawals.getQRCode(withdrawal.id)
+    if (reviewDialog.target?.id === withdrawal.id) {
+      reviewDialog.qrURL = URL.createObjectURL(blob)
+    }
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.contributionWithdrawals.qrCodeLoadFailed'))
+  } finally {
+    if (reviewDialog.target?.id === withdrawal.id) reviewDialog.qrLoading = false
+  }
 }
 
 function closeReview(): void {
   if (reviewDialog.submitting) return
   reviewDialog.show = false
   reviewDialog.target = null
+  reviewDialog.qrLoading = false
+  revokeReviewQRCode()
 }
 
 async function submitReview(): Promise<void> {
@@ -306,6 +342,8 @@ async function submitReview(): Promise<void> {
     )
     reviewDialog.show = false
     reviewDialog.target = null
+    reviewDialog.qrLoading = false
+    revokeReviewQRCode()
     await loadWithdrawals()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.contributionWithdrawals.reviewFailed'))
@@ -315,4 +353,5 @@ async function submitReview(): Promise<void> {
 }
 
 onMounted(loadWithdrawals)
+onUnmounted(revokeReviewQRCode)
 </script>

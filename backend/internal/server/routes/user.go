@@ -36,6 +36,7 @@ func RegisterUserRoutes(
 			user.GET("/contribution", h.User.GetContribution)
 			user.POST("/contribution/transfer", h.User.TransferContributionQuota)
 			user.GET("/contribution/withdrawals", h.User.ListContributionWithdrawals)
+			user.GET("/contribution/withdrawals/:id/qr-code", h.User.GetContributionWithdrawalQRCode)
 			user.POST("/contribution/withdrawals", h.User.CreateContributionWithdrawal)
 			user.POST("/contribution/withdrawals/:id/cancel", h.User.CancelContributionWithdrawal)
 			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)

@@ -249,6 +249,13 @@ export async function cancelContributionWithdrawal(id: number): Promise<Contribu
   return data
 }
 
+export async function getContributionWithdrawalQRCode(id: number): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/user/contribution/withdrawals/${id}/qr-code`, {
+    responseType: 'blob',
+  })
+  return data
+}
+
 /**
  * 获取当前用户的平台限额 + 用量。
  */
@@ -279,6 +286,7 @@ export const userAPI = {
   listContributionWithdrawals,
   createContributionWithdrawal,
   cancelContributionWithdrawal,
+  getContributionWithdrawalQRCode,
   getMyPlatformQuotas,
 }
 

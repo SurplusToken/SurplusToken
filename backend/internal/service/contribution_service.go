@@ -1,11 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -21,6 +27,7 @@ var (
 	ErrContributionWithdrawalInvalidState   = infraerrors.Conflict("CONTRIBUTION_WITHDRAWAL_INVALID_STATE", "contribution withdrawal is no longer pending")
 	ErrContributionWithdrawalInsufficient   = infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_INSUFFICIENT", "insufficient withdrawable contribution balance")
 	ErrContributionWithdrawalIdempotencyKey = infraerrors.Conflict("CONTRIBUTION_WITHDRAWAL_IDEMPOTENCY_CONFLICT", "idempotency key was already used for a different withdrawal")
+	ErrContributionWithdrawalMonthlyLimit   = infraerrors.TooManyRequests("CONTRIBUTION_WITHDRAWAL_MONTHLY_LIMIT", "monthly contribution withdrawal request limit reached")
 )
 
 const (
@@ -28,6 +35,9 @@ const (
 	ContributionWithdrawalStatusPaid      = "paid"
 	ContributionWithdrawalStatusRejected  = "rejected"
 	ContributionWithdrawalStatusCancelled = "cancelled"
+	contributionWithdrawalQRCodeMaxBytes  = 2 << 20
+	contributionWithdrawalQRCodeMaxSide   = 4096
+	ContributionWithdrawalMonthlyLimit    = 2
 )
 
 type ContributionSummary struct {
@@ -38,6 +48,8 @@ type ContributionSummary struct {
 	ContributionPendingWithdrawalQuota float64   `json:"contribution_pending_withdrawal_quota"`
 	ContributionWithdrawnQuota         float64   `json:"contribution_withdrawn_quota"`
 	ContributionTransferredQuota       float64   `json:"contribution_transferred_quota"`
+	ContributionMonthlyWithdrawalCount int       `json:"contribution_monthly_withdrawal_count"`
+	ContributionMonthlyWithdrawalLimit int       `json:"contribution_monthly_withdrawal_limit"`
 	CreatedAt                          time.Time `json:"created_at"`
 	UpdatedAt                          time.Time `json:"updated_at"`
 }
@@ -55,6 +67,7 @@ type ContributionWithdrawal struct {
 	RequestNote      string     `json:"request_note"`
 	ReviewNote       string     `json:"review_note"`
 	PaymentReference string     `json:"payment_reference"`
+	HasPaymentQRCode bool       `json:"has_payment_qr_code"`
 	ReviewedBy       *int64     `json:"reviewed_by,omitempty"`
 	RequestedAt      time.Time  `json:"requested_at"`
 	ReviewedAt       *time.Time `json:"reviewed_at,omitempty"`
@@ -70,6 +83,7 @@ type CreateContributionWithdrawalRequest struct {
 	PaymentAccount     string
 	PayeeName          string
 	RequestNote        string
+	PaymentQRCode      string
 	IdempotencyKey     string
 	RequestFingerprint string
 }
@@ -99,6 +113,7 @@ type ContributionRepository interface {
 	ListWithdrawalsAdmin(ctx context.Context, status, search string, page, pageSize int) ([]ContributionWithdrawal, int64, error)
 	CancelWithdrawal(ctx context.Context, userID, withdrawalID int64) (*ContributionWithdrawal, error)
 	ReviewWithdrawal(ctx context.Context, req ReviewContributionWithdrawalRequest) (*ContributionWithdrawal, error)
+	GetWithdrawalQRCodeData(ctx context.Context, requesterUserID, withdrawalID int64, admin bool) (string, error)
 }
 
 type ContributionService struct {
@@ -123,7 +138,11 @@ func (s *ContributionService) GetSummary(ctx context.Context, userID int64) (*Co
 		return nil, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "contribution service unavailable")
 	}
 	_, _ = s.repo.ThawFrozenQuota(ctx, userID)
-	return s.repo.EnsureUserContribution(ctx, userID)
+	summary, err := s.repo.EnsureUserContribution(ctx, userID)
+	if summary != nil {
+		summary.ContributionMonthlyWithdrawalLimit = ContributionWithdrawalMonthlyLimit
+	}
+	return summary, err
 }
 
 func (s *ContributionService) TransferContributionQuota(ctx context.Context, userID int64) (*ContributionTransferResponse, error) {
@@ -242,6 +261,27 @@ func (s *ContributionService) ReviewWithdrawal(ctx context.Context, req ReviewCo
 	return result, err
 }
 
+func (s *ContributionService) GetWithdrawalQRCode(ctx context.Context, requesterUserID, withdrawalID int64, admin bool) ([]byte, string, error) {
+	if requesterUserID <= 0 {
+		return nil, "", ErrUserNotFound
+	}
+	if withdrawalID <= 0 {
+		return nil, "", ErrContributionWithdrawalNotFound
+	}
+	if s == nil || s.repo == nil {
+		return nil, "", infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "contribution service unavailable")
+	}
+	dataURL, err := s.repo.GetWithdrawalQRCodeData(ctx, requesterUserID, withdrawalID, admin)
+	if err != nil {
+		return nil, "", err
+	}
+	_, data, contentType, err := normalizeContributionWithdrawalQRCode(dataURL)
+	if err != nil {
+		return nil, "", ErrContributionWithdrawalNotFound
+	}
+	return data, contentType, nil
+}
+
 func normalizeContributionWithdrawalRequest(req *CreateContributionWithdrawalRequest) error {
 	if req == nil {
 		return infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_INVALID", "withdrawal request is required")
@@ -256,7 +296,7 @@ func normalizeContributionWithdrawalRequest(req *CreateContributionWithdrawalReq
 	req.Amount = rounded
 	req.PaymentMethod = strings.ToLower(strings.TrimSpace(req.PaymentMethod))
 	switch req.PaymentMethod {
-	case "alipay", "wechat", "bank", "other":
+	case "alipay", "wechat":
 	default:
 		return infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_METHOD_INVALID", "unsupported payment_method")
 	}
@@ -273,13 +313,65 @@ func normalizeContributionWithdrawalRequest(req *CreateContributionWithdrawalReq
 	if len(req.RequestNote) > 500 {
 		return infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_NOTE_INVALID", "request_note must not exceed 500 characters")
 	}
+	normalizedQRCode, _, _, err := normalizeContributionWithdrawalQRCode(req.PaymentQRCode)
+	if err != nil {
+		return err
+	}
+	req.PaymentQRCode = normalizedQRCode
 	if req.IdempotencyKey == "" || len(req.IdempotencyKey) > 128 {
 		return infraerrors.BadRequest("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key is required and must not exceed 128 characters")
 	}
-	fingerprintInput := fmt.Sprintf("%.8f\x00%s\x00%s\x00%s\x00%s", req.Amount, req.PaymentMethod, req.PaymentAccount, req.PayeeName, req.RequestNote)
+	qrDigest := sha256.Sum256([]byte(req.PaymentQRCode))
+	fingerprintInput := fmt.Sprintf("%.8f\x00%s\x00%s\x00%s\x00%s\x00%x", req.Amount, req.PaymentMethod, req.PaymentAccount, req.PayeeName, req.RequestNote, qrDigest)
 	digest := sha256.Sum256([]byte(fingerprintInput))
 	req.RequestFingerprint = hex.EncodeToString(digest[:])
 	return nil
+}
+
+func normalizeContributionWithdrawalQRCode(value string) (string, []byte, string, error) {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	var declaredType string
+	var encoded string
+	switch {
+	case strings.HasPrefix(lower, "data:image/png;base64,"):
+		declaredType = "image/png"
+		encoded = value[len("data:image/png;base64,"):]
+	case strings.HasPrefix(lower, "data:image/jpeg;base64,"):
+		declaredType = "image/jpeg"
+		encoded = value[len("data:image/jpeg;base64,"):]
+	case strings.HasPrefix(lower, "data:image/jpg;base64,"):
+		declaredType = "image/jpeg"
+		encoded = value[len("data:image/jpg;base64,"):]
+	default:
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_INVALID", "payment_qr_code must be a PNG or JPEG image")
+	}
+	if len(encoded) > base64.StdEncoding.EncodedLen(contributionWithdrawalQRCodeMaxBytes) {
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_TOO_LARGE", "payment_qr_code must not exceed 2 MB")
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data) == 0 {
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_INVALID", "payment_qr_code contains invalid image data")
+	}
+	if len(data) > contributionWithdrawalQRCodeMaxBytes {
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_TOO_LARGE", "payment_qr_code must not exceed 2 MB")
+	}
+	actualType := http.DetectContentType(data)
+	if actualType != declaredType {
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_INVALID", "payment_qr_code content does not match its image type")
+	}
+	var config image.Config
+	switch actualType {
+	case "image/png":
+		config, err = png.DecodeConfig(bytes.NewReader(data))
+	case "image/jpeg":
+		config, err = jpeg.DecodeConfig(bytes.NewReader(data))
+	}
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > contributionWithdrawalQRCodeMaxSide || config.Height > contributionWithdrawalQRCodeMaxSide {
+		return "", nil, "", infraerrors.BadRequest("CONTRIBUTION_WITHDRAWAL_QR_CODE_INVALID", "payment_qr_code dimensions are invalid or exceed 4096 pixels")
+	}
+	normalized := "data:" + actualType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	return normalized, data, actualType, nil
 }
 
 func normalizeContributionWithdrawalPagination(page, pageSize int) (int, int) {

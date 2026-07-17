@@ -1286,14 +1286,16 @@
               class="input"
             />
             <span class="input-hint">{{ t('accountPool.withdrawal.availableHint', { amount: formatMoney(contributionSummary.contribution_quota) }) }}</span>
+            <span class="input-hint">{{ t('accountPool.withdrawal.monthlyLimitHint', {
+              count: contributionSummary.contribution_monthly_withdrawal_count,
+              limit: contributionSummary.contribution_monthly_withdrawal_limit,
+            }) }}</span>
           </label>
           <label class="block">
             <span class="input-label">{{ t('accountPool.withdrawal.method') }}</span>
             <select v-model="withdrawalDialog.paymentMethod" class="input">
               <option value="alipay">{{ t('accountPool.withdrawal.methods.alipay') }}</option>
               <option value="wechat">{{ t('accountPool.withdrawal.methods.wechat') }}</option>
-              <option value="bank">{{ t('accountPool.withdrawal.methods.bank') }}</option>
-              <option value="other">{{ t('accountPool.withdrawal.methods.other') }}</option>
             </select>
           </label>
           <label class="block">
@@ -1304,6 +1306,39 @@
             <span class="input-label">{{ t('accountPool.withdrawal.paymentAccount') }}</span>
             <input v-model.trim="withdrawalDialog.paymentAccount" type="text" maxlength="255" class="input" />
           </label>
+        </div>
+        <div>
+          <span class="input-label">{{ t('accountPool.withdrawal.qrCode') }}</span>
+          <div class="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div class="flex h-40 w-40 shrink-0 items-center justify-center overflow-hidden rounded-md border border-dashed border-gray-300 bg-gray-50 dark:border-dark-600 dark:bg-dark-900/40">
+              <img
+                v-if="withdrawalDialog.paymentQRCode"
+                :src="withdrawalDialog.paymentQRCode"
+                :alt="t('accountPool.withdrawal.qrCode')"
+                class="h-full w-full object-contain"
+              />
+              <Icon v-else name="upload" size="xl" class="text-gray-400" />
+            </div>
+            <div class="space-y-2">
+              <div class="flex flex-wrap gap-2">
+                <label class="btn btn-secondary cursor-pointer">
+                  <Icon name="upload" size="sm" />
+                  {{ t('accountPool.withdrawal.uploadQRCode') }}
+                  <input type="file" accept="image/png,image/jpeg" class="hidden" @change="handleWithdrawalQRCodeUpload" />
+                </label>
+                <button
+                  v-if="withdrawalDialog.paymentQRCode"
+                  type="button"
+                  class="btn btn-secondary text-red-600 dark:text-red-400"
+                  @click="withdrawalDialog.paymentQRCode = ''"
+                >
+                  <Icon name="trash" size="sm" />
+                  {{ t('common.delete') }}
+                </button>
+              </div>
+              <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.withdrawal.qrCodeHint') }}</p>
+            </div>
+          </div>
         </div>
         <label class="block">
           <span class="input-label">{{ t('accountPool.withdrawal.note') }}</span>
@@ -1597,6 +1632,8 @@ const contributionSummary = reactive({
   contribution_pending_withdrawal_quota: 0,
   contribution_withdrawn_quota: 0,
   contribution_transferred_quota: 0,
+  contribution_monthly_withdrawal_count: 0,
+  contribution_monthly_withdrawal_limit: 2,
 })
 const contributionWithdrawals = ref<ContributionWithdrawal[]>([])
 const withdrawalDialog = reactive({
@@ -1609,6 +1646,7 @@ const withdrawalDialog = reactive({
   paymentAccount: '',
   payeeName: '',
   requestNote: '',
+  paymentQRCode: '',
   idempotencyKey: null as string | null,
   idempotencySignature: null as string | null,
 })
@@ -1616,8 +1654,10 @@ const canSubmitWithdrawal = computed(() =>
   withdrawalDialog.amount >= 0.01
   && withdrawalDialog.amount <= contributionSummary.contribution_quota
   && contributionSummary.contribution_pending_withdrawal_quota <= 0
+  && contributionSummary.contribution_monthly_withdrawal_count < contributionSummary.contribution_monthly_withdrawal_limit
   && withdrawalDialog.paymentAccount.trim().length > 0
-  && withdrawalDialog.payeeName.trim().length > 0,
+  && withdrawalDialog.payeeName.trim().length > 0
+  && withdrawalDialog.paymentQRCode.length > 0
 )
 const oauthLoading = ref(false)
 const oauthError = ref('')
@@ -2595,6 +2635,8 @@ async function loadContributionSummary() {
     contributionSummary.contribution_pending_withdrawal_quota = summary.contribution_pending_withdrawal_quota || 0
     contributionSummary.contribution_withdrawn_quota = summary.contribution_withdrawn_quota || 0
     contributionSummary.contribution_transferred_quota = summary.contribution_transferred_quota || 0
+    contributionSummary.contribution_monthly_withdrawal_count = summary.contribution_monthly_withdrawal_count || 0
+    contributionSummary.contribution_monthly_withdrawal_limit = summary.contribution_monthly_withdrawal_limit || 2
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.rewards.loadFailed')))
   }
@@ -2623,6 +2665,35 @@ function closeWithdrawalDialog() {
   withdrawalDialog.show = false
 }
 
+function readWithdrawalQRCode(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('payment_qr_code_read_failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handleWithdrawalQRCodeUpload(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (input) input.value = ''
+  if (!file) return
+  if (file.type !== 'image/png' && file.type !== 'image/jpeg') {
+    appStore.showError(t('accountPool.withdrawal.qrCodeInvalidType'))
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    appStore.showError(t('accountPool.withdrawal.qrCodeTooLarge'))
+    return
+  }
+  try {
+    withdrawalDialog.paymentQRCode = await readWithdrawalQRCode(file)
+  } catch {
+    appStore.showError(t('accountPool.withdrawal.qrCodeReadFailed'))
+  }
+}
+
 async function submitContributionWithdrawal() {
   if (!canSubmitWithdrawal.value || withdrawalDialog.submitting) return
   const payload = {
@@ -2631,6 +2702,7 @@ async function submitContributionWithdrawal() {
     payment_account: withdrawalDialog.paymentAccount,
     payee_name: withdrawalDialog.payeeName,
     request_note: withdrawalDialog.requestNote,
+    payment_qr_code: withdrawalDialog.paymentQRCode,
   }
   const signature = JSON.stringify(payload)
   if (withdrawalDialog.idempotencySignature !== signature || !withdrawalDialog.idempotencyKey) {
@@ -2643,6 +2715,7 @@ async function submitContributionWithdrawal() {
     appStore.showSuccess(t('accountPool.withdrawal.submitSuccess'))
     withdrawalDialog.amount = 0
     withdrawalDialog.requestNote = ''
+    withdrawalDialog.paymentQRCode = ''
     withdrawalDialog.idempotencyKey = null
     withdrawalDialog.idempotencySignature = null
     await Promise.all([loadContributionSummary(), loadContributionWithdrawals()])

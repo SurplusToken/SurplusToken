@@ -539,6 +539,8 @@ export default {
       paymentReference: 'Payment reference',
       paymentReferenceShort: 'Reference',
       paymentReferenceHint: 'Required for reconciliation and duplicate payout prevention.',
+      qrCode: 'Payment QR Code',
+      qrCodeLoadFailed: 'Failed to load the payment QR code',
       reviewNote: 'Review note',
       rejectReasonPlaceholder: 'Enter a rejection reason',
       paidSuccess: 'Withdrawal marked as paid',
