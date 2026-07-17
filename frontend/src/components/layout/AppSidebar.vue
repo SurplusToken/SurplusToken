@@ -733,6 +733,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/chat', label: t('nav.chat'), icon: ChatIcon },
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/accounts/pool', label: t('nav.accountPool'), icon: GlobeIcon, hideInSimpleMode: true },
+    { path: '/carpools', label: t('nav.carpool'), icon: UsersIcon, hideInSimpleMode: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/leaderboard', label: t('nav.leaderboard'), icon: TrophyIcon, hideInSimpleMode: true },

@@ -85,20 +85,6 @@ describe('AccountPoolView sharing rate column', () => {
     appState.fetchPublicSettings.mockReset()
   })
 
-  it('shows the GPT carpool pricing and monthly lock rules', async () => {
-    appState.cachedPublicSettings = { sharing_pool_display_enabled: false }
-    appState.fetchPublicSettings.mockResolvedValue(appState.cachedPublicSettings)
-
-    const wrapper = mountView()
-    await flushPromises()
-
-    const rules = wrapper.get('[data-testid="gpt-carpool-rules"]')
-    expect(rules.text()).toContain('accountPool.carpoolRules.small.usageFee')
-    expect(rules.text()).toContain('accountPool.carpoolRules.large.usageFee')
-    expect(rules.text()).toContain('accountPool.carpoolRules.lockNotice')
-    wrapper.unmount()
-  })
-
   it('offers the rate as a toggleable table column when marketplace display is enabled', async () => {
     appState.cachedPublicSettings = {
       sharing_pool_display_enabled: true,

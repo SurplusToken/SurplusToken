@@ -152,6 +152,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     accountPool: 'Account Pool',
+    carpool: 'Carpools',
     batchImage: 'Batch Images',
     usage: 'Usage',
     leaderboard: 'Usage Statistics',

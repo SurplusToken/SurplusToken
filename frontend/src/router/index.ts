@@ -229,6 +229,29 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/carpools',
+    name: 'Carpools',
+    component: () => import('@/views/user/CarpoolView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Carpools',
+      titleKey: 'carpool.title',
+      descriptionKey: 'carpool.description'
+    }
+  },
+  {
+    path: '/carpools/join/:token',
+    name: 'CarpoolInvite',
+    component: () => import('@/views/user/CarpoolView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Join Carpool',
+      titleKey: 'carpool.joinDialog.title'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',

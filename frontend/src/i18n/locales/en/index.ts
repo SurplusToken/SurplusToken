@@ -4,6 +4,7 @@ import dashboard from './dashboard'
 import admin from './admin'
 import misc from './misc'
 import chat from './chat'
+import carpool from './carpool'
 
 export default {
   ...landing,
@@ -12,4 +13,5 @@ export default {
   admin,
   ...misc,
   ...chat,
+  ...carpool,
 }
