@@ -504,6 +504,49 @@ export default {
       failedToLoadUsages: 'Failed to load usage records'
     },
 
+    contributionWithdrawals: {
+      title: 'Contribution Withdrawals',
+      description: 'Review manual withdrawal requests submitted by account contributors',
+      searchPlaceholder: 'Search email, username, or request ID...',
+      allStatuses: 'All statuses',
+      columns: {
+        id: 'Request ID',
+        user: 'User',
+        amount: 'Amount',
+        payment: 'Payout details',
+        status: 'Status',
+        requestedAt: 'Requested at',
+        review: 'Review',
+        actions: 'Actions'
+      },
+      methods: {
+        alipay: 'Alipay',
+        wechat: 'WeChat Pay',
+        bank: 'Bank account',
+        other: 'Other'
+      },
+      statuses: {
+        pending: 'Pending',
+        paid: 'Paid',
+        rejected: 'Rejected',
+        cancelled: 'Cancelled by user'
+      },
+      markPaid: 'Mark paid',
+      reject: 'Reject',
+      completed: 'Processed',
+      paidDialogTitle: 'Confirm payout',
+      rejectDialogTitle: 'Reject withdrawal',
+      paymentReference: 'Payment reference',
+      paymentReferenceShort: 'Reference',
+      paymentReferenceHint: 'Required for reconciliation and duplicate payout prevention.',
+      reviewNote: 'Review note',
+      rejectReasonPlaceholder: 'Enter a rejection reason',
+      paidSuccess: 'Withdrawal marked as paid',
+      rejectedSuccess: 'Withdrawal rejected and amount returned to contribution balance',
+      loadFailed: 'Failed to load withdrawal requests',
+      reviewFailed: 'Failed to process withdrawal request'
+    },
+
     // Usage Records
     usage: {
       title: 'Usage Records',

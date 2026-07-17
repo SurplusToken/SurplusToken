@@ -118,6 +118,14 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// user_contributions: contribution reward override for contributor-specific settlement.
 	requireColumn(t, tx, "user_contributions", "contribution_reward_rate", "numeric", 0, true)
+	requireColumn(t, tx, "user_contribution_ledger", "withdrawal_id", "bigint", 0, true)
+	requireColumn(t, tx, "contribution_withdrawals", "amount", "numeric", 0, false)
+	requireColumn(t, tx, "contribution_withdrawals", "status", "character varying", 20, false)
+	requireColumn(t, tx, "contribution_withdrawals", "payment_account", "character varying", 255, false)
+	requireColumn(t, tx, "contribution_withdrawals", "request_fingerprint", "character varying", 64, false)
+	requireIndex(t, tx, "contribution_withdrawals", "idx_contribution_withdrawals_one_pending_per_user")
+	requireIndex(t, tx, "contribution_withdrawals", "idx_contribution_withdrawals_status_requested")
+	requireIndex(t, tx, "user_contribution_ledger", "idx_user_contribution_ledger_withdrawal")
 
 	// user_subscriptions: deleted_at for soft delete support (migration 012)
 	requireColumn(t, tx, "user_subscriptions", "deleted_at", "timestamp with time zone", 0, true)

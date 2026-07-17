@@ -17,6 +17,9 @@ import type {
   UserAffiliateDetail,
   AffiliateTransferResponse,
   UserContributionSummary,
+  ContributionWithdrawal,
+  CreateContributionWithdrawalRequest,
+  PaginatedResponse,
   ContributionTransferResponse,
   PlatformQuotasResponse,
 } from '@/types'
@@ -224,6 +227,28 @@ export async function transferContributionQuota(): Promise<ContributionTransferR
   return data
 }
 
+export async function listContributionWithdrawals(page = 1, pageSize = 20): Promise<PaginatedResponse<ContributionWithdrawal>> {
+  const { data } = await apiClient.get<PaginatedResponse<ContributionWithdrawal>>('/user/contribution/withdrawals', {
+    params: { page, page_size: pageSize },
+  })
+  return data
+}
+
+export async function createContributionWithdrawal(
+  request: CreateContributionWithdrawalRequest,
+  idempotencyKey: string,
+): Promise<ContributionWithdrawal> {
+  const { data } = await apiClient.post<ContributionWithdrawal>('/user/contribution/withdrawals', request, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  })
+  return data
+}
+
+export async function cancelContributionWithdrawal(id: number): Promise<ContributionWithdrawal> {
+  const { data } = await apiClient.post<ContributionWithdrawal>(`/user/contribution/withdrawals/${id}/cancel`)
+  return data
+}
+
 /**
  * 获取当前用户的平台限额 + 用量。
  */
@@ -251,6 +276,9 @@ export const userAPI = {
   transferAffiliateQuota,
   getContributionSummary,
   transferContributionQuota,
+  listContributionWithdrawals,
+  createContributionWithdrawal,
+  cancelContributionWithdrawal,
   getMyPlatformQuotas,
 }
 

@@ -162,6 +162,9 @@ export interface UserContributionSummary {
   contribution_quota: number
   contribution_frozen_quota: number
   contribution_history_quota: number
+  contribution_pending_withdrawal_quota: number
+  contribution_withdrawn_quota: number
+  contribution_transferred_quota: number
   created_at: string
   updated_at: string
 }
@@ -172,6 +175,39 @@ export interface ContributionTransferResponse {
   contribution_quota: number
   contribution_frozen_quota: number
   contribution_history_quota: number
+}
+
+export type ContributionWithdrawalStatus = 'pending' | 'paid' | 'rejected' | 'cancelled'
+export type ContributionWithdrawalPaymentMethod = 'alipay' | 'wechat' | 'bank' | 'other'
+
+export interface ContributionWithdrawal {
+  id: number
+  user_id: number
+  user_email?: string
+  username?: string
+  amount: number
+  status: ContributionWithdrawalStatus
+  payment_method: ContributionWithdrawalPaymentMethod
+  payment_account: string
+  payee_name: string
+  request_note: string
+  review_note: string
+  payment_reference: string
+  reviewed_by?: number | null
+  requested_at: string
+  reviewed_at?: string | null
+  paid_at?: string | null
+  cancelled_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateContributionWithdrawalRequest {
+  amount: number
+  payment_method: ContributionWithdrawalPaymentMethod
+  payment_account: string
+  payee_name: string
+  request_note?: string
 }
 
 export interface SendVerifyCodeRequest {

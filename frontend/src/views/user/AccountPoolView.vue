@@ -22,7 +22,7 @@
             </button>
           </div>
 
-          <div class="grid gap-3 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-center">
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
               <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.available') }}</div>
               <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_quota) }}</div>
@@ -32,9 +32,32 @@
               <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_frozen_quota) }}</div>
             </div>
             <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.pendingWithdrawal') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_pending_withdrawal_quota) }}</div>
+            </div>
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.withdrawn') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_withdrawn_quota) }}</div>
+            </div>
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.transferred') }}</div>
+              <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_transferred_quota) }}</div>
+            </div>
+            <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
               <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.history') }}</div>
               <div class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ formatMoney(contributionSummary.contribution_history_quota) }}</div>
             </div>
+          </div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="contributionSummary.contribution_quota < 0.01 && contributionSummary.contribution_pending_withdrawal_quota <= 0"
+              @click="openWithdrawalDialog"
+            >
+              <Icon name="creditCard" size="sm" />
+              <span>{{ t('accountPool.rewards.withdraw') }}</span>
+            </button>
             <button
               type="button"
               class="btn btn-secondary md:justify-self-end"
@@ -1244,6 +1267,104 @@
       @close="closeStatsModal"
     />
 
+    <BaseDialog
+      :show="withdrawalDialog.show"
+      :title="t('accountPool.withdrawal.title')"
+      width="wide"
+      @close="closeWithdrawalDialog"
+    >
+      <div class="space-y-5">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="block">
+            <span class="input-label">{{ t('accountPool.withdrawal.amount') }}</span>
+            <input
+              v-model.number="withdrawalDialog.amount"
+              type="number"
+              min="0.01"
+              :max="contributionSummary.contribution_quota"
+              step="0.01"
+              class="input"
+            />
+            <span class="input-hint">{{ t('accountPool.withdrawal.availableHint', { amount: formatMoney(contributionSummary.contribution_quota) }) }}</span>
+          </label>
+          <label class="block">
+            <span class="input-label">{{ t('accountPool.withdrawal.method') }}</span>
+            <select v-model="withdrawalDialog.paymentMethod" class="input">
+              <option value="alipay">{{ t('accountPool.withdrawal.methods.alipay') }}</option>
+              <option value="wechat">{{ t('accountPool.withdrawal.methods.wechat') }}</option>
+              <option value="bank">{{ t('accountPool.withdrawal.methods.bank') }}</option>
+              <option value="other">{{ t('accountPool.withdrawal.methods.other') }}</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="input-label">{{ t('accountPool.withdrawal.payeeName') }}</span>
+            <input v-model.trim="withdrawalDialog.payeeName" type="text" maxlength="100" class="input" />
+          </label>
+          <label class="block">
+            <span class="input-label">{{ t('accountPool.withdrawal.paymentAccount') }}</span>
+            <input v-model.trim="withdrawalDialog.paymentAccount" type="text" maxlength="255" class="input" />
+          </label>
+        </div>
+        <label class="block">
+          <span class="input-label">{{ t('accountPool.withdrawal.note') }}</span>
+          <textarea v-model.trim="withdrawalDialog.requestNote" maxlength="500" rows="2" class="input"></textarea>
+        </label>
+
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('accountPool.withdrawal.history') }}</h3>
+            <button type="button" class="btn btn-secondary btn-xs" :disabled="withdrawalDialog.loading" @click="loadContributionWithdrawals">
+              <Icon name="refresh" size="sm" />
+            </button>
+          </div>
+          <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-dark-700">
+            <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
+              <thead class="bg-gray-50 dark:bg-dark-900/40">
+                <tr>
+                  <th class="px-3 py-2 text-left font-medium">{{ t('accountPool.withdrawal.requestedAt') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('accountPool.withdrawal.amount') }}</th>
+                  <th class="px-3 py-2 text-left font-medium">{{ t('accountPool.withdrawal.method') }}</th>
+                  <th class="px-3 py-2 text-left font-medium">{{ t('accountPool.withdrawal.status') }}</th>
+                  <th class="px-3 py-2 text-left font-medium">{{ t('accountPool.withdrawal.result') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('common.actions') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+                <tr v-for="item in contributionWithdrawals" :key="item.id">
+                  <td class="whitespace-nowrap px-3 py-2">{{ formatDate(item.requested_at) }}</td>
+                  <td class="whitespace-nowrap px-3 py-2 text-right font-mono">{{ formatMoney(item.amount) }}</td>
+                  <td class="px-3 py-2">{{ t(`accountPool.withdrawal.methods.${item.payment_method}`) }}</td>
+                  <td class="px-3 py-2">{{ t(`accountPool.withdrawal.statuses.${item.status}`) }}</td>
+                  <td class="max-w-64 whitespace-normal px-3 py-2 text-xs text-gray-500 dark:text-dark-300">
+                    <div v-if="item.payment_reference">{{ t('accountPool.withdrawal.paymentReference') }}: {{ item.payment_reference }}</div>
+                    <div v-if="item.review_note">{{ item.review_note }}</div>
+                    <span v-if="!item.payment_reference && !item.review_note">-</span>
+                  </td>
+                  <td class="px-3 py-2 text-right">
+                    <button v-if="item.status === 'pending'" type="button" class="btn btn-secondary btn-xs" :disabled="withdrawalDialog.cancellingId === item.id" @click="cancelContributionWithdrawal(item.id)">
+                      {{ t('accountPool.withdrawal.cancelRequest') }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="!withdrawalDialog.loading && contributionWithdrawals.length === 0">
+                  <td colspan="6" class="px-3 py-6 text-center text-gray-500">{{ t('accountPool.withdrawal.empty') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="closeWithdrawalDialog">{{ t('common.cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="!canSubmitWithdrawal || withdrawalDialog.submitting" @click="submitContributionWithdrawal">
+            {{ withdrawalDialog.submitting ? t('accountPool.withdrawal.submitting') : t('accountPool.withdrawal.submit') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <AccountTestModal
       :show="showTest"
       :account="testingAccount"
@@ -1386,7 +1507,15 @@ import accountsAPI, {
 } from '@/api/accounts'
 import userAPI from '@/api/user'
 import { userGroupsAPI } from '@/api/groups'
-import type { AccountPlatform, AccountUsageInfo, Group, Proxy, UserAccountPoolItem } from '@/types'
+import type {
+  AccountPlatform,
+  AccountUsageInfo,
+  ContributionWithdrawal,
+  ContributionWithdrawalPaymentMethod,
+  Group,
+  Proxy,
+  UserAccountPoolItem,
+} from '@/types'
 import type { SelectOption } from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -1461,6 +1590,35 @@ const proxies = ref<Proxy[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const transferringContribution = ref(false)
+const contributionSummary = reactive({
+  contribution_quota: 0,
+  contribution_frozen_quota: 0,
+  contribution_history_quota: 0,
+  contribution_pending_withdrawal_quota: 0,
+  contribution_withdrawn_quota: 0,
+  contribution_transferred_quota: 0,
+})
+const contributionWithdrawals = ref<ContributionWithdrawal[]>([])
+const withdrawalDialog = reactive({
+  show: false,
+  loading: false,
+  submitting: false,
+  cancellingId: null as number | null,
+  amount: 0,
+  paymentMethod: 'alipay' as ContributionWithdrawalPaymentMethod,
+  paymentAccount: '',
+  payeeName: '',
+  requestNote: '',
+  idempotencyKey: null as string | null,
+  idempotencySignature: null as string | null,
+})
+const canSubmitWithdrawal = computed(() =>
+  withdrawalDialog.amount >= 0.01
+  && withdrawalDialog.amount <= contributionSummary.contribution_quota
+  && contributionSummary.contribution_pending_withdrawal_quota <= 0
+  && withdrawalDialog.paymentAccount.trim().length > 0
+  && withdrawalDialog.payeeName.trim().length > 0,
+)
 const oauthLoading = ref(false)
 const oauthError = ref('')
 const showCreateForm = ref(false)
@@ -1742,12 +1900,6 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
     state.busy = false
   }
 }
-
-const contributionSummary = reactive({
-  contribution_quota: 0,
-  contribution_frozen_quota: 0,
-  contribution_history_quota: 0,
-})
 
 const createForm = reactive({
   name: '',
@@ -2387,7 +2539,7 @@ function createIdempotencyKey(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID()
   }
-  return `pool-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 async function distributePool() {
@@ -2440,8 +2592,78 @@ async function loadContributionSummary() {
     contributionSummary.contribution_quota = summary.contribution_quota || 0
     contributionSummary.contribution_frozen_quota = summary.contribution_frozen_quota || 0
     contributionSummary.contribution_history_quota = summary.contribution_history_quota || 0
+    contributionSummary.contribution_pending_withdrawal_quota = summary.contribution_pending_withdrawal_quota || 0
+    contributionSummary.contribution_withdrawn_quota = summary.contribution_withdrawn_quota || 0
+    contributionSummary.contribution_transferred_quota = summary.contribution_transferred_quota || 0
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.rewards.loadFailed')))
+  }
+}
+
+async function loadContributionWithdrawals() {
+  withdrawalDialog.loading = true
+  try {
+    const result = await userAPI.listContributionWithdrawals(1, 50)
+    contributionWithdrawals.value = result.items || []
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.withdrawal.loadFailed')))
+  } finally {
+    withdrawalDialog.loading = false
+  }
+}
+
+function openWithdrawalDialog() {
+  withdrawalDialog.amount = Math.max(0, contributionSummary.contribution_quota)
+  withdrawalDialog.show = true
+  void loadContributionWithdrawals()
+}
+
+function closeWithdrawalDialog() {
+  if (withdrawalDialog.submitting || withdrawalDialog.cancellingId !== null) return
+  withdrawalDialog.show = false
+}
+
+async function submitContributionWithdrawal() {
+  if (!canSubmitWithdrawal.value || withdrawalDialog.submitting) return
+  const payload = {
+    amount: withdrawalDialog.amount,
+    payment_method: withdrawalDialog.paymentMethod,
+    payment_account: withdrawalDialog.paymentAccount,
+    payee_name: withdrawalDialog.payeeName,
+    request_note: withdrawalDialog.requestNote,
+  }
+  const signature = JSON.stringify(payload)
+  if (withdrawalDialog.idempotencySignature !== signature || !withdrawalDialog.idempotencyKey) {
+    withdrawalDialog.idempotencySignature = signature
+    withdrawalDialog.idempotencyKey = createIdempotencyKey()
+  }
+  withdrawalDialog.submitting = true
+  try {
+    await userAPI.createContributionWithdrawal(payload, withdrawalDialog.idempotencyKey)
+    appStore.showSuccess(t('accountPool.withdrawal.submitSuccess'))
+    withdrawalDialog.amount = 0
+    withdrawalDialog.requestNote = ''
+    withdrawalDialog.idempotencyKey = null
+    withdrawalDialog.idempotencySignature = null
+    await Promise.all([loadContributionSummary(), loadContributionWithdrawals()])
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.withdrawal.submitFailed')))
+  } finally {
+    withdrawalDialog.submitting = false
+  }
+}
+
+async function cancelContributionWithdrawal(id: number) {
+  if (withdrawalDialog.cancellingId !== null) return
+  withdrawalDialog.cancellingId = id
+  try {
+    await userAPI.cancelContributionWithdrawal(id)
+    appStore.showSuccess(t('accountPool.withdrawal.cancelSuccess'))
+    await Promise.all([loadContributionSummary(), loadContributionWithdrawals()])
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.withdrawal.cancelFailed')))
+  } finally {
+    withdrawalDialog.cancellingId = null
   }
 }
 
@@ -2454,6 +2676,7 @@ async function transferContribution() {
     contributionSummary.contribution_frozen_quota = result.contribution_frozen_quota || 0
     contributionSummary.contribution_history_quota = result.contribution_history_quota || 0
     appStore.showSuccess(t('accountPool.rewards.transferSuccess', { amount: formatMoney(result.transferred_quota) }))
+    await loadContributionSummary()
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.rewards.transferFailed')))
   } finally {

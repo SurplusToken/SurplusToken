@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -331,6 +332,92 @@ func (h *UserHandler) TransferContributionQuota(c *gin.Context) {
 	}
 
 	result, err := h.contributionService.TransferContributionQuota(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+type createContributionWithdrawalPayload struct {
+	Amount         float64 `json:"amount"`
+	PaymentMethod  string  `json:"payment_method"`
+	PaymentAccount string  `json:"payment_account"`
+	PayeeName      string  `json:"payee_name"`
+	RequestNote    string  `json:"request_note"`
+}
+
+// CreateContributionWithdrawal reserves contribution quota and creates a manual payout request.
+// POST /api/v1/user/contribution/withdrawals
+func (h *UserHandler) CreateContributionWithdrawal(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+	var payload createContributionWithdrawalPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	result, err := h.contributionService.CreateWithdrawal(c.Request.Context(), subject.UserID, service.CreateContributionWithdrawalRequest{
+		Amount:         payload.Amount,
+		PaymentMethod:  payload.PaymentMethod,
+		PaymentAccount: payload.PaymentAccount,
+		PayeeName:      payload.PayeeName,
+		RequestNote:    payload.RequestNote,
+		IdempotencyKey: c.GetHeader("Idempotency-Key"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// ListContributionWithdrawals lists the current user's payout requests.
+// GET /api/v1/user/contribution/withdrawals
+func (h *UserHandler) ListContributionWithdrawals(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	items, total, err := h.contributionService.ListWithdrawals(c.Request.Context(), subject.UserID, page, pageSize)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+// CancelContributionWithdrawal cancels a pending request and refunds its reserved quota.
+// POST /api/v1/user/contribution/withdrawals/:id/cancel
+func (h *UserHandler) CancelContributionWithdrawal(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	withdrawalID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || withdrawalID <= 0 {
+		response.BadRequest(c, "Invalid withdrawal ID")
+		return
+	}
+	if h.contributionService == nil {
+		response.InternalError(c, "contribution service is not configured")
+		return
+	}
+	result, err := h.contributionService.CancelWithdrawal(c.Request.Context(), subject.UserID, withdrawalID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

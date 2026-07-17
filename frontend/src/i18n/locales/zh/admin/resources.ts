@@ -501,6 +501,49 @@ export default {
       failedToLoadUsages: '加载使用记录失败'
     },
 
+    contributionWithdrawals: {
+      title: '贡献提现审核',
+      description: '审核账号贡献者提交的人工提现申请',
+      searchPlaceholder: '搜索邮箱、用户名或申请 ID...',
+      allStatuses: '全部状态',
+      columns: {
+        id: '申请 ID',
+        user: '用户',
+        amount: '金额',
+        payment: '收款信息',
+        status: '状态',
+        requestedAt: '申请时间',
+        review: '审核信息',
+        actions: '操作'
+      },
+      methods: {
+        alipay: '支付宝',
+        wechat: '微信',
+        bank: '银行卡',
+        other: '其他'
+      },
+      statuses: {
+        pending: '待审核',
+        paid: '已打款',
+        rejected: '已驳回',
+        cancelled: '用户已取消'
+      },
+      markPaid: '确认打款',
+      reject: '驳回',
+      completed: '已处理',
+      paidDialogTitle: '确认已打款',
+      rejectDialogTitle: '驳回提现申请',
+      paymentReference: '支付流水号',
+      paymentReferenceShort: '流水号',
+      paymentReferenceHint: '必填，用于财务核对和避免重复打款。',
+      reviewNote: '审核备注',
+      rejectReasonPlaceholder: '请输入驳回原因',
+      paidSuccess: '提现申请已标记为已打款',
+      rejectedSuccess: '提现申请已驳回，金额已退回贡献余额',
+      loadFailed: '加载提现申请失败',
+      reviewFailed: '处理提现申请失败'
+    },
+
     // Usage Records
     usage: {
       title: '使用记录',

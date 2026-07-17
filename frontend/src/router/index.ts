@@ -587,6 +587,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/contribution-withdrawals',
+    name: 'AdminContributionWithdrawals',
+    component: () => import('@/views/admin/ContributionWithdrawalsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Contribution Withdrawals',
+      titleKey: 'admin.contributionWithdrawals.title',
+      descriptionKey: 'admin.contributionWithdrawals.description'
+    }
+  },
+  {
     path: '/admin/settings',
     name: 'AdminSettings',
     component: () => import('@/views/admin/SettingsView.vue'),
