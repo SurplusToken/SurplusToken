@@ -262,4 +262,68 @@ describe('UseKeyModal', () => {
     expect(fable.options.thinking).toEqual({ type: 'adaptive' })
     expect(fable.options.thinking).not.toHaveProperty('budgetTokens')
   })
+
+  it('renders persistent and temporary Kimi Code configuration for every shell', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-kimi-test',
+        baseUrl: 'https://surplustoken.example/v1/',
+        platform: 'kimi'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const kimiCodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.kimiCode')
+    )
+    expect(kimiCodeTab).toBeDefined()
+    expect(kimiCodeTab!.classes()).toContain('border-primary-500')
+    expect(wrapper.text()).toContain('~/.kimi-code/config.toml')
+
+    let codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const configToml = codeBlocks.find((content) => content.includes('[providers."surplustoken-kimi"]'))
+    expect(configToml).toBeDefined()
+    expect(configToml).toContain('default_model = "surplustoken/k3"')
+    expect(configToml).toContain('base_url = "https://surplustoken.example/v1"')
+    expect(configToml).toContain('api_key = "sk-kimi-test"')
+    expect(configToml).toContain('[models."surplustoken/kimi-for-coding"]')
+    expect(configToml).toContain('[models."surplustoken/kimi-for-coding-highspeed"]')
+    expect(configToml).toContain('[models."surplustoken/k3"]')
+    expect(configToml).toContain('max_context_size = 1048576')
+    expect(configToml).toContain('support_efforts = ["max"]')
+    expect(configToml).toContain('[thinking]\nenabled = true\neffort = "max"\nkeep = "all"')
+
+    const unixEnvironment = codeBlocks.find((content) => content.includes('export KIMI_MODEL_NAME'))
+    expect(unixEnvironment).toContain('export KIMI_MODEL_NAME="k3"')
+    expect(unixEnvironment).toContain('export KIMI_MODEL_API_KEY="sk-kimi-test"')
+    expect(unixEnvironment).toContain('export KIMI_MODEL_BASE_URL="https://surplustoken.example/v1"')
+    expect(unixEnvironment).not.toContain('export KIMI_API_KEY=')
+
+    const cmdTab = wrapper.findAll('button').find((button) => button.text().trim() === 'Windows CMD')
+    expect(cmdTab).toBeDefined()
+    await cmdTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('%USERPROFILE%\\.kimi-code\\config.toml')
+    codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    expect(codeBlocks.find((content) => content.includes('set KIMI_MODEL_NAME')))
+      .toContain('set KIMI_MODEL_API_KEY=sk-kimi-test')
+
+    const powershellTab = wrapper.findAll('button').find((button) => button.text().trim() === 'PowerShell')
+    expect(powershellTab).toBeDefined()
+    await powershellTab!.trigger('click')
+    await nextTick()
+    codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    expect(codeBlocks.find((content) => content.includes('$env:KIMI_MODEL_NAME')))
+      .toContain('$env:KIMI_MODEL_API_KEY="sk-kimi-test"')
+  })
 })

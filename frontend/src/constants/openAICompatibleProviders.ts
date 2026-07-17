@@ -23,9 +23,14 @@ export const KIMI_API_MODELS = [
 ] as const
 
 export const ZHIPU_CODING_MODELS = [
+  'glm-5.2',
+  'glm-5.2[1m]',
   'glm-5.1',
   'glm-5-turbo',
+  'glm-5',
   'glm-4.7',
+  'glm-4.7-flashx',
+  'glm-4.7-flash',
   'glm-4.5-air'
 ] as const
 

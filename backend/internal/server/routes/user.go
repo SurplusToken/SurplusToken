@@ -103,6 +103,10 @@ func RegisterUserRoutes(
 					switch getGroupPlatform(c) {
 					case service.PlatformOpenAI, service.PlatformGrok:
 						h.OpenAIGateway.Responses(c)
+					case service.PlatformKimi:
+						h.OpenAIGateway.Messages(c)
+					case service.PlatformZhipu:
+						h.OpenAIGateway.Messages(c)
 					case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity:
 						h.Gateway.Messages(c)
 					default:

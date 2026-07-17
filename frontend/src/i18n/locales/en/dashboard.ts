@@ -151,6 +151,7 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        kimiCode: 'Kimi Code',
         opencode: 'OpenCode',
       },
       antigravity: {
@@ -170,6 +171,12 @@ export default {
         configTomlHint: 'Back up an existing config.toml before merging this model entry. Run grok inspect after saving to verify the effective configuration.',
         note: 'Save the file as ~/.grok/config.toml, then run grok inspect and select sub2api-grok from /model.',
         noteWindows: 'Save the file as %USERPROFILE%\\.grok\\config.toml, then run grok inspect and select sub2api-grok from /model.',
+      },
+      kimi: {
+        description: 'Configure Kimi Code to use K3 and K2.7 Coding models through your current SurplusToken Kimi group.',
+        configTomlHint: 'The API key is stored as plaintext. Back up and merge the file if a configuration already exists.',
+        environmentHint: 'KIMI_MODEL_* applies only to the current terminal and configures one temporary K3 model.',
+        note: 'The default path is ~/.kimi-code/config.toml; on Windows use %USERPROFILE%\\.kimi-code\\config.toml. Run kimi after saving.',
       },
       opencode: {
         title: 'OpenCode Example',
@@ -727,6 +734,7 @@ export default {
       openai: 'OpenAI',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      kimi: 'Kimi',
     },
     statuses: {
       active: 'Active',

@@ -130,14 +130,14 @@ func TestGetModelPricing_FallbackWarnLoggedOncePerModel(t *testing.T) {
 	svc := newTestBillingService()
 	buf := captureStdLog(t)
 
-	// glm-5.2 不在 LiteLLM,经 strings.Contains 命中 glm-5 兜底价 → 触发 fallback warn。
+	// 非当前大陆官方价白名单模型仍走普通 fallback，并按模型去重告警。
 	for i := 0; i < 5; i++ {
-		pricing, err := svc.GetModelPricing("glm-5.2")
+		pricing, err := svc.GetModelPricing("glm-4.6")
 		require.NoError(t, err)
 		require.NotNil(t, pricing)
 	}
 
-	got := strings.Count(buf.String(), "Using fallback pricing for model: glm-5.2")
+	got := strings.Count(buf.String(), "Using fallback pricing for model: glm-4.6")
 	require.Equal(t, 1, got, "同一模型的 fallback warn 应只打一条,实际日志:\n%s", buf.String())
 }
 
@@ -147,28 +147,56 @@ func TestGetModelPricing_FallbackWarnPerModelNotGlobal(t *testing.T) {
 	buf := captureStdLog(t)
 
 	for i := 0; i < 3; i++ {
-		_, _ = svc.GetModelPricing("glm-5.2")
-		_, _ = svc.GetModelPricing("GLM-5.2") // 与上一行同模型(ToLower 后),去重后不再打
 		_, _ = svc.GetModelPricing("glm-4.6")
+		_, _ = svc.GetModelPricing("GLM-4.6") // 与上一行同模型(ToLower 后),去重后不再打
+		_, _ = svc.GetModelPricing("glm-4.5-x")
 	}
 
 	out := buf.String()
-	require.Equal(t, 1, strings.Count(out, "model: glm-5.2"), out)
 	require.Equal(t, 1, strings.Count(out, "model: glm-4.6"), out)
-	require.Equal(t, 0, strings.Count(out, "model: GLM-5.2"), out) // 大写经 ToLower 归一,不应单独成行
+	require.Equal(t, 1, strings.Count(out, "model: glm-4.5-x"), out)
+	require.Equal(t, 0, strings.Count(out, "model: GLM-4.6"), out) // 大写经 ToLower 归一,不应单独成行
 }
 
-// 回归:glm-5.2 仍解析到 glm-5 兜底价(计费金额不变,防止日志改动掩盖未来计费回归)。
-func TestGetModelPricing_GLM52FallsBackToGLM5Price(t *testing.T) {
+func TestGetModelPricing_GLM52UsesMainlandOfficialPrice(t *testing.T) {
 	svc := newTestBillingService()
 
 	got, err := svc.GetModelPricing("glm-5.2")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	// glm-5 base：Input 1e-6 / Output 3.2e-6(见 TestGetFallbackPricing_FamilyMatching)。
-	require.InDelta(t, 1e-6, got.InputPricePerToken, 1e-12)
-	require.InDelta(t, 3.2e-6, got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 8e-6, got.InputPricePerToken, 1e-12)
+	require.InDelta(t, 28e-6, got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 2e-6, got.CacheReadPricePerToken, 1e-12)
+}
+
+func TestCalculateCost_ZhipuMainlandTieredPricing(t *testing.T) {
+	svc := newTestBillingService()
+
+	tests := []struct {
+		name      string
+		model     string
+		tokens    UsageTokens
+		inputRate float64
+		outRate   float64
+		cacheRate float64
+	}{
+		{"glm-5.1 short context", "glm-5.1", UsageTokens{InputTokens: 1000, OutputTokens: 100, CacheReadTokens: 100}, 6e-6, 24e-6, 1.3e-6},
+		{"glm-5.1 long context boundary", "glm-5.1", UsageTokens{InputTokens: 31900, OutputTokens: 100, CacheReadTokens: 100}, 8e-6, 28e-6, 2e-6},
+		{"glm-4.7 long output", "glm-4.7", UsageTokens{InputTokens: 1000, OutputTokens: 200, CacheReadTokens: 100}, 3e-6, 14e-6, 0.6e-6},
+		{"glm-4.7 long context wins", "glm-4.7", UsageTokens{InputTokens: 33000, OutputTokens: 200, CacheReadTokens: 100}, 4e-6, 16e-6, 0.8e-6},
+		{"glm-4.5-air long output", "glm-4.5-air", UsageTokens{InputTokens: 1000, OutputTokens: 200, CacheReadTokens: 100}, 0.8e-6, 6e-6, 0.16e-6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cost, err := svc.CalculateCost(tt.model, tt.tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, float64(tt.tokens.InputTokens)*tt.inputRate, cost.InputCost, 1e-12)
+			require.InDelta(t, float64(tt.tokens.OutputTokens)*tt.outRate, cost.OutputCost, 1e-12)
+			require.InDelta(t, float64(tt.tokens.CacheReadTokens)*tt.cacheRate, cost.CacheReadCost, 1e-12)
+		})
+	}
 }
 
 func TestGetModelPricing_UnknownClaudeModelFallsBackToSonnet(t *testing.T) {
@@ -471,34 +499,41 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(2.8e-9),
 		},
 
-		// ---- 智谱 GLM（z.ai USD 口径）----
+		// ---- 智谱 GLM（大陆 CNY 数值按 USD 展示）----
+		{
+			name:              "glm 5.2 flagship",
+			model:             "glm-5.2",
+			expectedInput:     8e-6,
+			expectedOutput:    floatPtr(28e-6),
+			expectedCacheRead: floatPtr(2e-6),
+		},
 		{
 			name:              "glm 5.1 flagship",
 			model:             "glm-5.1",
-			expectedInput:     1.4e-6,
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     6e-6,
+			expectedOutput:    floatPtr(24e-6),
+			expectedCacheRead: floatPtr(1.3e-6),
 		},
 		{
 			name:              "glm 5 base",
 			model:             "glm-5",
-			expectedInput:     1e-6,
-			expectedOutput:    floatPtr(3.2e-6),
-			expectedCacheRead: floatPtr(0.2e-6),
+			expectedInput:     4e-6,
+			expectedOutput:    floatPtr(18e-6),
+			expectedCacheRead: floatPtr(1e-6),
 		},
 		{
 			name:              "glm 5 turbo",
 			model:             "glm-5-turbo",
-			expectedInput:     1.2e-6,
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.24e-6),
+			expectedInput:     5e-6,
+			expectedOutput:    floatPtr(22e-6),
+			expectedCacheRead: floatPtr(1.2e-6),
 		},
 		{
 			name:              "glm 4.7",
 			model:             "glm-4.7",
-			expectedInput:     0.6e-6,
-			expectedOutput:    floatPtr(2.2e-6),
-			expectedCacheRead: floatPtr(0.11e-6),
+			expectedInput:     2e-6,
+			expectedOutput:    floatPtr(8e-6),
+			expectedCacheRead: floatPtr(0.4e-6),
 		},
 		{
 			name:              "glm 4.6",
@@ -524,16 +559,16 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "glm 4.5-air lightweight",
 			model:             "glm-4.5-air",
-			expectedInput:     0.2e-6,
-			expectedOutput:    floatPtr(1.1e-6),
-			expectedCacheRead: floatPtr(0.03e-6),
+			expectedInput:     0.8e-6,
+			expectedOutput:    floatPtr(2e-6),
+			expectedCacheRead: floatPtr(0.16e-6),
 		},
 		{
 			name:              "glm 4.7-flashx",
 			model:             "glm-4.7-flashx",
-			expectedInput:     0.07e-6,
-			expectedOutput:    floatPtr(0.4e-6),
-			expectedCacheRead: floatPtr(0.01e-6),
+			expectedInput:     0.5e-6,
+			expectedOutput:    floatPtr(3e-6),
+			expectedCacheRead: floatPtr(0.1e-6),
 		},
 		{
 			name:              "glm 4.5-flash free tier",
@@ -559,67 +594,67 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",
-			expectedInput:     1.4e-6, // = glm-5.1 价格
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     6e-6,
+			expectedOutput:    floatPtr(24e-6),
+			expectedCacheRead: floatPtr(1.3e-6),
 		},
 		{
 			name:              "glm 4.5-air vs glm 4.5 ordering",
 			model:             "glm-4.5-air",
-			expectedInput:     0.2e-6, // = glm-4.5-air 价格（不是 glm-4.5 的 0.6e-6）
-			expectedOutput:    floatPtr(1.1e-6),
-			expectedCacheRead: floatPtr(0.03e-6),
+			expectedInput:     0.8e-6,
+			expectedOutput:    floatPtr(2e-6),
+			expectedCacheRead: floatPtr(0.16e-6),
 		},
 
 		// ---- 月之暗面 Kimi ----
 		{
 			name:              "kimi k2.6 flagship",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6,
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.15e-6),
+			expectedInput:     6.5e-6,
+			expectedOutput:    floatPtr(27e-6),
+			expectedCacheRead: floatPtr(1.1e-6),
 		},
 		{
 			name:              "kimi for coding explicit alias",
 			model:             "kimi-for-coding",
-			expectedInput:     0.910364e-6,
-			expectedOutput:    floatPtr(3.78151e-6),
-			expectedCacheRead: floatPtr(0.182073e-6),
+			expectedInput:     6.5e-6,
+			expectedOutput:    floatPtr(27e-6),
+			expectedCacheRead: floatPtr(1.3e-6),
 		},
 		{
 			name:              "kimi coding highspeed uses distinct price",
 			model:             "kimi-for-coding-highspeed",
-			expectedInput:     1.82073e-6,
-			expectedOutput:    floatPtr(7.56303e-6),
-			expectedCacheRead: floatPtr(0.364146e-6),
+			expectedInput:     13e-6,
+			expectedOutput:    floatPtr(54e-6),
+			expectedCacheRead: floatPtr(2.6e-6),
 		},
 		{
 			name:              "kimi k3 coding plan id",
 			model:             "k3",
-			expectedInput:     2.80112e-6,
-			expectedOutput:    floatPtr(14.0056e-6),
-			expectedCacheRead: floatPtr(0.280112e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi k3 api platform id",
 			model:             "kimi-k3",
-			expectedInput:     2.80112e-6,
-			expectedOutput:    floatPtr(14.0056e-6),
-			expectedCacheRead: floatPtr(0.280112e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi k2.7 code upstream id",
 			model:             "kimi-k2.7-code",
-			expectedInput:     0.910364e-6,
-			expectedOutput:    floatPtr(3.78151e-6),
-			expectedCacheRead: floatPtr(0.182073e-6),
+			expectedInput:     6.5e-6,
+			expectedOutput:    floatPtr(27e-6),
+			expectedCacheRead: floatPtr(1.3e-6),
 		},
 		{
 			name:              "kimi k2.5",
 			model:             "kimi-k2.5",
-			expectedInput:     0.60e-6,
-			expectedOutput:    floatPtr(3e-6),
-			expectedCacheRead: floatPtr(0.098e-6),
+			expectedInput:     4e-6,
+			expectedOutput:    floatPtr(21e-6),
+			expectedCacheRead: floatPtr(0.7e-6),
 		},
 		{
 			name:              "kimi k2-thinking",
@@ -639,9 +674,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2.6 vs k2 ordering",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6, // = k2.6 不是 k2 的 0.56e-6
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.15e-6),
+			expectedInput:     6.5e-6, // = k2.6 不是 k2 的 0.56e-6
+			expectedOutput:    floatPtr(27e-6),
+			expectedCacheRead: floatPtr(1.1e-6),
 		},
 		{
 			name:              "kimi k2 thinking hyphenated variant",
@@ -1286,6 +1321,34 @@ func TestBillingServiceGetModelPricing_UsesDynamicPriorityFields(t *testing.T) {
 	require.Equal(t, 272000, pricing.LongContextInputThreshold)
 	require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
 	require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+}
+
+func TestBillingServiceGetModelPricing_KimiSiteRateOverridesDynamicUSDFeed(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"k3": {
+				InputCostPerToken:       2.80112e-6,
+				OutputCostPerToken:      14.0056e-6,
+				CacheReadInputTokenCost: 0.280112e-6,
+				SupportsPromptCaching:   true,
+			},
+		},
+	}
+	svc := NewBillingService(&config.Config{}, pricingSvc)
+
+	pricing, err := svc.GetModelPricing("k3")
+	require.NoError(t, err)
+	require.InDelta(t, 20e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 100e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 2e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	cost, err := svc.CalculateCost("k3", UsageTokens{
+		InputTokens:     1_000_000,
+		OutputTokens:    1_000_000,
+		CacheReadTokens: 1_000_000,
+	}, 1)
+	require.NoError(t, err)
+	require.InDelta(t, 122, cost.TotalCost, 1e-9)
 }
 
 func TestBillingServiceGetModelPricing_OpenAIFallbackGpt52Variants(t *testing.T) {

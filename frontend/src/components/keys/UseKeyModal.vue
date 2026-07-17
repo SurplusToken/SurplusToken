@@ -183,6 +183,8 @@ const defaultClientTab = computed(() => {
       return 'codex'
     case 'grok':
       return 'grok'
+    case 'kimi':
+      return 'kimi-code'
     case 'gemini':
       return 'gemini'
     case 'antigravity':
@@ -295,6 +297,17 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'grok', label: t('keys.useKeyModal.cliTabs.grokCli'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'kimi':
+      return [
+        { id: 'kimi-code', label: t('keys.useKeyModal.cliTabs.kimiCode'), icon: TerminalIcon },
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    case 'zhipu':
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -339,6 +352,10 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.antigravity.description')
     case 'grok':
       return t('keys.useKeyModal.grok.description')
+    case 'kimi':
+      return activeClientTab.value === 'kimi-code'
+        ? t('keys.useKeyModal.kimi.description')
+        : t('keys.useKeyModal.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -363,6 +380,10 @@ const platformNote = computed(() => {
       return activeTab.value === 'windows'
         ? t('keys.useKeyModal.grok.noteWindows')
         : t('keys.useKeyModal.grok.note')
+    case 'kimi':
+      return activeClientTab.value === 'kimi-code'
+        ? t('keys.useKeyModal.kimi.note')
+        : t('keys.useKeyModal.note')
     default:
       return t('keys.useKeyModal.note')
   }
@@ -422,6 +443,8 @@ const currentFiles = computed((): FileConfig[] => {
         ]
       case 'grok':
         return [generateOpenCodeConfig('grok', apiBase, apiKey)]
+      case 'kimi':
+        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -445,6 +468,11 @@ const currentFiles = computed((): FileConfig[] => {
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
     case 'grok':
       return generateGrokFiles(apiBase, apiKey)
+    case 'kimi':
+      if (activeClientTab.value === 'kimi-code') {
+        return generateKimiCodeFiles(apiBase, apiKey)
+      }
+      return generateAnthropicFiles(baseUrl, apiKey)
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
   }
@@ -497,6 +525,131 @@ $env:CLAUDE_CODE_ATTRIBUTION_HEADER=0`
   return [
     { path, content },
     { path: vscodeSettingsPath, content: vscodeContent, hint: 'VSCode Claude Code' }
+  ]
+}
+
+function generateKimiCodeFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const isUnix = activeTab.value === 'unix'
+  const configPath = isUnix
+    ? '~/.kimi-code/config.toml'
+    : '%USERPROFILE%\\.kimi-code\\config.toml'
+  const configContent = `default_plan_mode = false
+merge_all_available_skills = false
+default_model = "surplustoken/k3"
+
+[loop_control]
+max_retries_per_step = 3
+reserved_context_size = 50000
+
+[background]
+max_running_tasks = 4
+keep_alive_on_exit = false
+
+[providers."surplustoken-kimi"]
+type = "kimi"
+base_url = "${baseUrl}"
+api_key = "${apiKey}"
+
+[models."surplustoken/kimi-for-coding"]
+provider = "surplustoken-kimi"
+model = "kimi-for-coding"
+max_context_size = 262144
+capabilities = [
+  "thinking",
+  "always_thinking",
+  "image_in",
+  "video_in",
+  "tool_use",
+]
+display_name = "K2.7 Coding"
+
+[models."surplustoken/kimi-for-coding-highspeed"]
+provider = "surplustoken-kimi"
+model = "kimi-for-coding-highspeed"
+max_context_size = 262144
+capabilities = [
+  "thinking",
+  "always_thinking",
+  "image_in",
+  "video_in",
+  "tool_use",
+]
+display_name = "K2.7 Coding Highspeed"
+
+[models."surplustoken/k3"]
+provider = "surplustoken-kimi"
+model = "k3"
+max_context_size = 1048576
+capabilities = [
+  "thinking",
+  "always_thinking",
+  "image_in",
+  "video_in",
+  "tool_use",
+]
+display_name = "K3"
+support_efforts = ["max"]
+default_effort = "max"
+
+[thinking]
+enabled = true
+effort = "max"
+keep = "all"`
+
+  let environmentPath: string
+  let environmentContent: string
+  switch (activeTab.value) {
+    case 'cmd':
+      environmentPath = 'Command Prompt'
+      environmentContent = `set KIMI_MODEL_NAME=k3
+set KIMI_MODEL_API_KEY=${apiKey}
+set KIMI_MODEL_BASE_URL=${baseUrl}
+set KIMI_MODEL_PROVIDER_TYPE=kimi
+set KIMI_MODEL_MAX_CONTEXT_SIZE=1048576
+set KIMI_MODEL_CAPABILITIES=thinking,always_thinking,image_in,video_in,tool_use
+set KIMI_MODEL_DISPLAY_NAME=K3
+set KIMI_MODEL_THINKING_EFFORT=max
+set KIMI_MODEL_THINKING_KEEP=all
+kimi`
+      break
+    case 'powershell':
+      environmentPath = 'PowerShell'
+      environmentContent = `$env:KIMI_MODEL_NAME="k3"
+$env:KIMI_MODEL_API_KEY="${apiKey}"
+$env:KIMI_MODEL_BASE_URL="${baseUrl}"
+$env:KIMI_MODEL_PROVIDER_TYPE="kimi"
+$env:KIMI_MODEL_MAX_CONTEXT_SIZE="1048576"
+$env:KIMI_MODEL_CAPABILITIES="thinking,always_thinking,image_in,video_in,tool_use"
+$env:KIMI_MODEL_DISPLAY_NAME="K3"
+$env:KIMI_MODEL_THINKING_EFFORT="max"
+$env:KIMI_MODEL_THINKING_KEEP="all"
+kimi`
+      break
+    default:
+      environmentPath = 'Terminal'
+      environmentContent = `export KIMI_MODEL_NAME="k3"
+export KIMI_MODEL_API_KEY="${apiKey}"
+export KIMI_MODEL_BASE_URL="${baseUrl}"
+export KIMI_MODEL_PROVIDER_TYPE="kimi"
+export KIMI_MODEL_MAX_CONTEXT_SIZE="1048576"
+export KIMI_MODEL_CAPABILITIES="thinking,always_thinking,image_in,video_in,tool_use"
+export KIMI_MODEL_DISPLAY_NAME="K3"
+export KIMI_MODEL_THINKING_EFFORT="max"
+export KIMI_MODEL_THINKING_KEEP="all"
+kimi`
+  }
+
+  return [
+    {
+      path: configPath,
+      content: configContent,
+      hint: t('keys.useKeyModal.kimi.configTomlHint')
+    },
+    {
+      path: environmentPath,
+      content: environmentContent,
+      hint: t('keys.useKeyModal.kimi.environmentHint')
+    }
   ]
 }
 

@@ -437,6 +437,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'moonshot': return moonshotModels
     case 'kimi-code': return kimiCodeModels
     case 'kimi-api': return kimiAPIModels
+    case 'kimi': return [...kimiCodeModels, ...kimiAPIModels]
     case 'doubao': return doubaoModels
     case 'minimax': return minimaxModels
     case 'baidu': return baiduModels

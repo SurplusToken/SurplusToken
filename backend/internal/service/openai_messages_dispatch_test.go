@@ -37,3 +37,21 @@ func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing
 	require.Empty(t, group.ResolveMessagesDispatchModel("grok"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }
+
+func TestGroupResolveMessagesDispatchModel_KimiUsesNativeCodeModel(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformKimi,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel:   "gpt-5.4",
+			SonnetMappedModel: "gpt-5.3-codex",
+			HaikuMappedModel:  "gpt-5.4-mini",
+		},
+	}
+
+	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	require.Empty(t, group.ResolveMessagesDispatchModel("kimi-for-coding"))
+}

@@ -104,8 +104,14 @@ type ModelPricing struct {
 	CacheCreation1hPrice               float64 // 1小时缓存创建每token价格 (USD)
 	SupportsCacheBreakdown             bool    // 是否支持详细的缓存分类
 	LongContextInputThreshold          int     // 超过阈值后按整次会话提升输入价格
+	LongContextThresholdInclusive      bool    // true 表示达到阈值即进入长上下文档
 	LongContextInputMultiplier         float64 // 长上下文整次会话输入倍率
 	LongContextOutputMultiplier        float64 // 长上下文整次会话输出倍率
+	LongContextCacheReadMultiplier     float64 // 长上下文缓存命中倍率；为 0 时沿用输入倍率
+	OutputTierThreshold                int     // 输出 token 达到阈值后切换输出分档（仅未命中长上下文档时）
+	OutputTierInputMultiplier          float64 // 输出分档输入倍率
+	OutputTierOutputMultiplier         float64 // 输出分档输出倍率
+	OutputTierCacheReadMultiplier      float64 // 输出分档缓存命中倍率
 	ImageOutputPricePerToken           float64 // 图片输出 token 价格 (USD)
 	ImageOutputPriceExplicit           bool    // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
 }
@@ -381,38 +387,68 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
-	// ---- 智谱 GLM（Z.AI）----
-	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)
-	// 注意：CacheReadPricePerToken 即"缓存命中"价格，CacheCreationPricePerToken 留空（智谱未公开写入价，按 0 处理）。
-	// GLM-4.6 与 GLM-4.5 在 z.ai 国际版上定价一致；GLM-4.5 国内按 ¥0.8/¥2，汇率换算后约 $0.112/$0.28，与国际版 $0.6/$2.2 不同，本分支采用国际版 USD 口径与现有 Claude/GPT 一致。
-	s.fallbackPrices["glm-5.1"] = &ModelPricing{
-		InputPricePerToken:     1.4e-6, // $1.40 per MTok
-		OutputPricePerToken:    4.4e-6, // $4.40 per MTok
-		CacheReadPricePerToken: 0.26e-6,
+	// ---- 智谱 GLM（中国大陆开放平台）----
+	// Source: https://open.bigmodel.cn/pricing (CNY per 1M tokens, 2026-07-17).
+	// This deployment intentionally records the same numeric values as USD
+	// (CNY 1 = USD 1). Cache storage is currently free; cache hit is separate.
+	s.fallbackPrices["glm-5.2"] = &ModelPricing{
+		InputPricePerToken:     8e-6,
+		OutputPricePerToken:    28e-6,
+		CacheReadPricePerToken: 2e-6,
 		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["glm-5.1"] = &ModelPricing{
+		InputPricePerToken:             6e-6,
+		OutputPricePerToken:            24e-6,
+		CacheReadPricePerToken:         1.3e-6,
+		LongContextInputThreshold:      32000,
+		LongContextThresholdInclusive:  true,
+		LongContextInputMultiplier:     8.0 / 6.0,
+		LongContextOutputMultiplier:    28.0 / 24.0,
+		LongContextCacheReadMultiplier: 2.0 / 1.3,
+		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["glm-5"] = &ModelPricing{
-		InputPricePerToken:     1e-6, // $1.00 per MTok
-		OutputPricePerToken:    3.2e-6,
-		CacheReadPricePerToken: 0.2e-6,
-		SupportsCacheBreakdown: false,
+		InputPricePerToken:             4e-6,
+		OutputPricePerToken:            18e-6,
+		CacheReadPricePerToken:         1e-6,
+		LongContextInputThreshold:      32000,
+		LongContextThresholdInclusive:  true,
+		LongContextInputMultiplier:     6.0 / 4.0,
+		LongContextOutputMultiplier:    22.0 / 18.0,
+		LongContextCacheReadMultiplier: 1.5,
+		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["glm-5-turbo"] = &ModelPricing{
-		InputPricePerToken:     1.2e-6,
-		OutputPricePerToken:    4e-6,
-		CacheReadPricePerToken: 0.24e-6,
-		SupportsCacheBreakdown: false,
+		InputPricePerToken:             5e-6,
+		OutputPricePerToken:            22e-6,
+		CacheReadPricePerToken:         1.2e-6,
+		LongContextInputThreshold:      32000,
+		LongContextThresholdInclusive:  true,
+		LongContextInputMultiplier:     7.0 / 5.0,
+		LongContextOutputMultiplier:    26.0 / 22.0,
+		LongContextCacheReadMultiplier: 1.8 / 1.2,
+		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["glm-4.7"] = &ModelPricing{
-		InputPricePerToken:     0.6e-6, // $0.60 per MTok
-		OutputPricePerToken:    2.2e-6,
-		CacheReadPricePerToken: 0.11e-6,
-		SupportsCacheBreakdown: false,
+		InputPricePerToken:             2e-6,
+		OutputPricePerToken:            8e-6,
+		CacheReadPricePerToken:         0.4e-6,
+		LongContextInputThreshold:      32000,
+		LongContextThresholdInclusive:  true,
+		LongContextInputMultiplier:     2,
+		LongContextOutputMultiplier:    2,
+		LongContextCacheReadMultiplier: 2,
+		OutputTierThreshold:            200,
+		OutputTierInputMultiplier:      1.5,
+		OutputTierOutputMultiplier:     1.75,
+		OutputTierCacheReadMultiplier:  1.5,
+		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["glm-4.7-flashx"] = &ModelPricing{
-		InputPricePerToken:     0.07e-6, // $0.07 per MTok
-		OutputPricePerToken:    0.4e-6,
-		CacheReadPricePerToken: 0.01e-6,
+		InputPricePerToken:     0.5e-6,
+		OutputPricePerToken:    3e-6,
+		CacheReadPricePerToken: 0.1e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["glm-4.6"] = &ModelPricing{
@@ -434,10 +470,19 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["glm-4.5-air"] = &ModelPricing{
-		InputPricePerToken:     0.2e-6, // $0.20 per MTok
-		OutputPricePerToken:    1.1e-6,
-		CacheReadPricePerToken: 0.03e-6,
-		SupportsCacheBreakdown: false,
+		InputPricePerToken:             0.8e-6,
+		OutputPricePerToken:            2e-6,
+		CacheReadPricePerToken:         0.16e-6,
+		LongContextInputThreshold:      32000,
+		LongContextThresholdInclusive:  true,
+		LongContextInputMultiplier:     1.5,
+		LongContextOutputMultiplier:    4,
+		LongContextCacheReadMultiplier: 1.5,
+		OutputTierThreshold:            200,
+		OutputTierInputMultiplier:      1,
+		OutputTierOutputMultiplier:     3,
+		OutputTierCacheReadMultiplier:  1,
+		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["glm-4.5-airx"] = &ModelPricing{
 		InputPricePerToken:     1.1e-6,
@@ -466,47 +511,47 @@ func (s *BillingService) initFallbackPricing() {
 	// Official CNY prices:
 	// https://platform.kimi.com/docs/pricing/chat-k3
 	// https://platform.kimi.com/docs/pricing/chat-k27-code
-	// BillingService uses USD, so the fallback converts at the repository-wide
-	// domestic-model reference rate ¥7.14 = $1. Channel pricing can override it.
+	// This deployment intentionally bills domestic-model CNY values as the same
+	// numeric USD amount (CNY 1 = USD 1). Channel pricing can override it.
 	s.fallbackPrices["kimi-k3"] = &ModelPricing{
-		InputPricePerToken:     2.80112e-6,  // ¥20.00/MTok
-		OutputPricePerToken:    14.0056e-6,  // ¥100.00/MTok
-		CacheReadPricePerToken: 0.280112e-6, // ¥2.00/MTok
+		InputPricePerToken:     20e-6,  // ¥20.00/MTok -> $20.00/MTok
+		OutputPricePerToken:    100e-6, // ¥100.00/MTok -> $100.00/MTok
+		CacheReadPricePerToken: 2e-6,   // ¥2.00/MTok -> $2.00/MTok
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2.7-code"] = &ModelPricing{
-		InputPricePerToken:     0.910364e-6, // ¥6.50/MTok
-		OutputPricePerToken:    3.78151e-6,  // ¥27.00/MTok
-		CacheReadPricePerToken: 0.182073e-6, // ¥1.30/MTok
+		InputPricePerToken:     6.5e-6, // ¥6.50/MTok -> $6.50/MTok
+		OutputPricePerToken:    27e-6,  // ¥27.00/MTok -> $27.00/MTok
+		CacheReadPricePerToken: 1.3e-6, // ¥1.30/MTok -> $1.30/MTok
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2.7-code-highspeed"] = &ModelPricing{
-		InputPricePerToken:     1.82073e-6,  // ¥13.00/MTok
-		OutputPricePerToken:    7.56303e-6,  // ¥54.00/MTok
-		CacheReadPricePerToken: 0.364146e-6, // ¥2.60/MTok
+		InputPricePerToken:     13e-6,  // ¥13.00/MTok -> $13.00/MTok
+		OutputPricePerToken:    54e-6,  // ¥54.00/MTok -> $54.00/MTok
+		CacheReadPricePerToken: 2.6e-6, // ¥2.60/MTok -> $2.60/MTok
 		SupportsCacheBreakdown: false,
 	}
 	// Legacy open-platform models retained for existing non-Coding channels.
 	// Moonshot V1 (¥2/¥5/¥10 多 tier) 公开页未直接标注 USD 价，本分支不覆盖，避免误计价。
 	// K2-0905 / K2-0711 官方页面未保留定价，不覆盖。
 	s.fallbackPrices["kimi-k2.6"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6, // $0.95 per MTok (cache miss)
-		OutputPricePerToken:    4e-6,    // $4.00 per MTok
-		CacheReadPricePerToken: 0.15e-6, // $0.15 per MTok (cache hit, ¥1.10)
+		InputPricePerToken:     6.5e-6, // ¥6.50/MTok -> $6.50/MTok
+		OutputPricePerToken:    27e-6,  // ¥27.00/MTok -> $27.00/MTok
+		CacheReadPricePerToken: 1.1e-6, // ¥1.10/MTok -> $1.10/MTok
 		SupportsCacheBreakdown: false,
 	}
 	// Kimi Code stable aliases currently map to K2.7 Code.
 	s.fallbackPrices["kimi-for-coding"] = &ModelPricing{
-		InputPricePerToken:     0.910364e-6,
-		OutputPricePerToken:    3.78151e-6,
-		CacheReadPricePerToken: 0.182073e-6,
+		InputPricePerToken:     6.5e-6,
+		OutputPricePerToken:    27e-6,
+		CacheReadPricePerToken: 1.3e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-for-coding-highspeed"] = s.fallbackPrices["kimi-k2.7-code-highspeed"]
 	s.fallbackPrices["kimi-k2.5"] = &ModelPricing{
-		InputPricePerToken:     0.60e-6, // $0.60 per MTok
-		OutputPricePerToken:    3e-6,    // $3.00 per MTok
-		CacheReadPricePerToken: 0.098e-6,
+		InputPricePerToken:     4e-6,   // ¥4.00/MTok -> $4.00/MTok
+		OutputPricePerToken:    21e-6,  // ¥21.00/MTok -> $21.00/MTok
+		CacheReadPricePerToken: 0.7e-6, // ¥0.70/MTok -> $0.70/MTok
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
@@ -658,6 +703,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// 智谱 GLM（z.ai 公开 SKU：glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
 	// 匹配顺序：先判别最高 tier，再依次降级。
+	if strings.Contains(modelLower, "glm-5.2") {
+		return s.fallbackPrices["glm-5.2"]
+	}
 	if strings.Contains(modelLower, "glm-5.1") {
 		return s.fallbackPrices["glm-5.1"]
 	}
@@ -800,6 +848,21 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
 
+	// Kimi's public rate card is denominated in CNY, while this deployment
+	// intentionally records the same numeric values as USD. Keep those local
+	// rates ahead of LiteLLM's market-USD feed so a pricing refresh cannot
+	// silently reintroduce currency conversion.
+	if isCurrentKimiOfficialModel(model) {
+		if pricing := s.getFallbackPricing(model); pricing != nil {
+			return pricing, nil
+		}
+	}
+	if isCurrentZhipuOfficialModel(model) {
+		if pricing := s.getFallbackPricing(model); pricing != nil {
+			return pricing, nil
+		}
+	}
+
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
@@ -850,6 +913,25 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+}
+
+func isCurrentKimiOfficialModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return model == "k3" || model == "kimi-k3" || strings.HasSuffix(model, "/k3") ||
+		strings.Contains(model, "kimi-for-coding") ||
+		strings.Contains(model, "kimi-k2.7-code") ||
+		strings.Contains(model, "kimi-k2.6") || strings.Contains(model, "kimi-k2-6") ||
+		strings.Contains(model, "kimi-k2.5") || strings.Contains(model, "kimi-k2-5")
+}
+
+func isCurrentZhipuOfficialModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "glm-5.2") ||
+		strings.Contains(model, "glm-5.1") ||
+		strings.Contains(model, "glm-5-turbo") || strings.Contains(model, "glm-5turbo") ||
+		strings.Contains(model, "glm-5") ||
+		strings.Contains(model, "glm-4.7") ||
+		strings.Contains(model, "glm-4.5-air") || strings.Contains(model, "glm-4.5air")
 }
 
 // GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
@@ -1001,16 +1083,36 @@ func (s *BillingService) computeTokenBreakdown(
 		tierMultiplier = serviceTierCostMultiplier(serviceTier)
 	}
 
-	if applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing) {
+	longContextTierApplied := applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing)
+	if longContextTierApplied {
 		inputPrice *= pricing.LongContextInputMultiplier
 		outputPrice *= pricing.LongContextOutputMultiplier
 		// 缓存读取本质上是输入侧的复用，应与 input 一同应用长上下文倍率；
 		// 否则 cache hit 越多，少计的费用越多（见 #2293）。
-		cacheReadPrice *= pricing.LongContextInputMultiplier
+		cacheReadMultiplier := pricing.LongContextCacheReadMultiplier
+		if cacheReadMultiplier <= 0 {
+			cacheReadMultiplier = pricing.LongContextInputMultiplier
+		}
+		cacheReadPrice *= cacheReadMultiplier
 		// 缓存创建（cache_write）也是输入侧操作，三档价格（标准 / 5m / 1h）
 		// 都通过 computeCacheCreationCost 直接读取 pricing.*，不会经过这里
 		// 的倍率修改，因此显式向下传一个倍率，避免长上下文场景下被漏乘。
 		cacheCreationMultiplier = pricing.LongContextInputMultiplier
+	}
+
+	// Some Zhipu mainland SKUs select a second price tier from the generated
+	// output length while the input context remains below the long-context tier.
+	if !longContextTierApplied && pricing.OutputTierThreshold > 0 && tokens.OutputTokens >= pricing.OutputTierThreshold {
+		if pricing.OutputTierInputMultiplier > 0 {
+			inputPrice *= pricing.OutputTierInputMultiplier
+			cacheCreationMultiplier *= pricing.OutputTierInputMultiplier
+		}
+		if pricing.OutputTierOutputMultiplier > 0 {
+			outputPrice *= pricing.OutputTierOutputMultiplier
+		}
+		if pricing.OutputTierCacheReadMultiplier > 0 {
+			cacheReadPrice *= pricing.OutputTierCacheReadMultiplier
+		}
 	}
 
 	bd := &CostBreakdown{}
@@ -1188,6 +1290,9 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 		return false
 	}
 	totalInputTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+	if pricing.LongContextThresholdInclusive {
+		return totalInputTokens >= pricing.LongContextInputThreshold
+	}
 	return totalInputTokens > pricing.LongContextInputThreshold
 }
 

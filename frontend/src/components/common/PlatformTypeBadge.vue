@@ -82,8 +82,8 @@ interface Props {
 const props = defineProps<Props>()
 
 const platformLabel = computed(() => {
-  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') return 'Kimi'
-  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') return '智谱 GLM'
+  if (props.platform === 'kimi' || (props.platform === 'openai' && props.compatibleProvider === 'kimi')) return 'Kimi'
+  if (props.platform === 'zhipu' || (props.platform === 'openai' && props.compatibleProvider === 'zhipu')) return '智谱 GLM'
   if (props.platform === 'anthropic') return 'Anthropic'
   if (props.platform === 'openai') return 'OpenAI'
   if (props.platform === 'antigravity') return 'Antigravity'
@@ -134,10 +134,10 @@ const planLabel = computed(() => {
 })
 
 const platformClass = computed(() => {
-  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') {
+  if (props.platform === 'kimi' || (props.platform === 'openai' && props.compatibleProvider === 'kimi')) {
     return 'bg-gray-100 text-gray-950 dark:bg-gray-100 dark:text-gray-950'
   }
-  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') {
+  if (props.platform === 'zhipu' || (props.platform === 'openai' && props.compatibleProvider === 'zhipu')) {
     return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
   if (props.platform === 'anthropic') {
@@ -156,10 +156,10 @@ const platformClass = computed(() => {
 })
 
 const typeClass = computed(() => {
-  if (props.platform === 'openai' && props.compatibleProvider === 'kimi') {
+  if (props.platform === 'kimi' || (props.platform === 'openai' && props.compatibleProvider === 'kimi')) {
     return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
   }
-  if (props.platform === 'openai' && props.compatibleProvider === 'zhipu') {
+  if (props.platform === 'zhipu' || (props.platform === 'openai' && props.compatibleProvider === 'zhipu')) {
     return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
   if (props.platform === 'anthropic') {

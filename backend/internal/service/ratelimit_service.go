@@ -78,6 +78,7 @@ const (
 	openAI403CooldownMinutesDefault = 10
 	openAI403DisableThreshold       = 3
 	openAI403CounterWindowMinutes   = 180
+	kimiQuota403DefaultCooldown     = 5 * time.Hour
 )
 
 // NewRateLimitService 创建RateLimitService实例
@@ -360,7 +361,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			upstreamMsg,
 			truncateForLog(responseBody, 1024),
 		)
-		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
+		shouldDisable = s.handle403(ctx, account, headers, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
 		shouldDisable = false
@@ -792,13 +793,17 @@ func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody 
 
 // handle403 处理 403 Forbidden 错误
 // Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
+// Kimi 的额度型 403 保持账号 active，仅设置临时限流，保证 OAuth token 继续刷新；
 // 其他平台保持原有 SetError 行为。
-func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+func (s *RateLimitService) handle403(ctx context.Context, account *Account, headers http.Header, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
 	}
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
+	}
+	if account.IsKimi() && isKimiQuotaLimitError(upstreamMsg, responseBody) {
+		return s.handleKimiQuota403(ctx, account, headers, responseBody)
 	}
 	// 非 Antigravity 平台：保持原有行为
 	msg := buildForbiddenErrorMessage(
@@ -809,6 +814,40 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	)
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+func isKimiQuotaLimitError(upstreamMsg string, responseBody []byte) bool {
+	combined := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + strings.TrimSpace(string(responseBody)))
+	return strings.Contains(combined, "usage limit") &&
+		(strings.Contains(combined, "reached") || strings.Contains(combined, "exhausted"))
+}
+
+func (s *RateLimitService) handleKimiQuota403(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
+	now := time.Now()
+	resetAt := now.Add(kimiQuota403DefaultCooldown)
+	resetSource := "default_5h"
+	if headerReset := parseRetryAfterResetTime(headers, now); headerReset != nil && headerReset.After(now) {
+		resetAt = *headerReset
+		resetSource = "retry_after"
+	} else if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
+		if bodyReset := time.Unix(*resetUnix, 0); bodyReset.After(now) {
+			resetAt = bodyReset
+			resetSource = "response_body"
+		}
+	}
+
+	s.notifyAccountSchedulingBlocked(account, resetAt, "kimi_quota_403")
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+		slog.Warn("kimi_quota_403_set_rate_limited_failed", "account_id", account.ID, "error", err)
+		return false
+	}
+	slog.Info(
+		"kimi_quota_403_rate_limited",
+		"account_id", account.ID,
+		"reset_at", resetAt,
+		"reset_source", resetSource,
+	)
+	return false
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {

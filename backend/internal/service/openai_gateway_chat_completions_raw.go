@@ -106,6 +106,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
+	strippedBody, stripErr := stripKimiServiceTierForUpstream(account, upstreamBody)
+	if stripErr != nil {
+		return nil, fmt.Errorf("strip unsupported Kimi service_tier: %w", stripErr)
+	}
+	upstreamBody = strippedBody
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
@@ -220,6 +225,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		result.UpstreamEndpoint = grokChatRawEndpoint
 	}
 	return result, forwardErr
+}
+
+func stripKimiServiceTierForUpstream(account *Account, body []byte) ([]byte, error) {
+	if account == nil || (!account.IsKimi() && !account.IsZhipu()) || !gjson.GetBytes(body, "service_tier").Exists() {
+		return body, nil
+	}
+	return sjson.DeleteBytes(body, "service_tier")
 }
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {

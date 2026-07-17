@@ -16,6 +16,9 @@ const (
 // Anthropic API-key accounts. Missing or invalid values keep the historical
 // x-api-key behavior.
 func (a *Account) GetAnthropicAPIKeyAuthScheme() string {
+	if a != nil && a.IsZhipuCoding() {
+		return AnthropicAPIKeyAuthSchemeAuthorizationBearer
+	}
 	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
 		return AnthropicAPIKeyAuthSchemeXAPIKey
 	}

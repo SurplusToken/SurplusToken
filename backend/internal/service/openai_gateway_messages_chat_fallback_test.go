@@ -83,7 +83,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.False(t, result.Stream)
 }
 
-func TestForwardAsAnthropic_KimiOAuthRoutesToCodingChatCompletions(t *testing.T) {
+func TestForwardAsAnthropic_KimiOAuthRoutesToNativeMessages(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"k3","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
@@ -96,19 +96,20 @@ func TestForwardAsAnthropic_KimiOAuthRoutesToCodingChatCompletions(t *testing.T)
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi","object":"chat.completion","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
+			`{"id":"msg_kimi","type":"message","role":"assistant","model":"k3","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":2}}`,
 		)),
 	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	nativeGateway := &GatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, nativeGateway: nativeGateway}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, kimiOAuthRawFallbackAccount(), body, "", "")
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "kimi_code_cli", upstream.lastReq.Header.Get("X-Msh-Platform"))
+	require.Equal(t, KimiCodeBaseURL+"/messages", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer oauth-access", getHeaderRaw(upstream.lastReq.Header, "authorization"))
+	require.Empty(t, upstream.lastReq.Header.Get("X-Msh-Platform"))
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
 }
 

@@ -37,6 +37,8 @@ export function reasoningEffortsForPlatform(platform?: string, model = ''): Reas
       return ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
     case 'anthropic':
     case 'antigravity':
+    case 'kimi':
+    case 'zhipu':
       return ['', 'low', 'medium', 'high', 'xhigh', 'max']
     case 'gemini':
       return ['', 'minimal', 'low', 'medium', 'high']

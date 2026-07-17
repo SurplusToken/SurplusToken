@@ -62,7 +62,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if err != nil {
 		return nil, err
 	}
-	if tokenType != "apikey" {
+	if tokenType != "apikey" && !(tokenType == "oauth" && account.IsKimiCode()) {
 		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
@@ -301,12 +301,25 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 ) (*http.Request, []byte, error) {
 	targetURL := claudeAPIURL
 	baseURL := account.GetBaseURL()
+	if account.IsKimiCode() {
+		baseURL = strings.TrimSpace(account.GetCredential("base_url"))
+	} else if account.IsZhipuCoding() {
+		baseURL = account.GetZhipuAnthropicBaseURL()
+	}
 	if baseURL != "" {
 		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {
 			return nil, nil, err
 		}
-		targetURL = validatedURL + "/v1/messages?beta=true"
+		if account.IsKimiCode() || account.IsZhipuCoding() {
+			targetURL = strings.TrimRight(validatedURL, "/")
+			if !strings.HasSuffix(targetURL, "/v1") {
+				targetURL += "/v1"
+			}
+			targetURL += "/messages"
+		} else {
+			targetURL = validatedURL + "/v1/messages?beta=true"
+		}
 	}
 
 	// 能力维度 body sanitize：透传路径上 anthropic-beta header 原样透传客户端值，
@@ -347,7 +360,11 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
 	req.Header.Del("cookie")
-	setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+	if account.IsKimiCode() && account.Type == AccountTypeOAuth {
+		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
+	} else {
+		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+	}
 
 	if getHeaderRaw(req.Header, "content-type") == "" {
 		setHeaderRaw(req.Header, "content-type", "application/json")

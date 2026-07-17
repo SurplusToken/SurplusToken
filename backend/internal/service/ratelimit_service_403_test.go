@@ -19,6 +19,20 @@ type runtimeBlockRecorder struct {
 	clearedIDs []int64
 }
 
+type kimi403AccountRepoStub struct {
+	rateLimitAccountRepoStub
+	rateLimitCalls int
+	rateLimitID    int64
+	rateLimitReset time.Time
+}
+
+func (r *kimi403AccountRepoStub) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
+	r.rateLimitCalls++
+	r.rateLimitID = id
+	r.rateLimitReset = resetAt
+	return nil
+}
+
 func (r *runtimeBlockRecorder) BlockAccountScheduling(account *Account, until time.Time, reason string) {
 	r.accounts = append(r.accounts, account)
 	r.until = append(r.until, until)
@@ -85,4 +99,65 @@ func TestRateLimitService_HandleUpstreamError_OpenAI403ThresholdDisables(t *test
 	require.Equal(t, 0, repo.tempCalls)
 	require.Contains(t, repo.lastErrorMsg, "workspace forbidden by policy")
 	require.Contains(t, repo.lastErrorMsg, "consecutive_403=3/3")
+}
+
+func TestRateLimitService_HandleUpstreamError_KimiQuota403RateLimitsWithoutDisabling(t *testing.T) {
+	repo := &kimi403AccountRepoStub{}
+	blocker := &runtimeBlockRecorder{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAccountRuntimeBlocker(blocker)
+	account := &Account{ID: 303, Platform: PlatformKimi, Type: AccountTypeOAuth}
+	before := time.Now()
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"You've reached your usage limit for this billing cycle."}}`),
+	)
+
+	require.False(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.Equal(t, account.ID, repo.rateLimitID)
+	require.WithinDuration(t, before.Add(5*time.Hour), repo.rateLimitReset, time.Second)
+	require.Len(t, blocker.accounts, 1)
+	require.Equal(t, "kimi_quota_403", blocker.reasons[0])
+}
+
+func TestRateLimitService_HandleUpstreamError_KimiQuota403HonorsRetryAfter(t *testing.T) {
+	repo := &kimi403AccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 304, Platform: PlatformKimi, Type: AccountTypeOAuth}
+	before := time.Now()
+
+	service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{"Retry-After": []string{"90"}},
+		[]byte(`{"error":{"message":"You've reached your usage limit for this period."}}`),
+	)
+
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.WithinDuration(t, before.Add(90*time.Second), repo.rateLimitReset, time.Second)
+}
+
+func TestRateLimitService_HandleUpstreamError_KimiNonQuota403StillDisables(t *testing.T) {
+	repo := &kimi403AccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 305, Platform: PlatformKimi, Type: AccountTypeOAuth}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"Access terminated."}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.rateLimitCalls)
 }

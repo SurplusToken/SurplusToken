@@ -2618,6 +2618,15 @@ const isSparkShadow = computed(() => props.account?.parent_account_id != null)
 const modelWhitelistPlatform = computed(() => {
   const account = props.account
   if (!account) return 'anthropic'
+  if (account.platform === 'kimi') {
+    const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS.kimi
+    return account.type === 'oauth'
+      ? preset.oauthModelCatalogPlatform || preset.modelCatalogPlatform
+      : preset.modelCatalogPlatform
+  }
+  if (account.platform === 'zhipu') {
+    return OPENAI_COMPATIBLE_PROVIDER_PRESETS.zhipu.modelCatalogPlatform
+  }
   if (account.platform !== 'openai') return account.platform
 
   const provider = account.extra?.openai_compatible_provider
@@ -2634,6 +2643,8 @@ const modelWhitelistPlatform = computed(() => {
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === 'kimi') return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === 'zhipu') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'grok') return ''
   return t('admin.accounts.baseUrlHint')
@@ -3090,6 +3101,10 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
+  if (props.account?.platform === 'kimi') {
+    return props.account.type === 'oauth' ? 'https://api.kimi.com/coding/v1' : 'https://api.moonshot.cn/v1'
+  }
+  if (props.account?.platform === 'zhipu') return 'https://open.bigmodel.cn/api/coding/paas/v4'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   return 'https://api.anthropic.com'
@@ -3248,7 +3263,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
-  if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
+  if ((newAccount.platform === 'openai' || newAccount.platform === 'kimi' || newAccount.platform === 'zhipu') && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     // plan_type 手动覆盖仅 OAuth 有实际调度语义(IsOpenAIChatGPTSubscription 要求 oauth),故只对 oauth 回填
     editPlanType.value = newAccount.type === 'oauth'
@@ -3390,6 +3405,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
+        : newAccount.platform === 'kimi'
+          ? 'https://api.moonshot.cn/v1'
+        : newAccount.platform === 'zhipu'
+          ? 'https://open.bigmodel.cn/api/coding/paas/v4'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
@@ -3468,6 +3487,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
+        : newAccount.platform === 'kimi'
+          ? 'https://api.kimi.com/coding/v1'
+        : newAccount.platform === 'zhipu'
+          ? 'https://open.bigmodel.cn/api/coding/paas/v4'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
@@ -3476,7 +3499,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts
-    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
+    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok' || newAccount.platform === 'kimi' || newAccount.platform === 'zhipu') && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -4025,8 +4048,10 @@ const handleSubmit = async () => {
       } else if (currentCredentials.model_mapping) {
         newCredentials.model_mapping = currentCredentials.model_mapping
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === 'openai' || props.account.platform === 'kimi' || props.account.platform === 'zhipu') {
         applyOpenAIEndpointCapabilities(newCredentials)
+      }
+      if (props.account.platform === 'openai') {
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
           newCredentials.compact_model_mapping = compactModelMapping
@@ -4216,7 +4241,7 @@ const handleSubmit = async () => {
     }
 
     // OpenAI/Grok OAuth: persist model mapping to credentials
-    if ((props.account.platform === 'openai' || props.account.platform === 'grok') && props.account.type === 'oauth') {
+    if ((props.account.platform === 'openai' || props.account.platform === 'grok' || props.account.platform === 'kimi') && props.account.type === 'oauth') {
       const currentCredentials = isSparkShadow.value
         ? {}
         : (updatePayload.credentials as Record<string, unknown>) ||

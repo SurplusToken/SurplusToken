@@ -605,22 +605,72 @@ func (a *Account) IsGrokOAuth() bool {
 }
 
 func (a *Account) OpenAICompatibleProvider() string {
-	if a == nil || a.Platform != PlatformOpenAI {
+	if a == nil {
+		return ""
+	}
+	if a.Platform == PlatformKimi {
+		return "kimi"
+	}
+	if a.Platform == PlatformZhipu {
+		return "zhipu"
+	}
+	if a.Platform != PlatformOpenAI {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(a.getExtraString("openai_compatible_provider")))
 }
 
 func (a *Account) IsKimi() bool {
-	return a.OpenAICompatibleProvider() == "kimi"
+	return a != nil && (a.Platform == PlatformKimi || a.OpenAICompatibleProvider() == "kimi")
+}
+
+func (a *Account) IsZhipu() bool {
+	return a != nil && (a.Platform == PlatformZhipu || a.OpenAICompatibleProvider() == "zhipu")
+}
+
+// IsZhipuCoding reports whether this account uses GLM Coding Plan's dedicated
+// endpoint. Coding Plan supports OpenAI Chat Completions and Anthropic Messages
+// natively on separate base URLs.
+func (a *Account) IsZhipuCoding() bool {
+	if a == nil || !a.IsZhipu() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
+	if err != nil || parsed == nil || !strings.EqualFold(parsed.Hostname(), "open.bigmodel.cn") {
+		return false
+	}
+	path := strings.ToLower(strings.Trim(parsed.Path, "/"))
+	return strings.Contains(path, "api/coding/") || strings.HasPrefix(path, "api/anthropic")
+}
+
+func (a *Account) GetZhipuAnthropicBaseURL() string {
+	if !a.IsZhipuCoding() {
+		return ""
+	}
+	return "https://open.bigmodel.cn/api/anthropic"
 }
 
 func (a *Account) IsKimiOAuth() bool {
 	return a.IsKimi() && a.Type == AccountTypeOAuth
 }
 
+// IsKimiCode reports whether the account targets the subscription-backed Kimi
+// Code API. Unlike the pay-as-you-go Kimi platform API, Kimi Code exposes both
+// OpenAI Chat Completions and Anthropic Messages natively.
+func (a *Account) IsKimiCode() bool {
+	if a == nil || !a.IsKimi() {
+		return false
+	}
+	if a.Type == AccountTypeOAuth {
+		return true
+	}
+	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
+	return err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "api.kimi.com") &&
+		strings.Contains(strings.Trim(parsed.Path, "/"), "coding")
+}
+
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.Platform == PlatformKimi || a.Platform == PlatformZhipu)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1607,7 +1657,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() && !a.IsKimi() && !a.IsZhipu() {
 		return ""
 	}
 	if a.Type == AccountTypeAPIKey || a.IsKimiOAuth() {
@@ -1616,11 +1666,20 @@ func (a *Account) GetOpenAIBaseURL() string {
 			return baseURL
 		}
 	}
+	if a.IsKimiOAuth() {
+		return KimiCodeBaseURL
+	}
+	if a.IsKimi() {
+		return "https://api.moonshot.cn/v1"
+	}
+	if a.IsZhipu() {
+		return "https://open.bigmodel.cn/api/coding/paas/v4"
+	}
 	return "https://api.openai.com"
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() && !a.IsKimi() && !a.IsZhipu() {
 		return ""
 	}
 	return a.GetCredential("access_token")
@@ -1733,7 +1792,7 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if !a.IsOpenAIApiKey() {
+	if a == nil || a.Type != AccountTypeAPIKey || (!a.IsOpenAI() && !a.IsKimi() && !a.IsZhipu()) {
 		return ""
 	}
 	return a.GetCredential("api_key")
@@ -2145,6 +2204,9 @@ func (a *Account) IsOpenAIOAuthPassthroughEnabled() bool {
 // 字段：accounts.extra.anthropic_passthrough。
 // 字段缺失或类型不正确时，按 false（关闭）处理。
 func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
+	if a != nil && a.IsKimiCode() {
+		return true
+	}
 	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
 		return false
 	}

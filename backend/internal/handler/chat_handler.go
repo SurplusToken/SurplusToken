@@ -321,7 +321,7 @@ func chatProtocolForPlatform(platform string) (chatGatewayProtocol, bool) {
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok:
 		return chatGatewayProtocolResponses, true
-	case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity:
+	case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity, service.PlatformKimi, service.PlatformZhipu:
 		return chatGatewayProtocolMessages, true
 	default:
 		return "", false
@@ -340,7 +340,7 @@ func chatReasoningEffortSupported(platform, model, effort string) bool {
 		return effort == "none" || effort == "minimal" || effort == "low" || effort == "medium" || effort == "high" || effort == "xhigh" || effort == "max" || effort == "ultra"
 	case service.PlatformGrok:
 		return effort == "none" || effort == "minimal" || effort == "low" || effort == "medium" || effort == "high" || effort == "xhigh" || effort == "max"
-	case service.PlatformAnthropic, service.PlatformAntigravity:
+	case service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformKimi, service.PlatformZhipu:
 		return effort == "low" || effort == "medium" || effort == "high" || effort == "xhigh" || effort == "max"
 	case service.PlatformGemini:
 		return effort == "minimal" || effort == "low" || effort == "medium" || effort == "high"

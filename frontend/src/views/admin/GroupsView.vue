@@ -1386,9 +1386,9 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Messages 调度配置（OpenAI、Kimi 和智谱平台） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="createForm.platform === 'openai' || createForm.platform === 'kimi' || createForm.platform === 'zhipu'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2928,9 +2928,9 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Messages 调度配置（OpenAI、Kimi 和智谱平台） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="editForm.platform === 'openai' || editForm.platform === 'kimi' || editForm.platform === 'zhipu'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3811,6 +3811,8 @@ const platformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "kimi", label: "Kimi" },
+  { value: "zhipu", label: "智谱 GLM" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -3820,6 +3822,8 @@ const platformFilterOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "kimi", label: "Kimi" },
+  { value: "zhipu", label: "智谱 GLM" },
 ]);
 
 const editStatusOptions = computed(() => [
@@ -4038,7 +4042,7 @@ const createForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
-  // OpenAI Messages 调度配置（仅 openai 平台使用）
+  // Messages 调度配置（OpenAI 和 Kimi 平台使用）
   allow_messages_dispatch: false,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
@@ -4386,7 +4390,7 @@ const editForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
-  // OpenAI Messages 调度配置（仅 openai 平台使用）
+  // Messages 调度配置（OpenAI 和 Kimi 平台使用）
   allow_messages_dispatch: false,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
@@ -4857,7 +4861,7 @@ const handleCreateGroup = async () => {
         createForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        createForm.platform === "openai"
+        ["openai", "kimi", "zhipu"].includes(createForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -5049,7 +5053,7 @@ const handleUpdateGroup = async () => {
         editForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        editForm.platform === "openai"
+        ["openai", "kimi", "zhipu"].includes(editForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -5218,10 +5222,22 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (newVal === "kimi") {
+      createForm.allow_messages_dispatch = true;
+      createForm.opus_mapped_model = "kimi-for-coding";
+      createForm.sonnet_mapped_model = "kimi-for-coding";
+      createForm.haiku_mapped_model = "kimi-for-coding";
+      createForm.exact_model_mappings = [];
+    } else if (newVal === "zhipu") {
+      createForm.allow_messages_dispatch = true;
+      createForm.opus_mapped_model = "glm-5.2";
+      createForm.sonnet_mapped_model = "glm-5.2";
+      createForm.haiku_mapped_model = "glm-4.7";
+      createForm.exact_model_mappings = [];
+    } else if (newVal !== "openai") {
       resetMessagesDispatchFormState(createForm);
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!["openai", "antigravity", "anthropic", "gemini", "kimi", "zhipu"].includes(newVal)) {
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
@@ -5251,10 +5267,20 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (newVal === "kimi") {
+      editForm.allow_messages_dispatch = true;
+      editForm.opus_mapped_model = "kimi-for-coding";
+      editForm.sonnet_mapped_model = "kimi-for-coding";
+      editForm.haiku_mapped_model = "kimi-for-coding";
+    } else if (newVal === "zhipu") {
+      editForm.allow_messages_dispatch = true;
+      editForm.opus_mapped_model = "glm-5.2";
+      editForm.sonnet_mapped_model = "glm-5.2";
+      editForm.haiku_mapped_model = "glm-4.7";
+    } else if (newVal !== "openai") {
       resetMessagesDispatchFormState(editForm);
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!["openai", "antigravity", "anthropic", "gemini", "kimi", "zhipu"].includes(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
     }
@@ -5286,7 +5312,7 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!['openai', 'kimi', 'zhipu'].includes(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
     }

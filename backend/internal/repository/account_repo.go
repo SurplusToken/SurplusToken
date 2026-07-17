@@ -1019,7 +1019,7 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 		WHERE deleted_at IS NULL
 			AND status = 'active'
 			AND type IN ('oauth', 'setup-token')
-			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity')
+			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'kimi')
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''
 			AND (

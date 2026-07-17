@@ -205,7 +205,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.Model,
 	)
 	serviceTier := ""
-	if result.ServiceTier != nil {
+	// Kimi accepts OpenAI-compatible request bodies, but its public pricing has no
+	// OpenAI service-tier rates. Keep the tier on the usage log for diagnostics,
+	// while always billing Kimi traffic at the model's standard token prices.
+	if result.ServiceTier != nil && (account == nil || (!account.IsKimi() && !account.IsZhipu())) {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier, baseMultiplier, tokens, serviceTier)

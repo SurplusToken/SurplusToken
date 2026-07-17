@@ -33,7 +33,15 @@ func RegisterGatewayRoutes(
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformGrok:
+		case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu:
+			return true
+		default:
+			return false
+		}
+	}
+	isOpenAIMessagesBridgePlatform := func(c *gin.Context) bool {
+		switch getGroupPlatform(c) {
+		case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu:
 			return true
 		default:
 			return false
@@ -111,7 +119,7 @@ func RegisterGatewayRoutes(
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
-			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			if isOpenAIMessagesBridgePlatform(c) {
 				h.OpenAIGateway.Messages(c)
 				return
 			}

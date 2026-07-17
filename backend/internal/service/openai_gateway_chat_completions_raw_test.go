@@ -79,6 +79,19 @@ func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {
 	}
 }
 
+func TestStripKimiServiceTierForUpstream(t *testing.T) {
+	body := []byte(`{"model":"k3","service_tier":"priority","messages":[]}`)
+
+	stripped, err := stripKimiServiceTierForUpstream(&Account{Platform: PlatformKimi}, body)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(stripped, "service_tier").Exists())
+	require.Equal(t, "k3", gjson.GetBytes(stripped, "model").String())
+
+	preserved, err := stripKimiServiceTierForUpstream(&Account{Platform: PlatformOpenAI}, body)
+	require.NoError(t, err)
+	require.Equal(t, "priority", gjson.GetBytes(preserved, "service_tier").String())
+}
+
 func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDownstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -84,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name               string             `json:"name" binding:"required"`
 	Description        string             `json:"description"`
-	Platform           string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok"`
+	Platform           string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu"`
 	RateMultiplier     float64            `json:"rate_multiplier"`
 	DynamicSharingPool bool               `json:"dynamic_sharing_pool"`
 	IsExclusive        bool               `json:"is_exclusive"`
@@ -121,7 +121,7 @@ type CreateGroupRequest struct {
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes []string `json:"supported_model_scopes"`
-	// OpenAI Messages 调度配置（仅 openai 平台使用）
+	// Messages 调度配置（openai、kimi 和 zhipu 平台使用）
 	AllowMessagesDispatch       bool                                      `json:"allow_messages_dispatch"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
@@ -138,7 +138,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name               string             `json:"name"`
 	Description        *string            `json:"description"`
-	Platform           string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok"`
+	Platform           string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu"`
 	RateMultiplier     *float64           `json:"rate_multiplier"`
 	DynamicSharingPool *bool              `json:"dynamic_sharing_pool"`
 	IsExclusive        *bool              `json:"is_exclusive"`
@@ -176,7 +176,7 @@ type UpdateGroupRequest struct {
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes *[]string `json:"supported_model_scopes"`
-	// OpenAI Messages 调度配置（仅 openai 平台使用）
+	// Messages 调度配置（openai、kimi 和 zhipu 平台使用）
 	AllowMessagesDispatch       *bool                                      `json:"allow_messages_dispatch"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`

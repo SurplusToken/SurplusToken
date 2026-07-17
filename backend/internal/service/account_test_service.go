@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/zhipu"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -184,7 +185,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
-	if account.IsOpenAI() {
+	if account.IsOpenAI() || account.IsKimi() || account.IsZhipu() {
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
@@ -509,6 +510,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			testModelID = "kimi-for-coding"
 		} else if account.IsKimi() {
 			testModelID = "kimi-k3"
+		} else if account.IsZhipu() {
+			testModelID = zhipu.DefaultTestModel
 		} else {
 			testModelID = openai.DefaultTestModel
 		}
@@ -548,17 +551,17 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	var apiURL string
 	var isOAuth bool
 
-	if credentialAccount.IsKimi() {
+	if credentialAccount.IsKimi() || credentialAccount.IsZhipu() {
 		authToken = credentialAccount.GetOpenAIAccessToken()
 		if credentialAccount.Type == AccountTypeAPIKey {
 			authToken = credentialAccount.GetOpenAIApiKey()
 		}
 		if authToken == "" {
-			return s.sendErrorAndEnd(c, "No Kimi credential available")
+			return s.sendErrorAndEnd(c, "No OpenAI-compatible credential available")
 		}
 		baseURL, err := s.validateUpstreamBaseURL(credentialAccount.GetOpenAIBaseURL())
 		if err != nil {
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Kimi base URL: %s", err.Error()))
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid OpenAI-compatible base URL: %s", err.Error()))
 		}
 		return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, baseURL, authToken)
 	} else if credentialAccount.IsOAuth() {
@@ -849,8 +852,8 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 // resulting capability state on the account.
 func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account *Account, testModelID string) error {
 	ctx := c.Request.Context()
-	if account.IsKimi() {
-		return s.sendErrorAndEnd(c, "Kimi does not support the OpenAI compact endpoint")
+	if account.IsKimi() || account.IsZhipu() {
+		return s.sendErrorAndEnd(c, "This platform does not support the OpenAI compact endpoint")
 	}
 
 	authToken := ""

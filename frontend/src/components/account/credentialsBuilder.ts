@@ -37,7 +37,7 @@ export interface HeaderOverrideRow {
 
 /** 请求头覆写支持的平台（与后端 IsHeaderOverrideEligible 保持一致） */
 export function isHeaderOverridePlatform(platform: string): boolean {
-  return platform === 'anthropic' || platform === 'openai'
+  return platform === 'anthropic' || platform === 'openai' || platform === 'kimi' || platform === 'zhipu'
 }
 
 /** 禁止覆写的请求头（与后端 headerOverrideBlockedNames 保持一致） */

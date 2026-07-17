@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -958,6 +959,18 @@ func (h *AccountPoolHandler) GetAvailableModels(c *gin.Context) {
 
 	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
 	if !ok {
+		return
+	}
+	if account.IsKimi() {
+		ids := kimi.APIModelIDs()
+		if account.IsKimiCode() {
+			ids = kimi.CodeModelIDs()
+		}
+		models := make([]openai.Model, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
+		}
+		response.Success(c, models)
 		return
 	}
 

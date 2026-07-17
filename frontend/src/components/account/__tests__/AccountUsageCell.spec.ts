@@ -211,6 +211,54 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|77|300')
   })
 
+  it('Kimi OAuth 展示 5h/7d 额度条并只提供主动查询', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 25,
+        resets_at: '2026-03-08T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: null
+      },
+      seven_day: {
+        utilization: 60,
+        resets_at: '2026-03-13T12:00:00Z',
+        remaining_seconds: 7200,
+        window_stats: null
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2020,
+          platform: 'kimi',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(2020)
+    expect(wrapper.text()).toContain('5h|25|2026-03-08T12:00:00Z')
+    expect(wrapper.text()).toContain('7d|60|2026-03-13T12:00:00Z')
+    expect(wrapper.findComponent({ name: 'OpenAIQuotaResetCell' }).exists()).toBe(false)
+
+    await wrapper.get('[data-testid="kimi-usage-refresh"]').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenLastCalledWith(2020, 'active', true)
+  })
+
   it('OpenAI OAuth 有 codex 快照时仍然使用 /usage API 数据渲染', async () => {
     getUsage.mockResolvedValue({
       five_hour: {

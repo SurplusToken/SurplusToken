@@ -51,6 +51,14 @@ describe('CreateAccountModal OpenAI-compatible provider presets', () => {
     expect(badgeSource).toContain("props.compatibleProvider === 'zhipu'")
   })
 
+  it('submits Kimi and Zhipu as first-class platform values', () => {
+    expect(modalSource).toContain(
+      "form.platform = provider === 'kimi' || provider === 'zhipu' ? provider : 'openai'"
+    )
+    expect(modalSource).toContain("if (form.platform === 'zhipu') return getOpenAIProviderModelCatalog('zhipu')")
+    expect(badgeSource).toContain("props.platform === 'zhipu'")
+  })
+
   it('offers both Coding Plan OAuth and API Key authentication for Kimi', () => {
     expect(modalSource).toContain('data-testid="kimi-account-type-oauth"')
     expect(modalSource).toContain('data-testid="kimi-account-type-api-key"')

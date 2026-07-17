@@ -152,6 +152,7 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        kimiCode: 'Kimi Code',
         opencode: 'OpenCode'
       },
       antigravity: {
@@ -174,6 +175,12 @@ export default {
         configTomlHint: '如已有 config.toml，请先备份再合并此模型配置。保存后运行 grok inspect 验证生效配置。',
         note: '保存为 ~/.grok/config.toml，然后运行 grok inspect，并在 /model 中选择 sub2api-grok。',
         noteWindows: '保存为 %USERPROFILE%\\.grok\\config.toml，然后运行 grok inspect，并在 /model 中选择 sub2api-grok。'
+      },
+      kimi: {
+        description: '配置 Kimi Code，通过当前 SurplusToken Kimi 分组使用 K3 与 K2.7 Coding 模型。',
+        configTomlHint: '配置文件会以明文保存 API 密钥；如文件已存在，请先备份并合并配置。',
+        environmentHint: 'KIMI_MODEL_* 仅在当前终端临时生效，并且一次只配置默认的 K3 模型。',
+        note: '默认配置路径为 ~/.kimi-code/config.toml；Windows 使用 %USERPROFILE%\\.kimi-code\\config.toml。保存后运行 kimi。'
       },
       opencode: {
         title: 'OpenCode 配置示例',
@@ -732,6 +739,7 @@ export default {
       openai: 'OpenAI',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      kimi: 'Kimi',
     },
     statuses: {
       active: '启用',

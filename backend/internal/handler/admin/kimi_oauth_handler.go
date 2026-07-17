@@ -118,7 +118,7 @@ func (h *KimiOAuthHandler) CreateAccount(c *gin.Context) {
 		"openai_responses_mode":      "force_chat_completions",
 	}
 	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name: name, Notes: req.Notes, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Name: name, Notes: req.Notes, Platform: service.PlatformKimi, Type: service.AccountTypeOAuth,
 		Credentials: credentials,
 		Extra:       extra,
 		ProxyID:     req.ProxyID, Concurrency: req.Concurrency, Priority: req.Priority,

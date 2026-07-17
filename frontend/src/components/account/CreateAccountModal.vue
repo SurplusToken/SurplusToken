@@ -116,7 +116,7 @@
             @click="selectOpenAICompatibleProvider('kimi')"
             :class="[
               'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'openai' && openAICompatibleProvider === 'kimi'
+              form.platform === 'kimi'
                 ? 'bg-white text-gray-950 shadow-sm dark:bg-dark-600 dark:text-white'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -131,7 +131,7 @@
             @click="selectOpenAICompatibleProvider('zhipu')"
             :class="[
               'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'openai' && openAICompatibleProvider === 'zhipu'
+              form.platform === 'zhipu'
                 ? 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -387,7 +387,7 @@
       </div>
 
       <!-- Account Type Selection (Kimi Code) -->
-      <div v-if="form.platform === 'openai' && openAICompatibleProvider === 'kimi'">
+      <div v-if="form.platform === 'kimi'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div
           class="mt-2 grid gap-3"
@@ -3146,7 +3146,7 @@
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
       <div
-        v-if="form.platform === 'openai' && openAICompatibleProvider === 'kimi'"
+        v-if="form.platform === 'kimi'"
         class="space-y-5"
         data-testid="kimi-device-authorization"
       >
@@ -3621,7 +3621,7 @@ const { t } = useI18n()
 const authStore = useAuthStore()
 
 const oauthStepTitle = computed(() => {
-  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return t('admin.accounts.oauth.kimi.title')
+  if (form.platform === 'kimi') return t('admin.accounts.oauth.kimi.title')
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
@@ -3686,7 +3686,7 @@ const kimiOAuth = useKimiOAuth() // For Kimi Code device OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
-  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.authUrl.value
+  if (form.platform === 'kimi') return kimiOAuth.authUrl.value
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
@@ -3695,7 +3695,7 @@ const currentAuthUrl = computed(() => {
 })
 
 const currentSessionId = computed(() => {
-  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.sessionId.value
+  if (form.platform === 'kimi') return kimiOAuth.sessionId.value
   if (form.platform === 'openai') return openaiOAuth.sessionId.value
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
@@ -3704,7 +3704,7 @@ const currentSessionId = computed(() => {
 })
 
 const currentOAuthLoading = computed(() => {
-  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.loading.value || kimiOAuth.polling.value
+  if (form.platform === 'kimi') return kimiOAuth.loading.value || kimiOAuth.polling.value
   if (form.platform === 'openai') return openaiOAuth.loading.value
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
@@ -3713,7 +3713,7 @@ const currentOAuthLoading = computed(() => {
 })
 
 const currentOAuthError = computed(() => {
-  if (form.platform === 'openai' && openAICompatibleProvider.value === 'kimi') return kimiOAuth.error.value
+  if (form.platform === 'kimi') return kimiOAuth.error.value
   if (form.platform === 'openai') return openaiOAuth.error.value
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
@@ -4142,6 +4142,8 @@ const getOpenAIProviderModelCatalog = (
 }
 
 const modelWhitelistPlatform = computed(() => {
+  if (form.platform === 'kimi') return getOpenAIProviderModelCatalog('kimi')
+  if (form.platform === 'zhipu') return getOpenAIProviderModelCatalog('zhipu')
   if (form.platform !== 'openai') return form.platform
   return getOpenAIProviderModelCatalog(openAICompatibleProvider.value)
 })
@@ -4149,7 +4151,7 @@ const modelWhitelistPlatform = computed(() => {
 const selectOpenAICompatibleProvider = (provider: OpenAICompatibleProvider) => {
   const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
   openAICompatibleProvider.value = provider
-  form.platform = 'openai'
+  form.platform = provider === 'kimi' || provider === 'zhipu' ? provider : 'openai'
 
   if (provider === 'kimi') {
     accountCategory.value = 'oauth-based'
@@ -4283,7 +4285,9 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
-    if (newPlatform !== 'openai') {
+    if (newPlatform === 'kimi' || newPlatform === 'zhipu') {
+      openAICompatibleProvider.value = newPlatform
+    } else if (newPlatform !== 'openai') {
       openAICompatibleProvider.value = 'openai'
     }
     const openAIPreset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[openAICompatibleProvider.value]
@@ -4291,7 +4295,7 @@ watch(
     const openAIModelCatalog = getOpenAIProviderModelCatalog(openAICompatibleProvider.value)
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
+      (newPlatform === 'openai' || newPlatform === 'kimi' || newPlatform === 'zhipu')
         ? openAIBaseUrl
         : newPlatform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -4299,7 +4303,7 @@ watch(
             ? 'https://api.x.ai/v1'
             : 'https://api.anthropic.com'
     // Clear model-related settings
-    allowedModels.value = newPlatform === 'openai'
+    allowedModels.value = newPlatform === 'openai' || newPlatform === 'kimi' || newPlatform === 'zhipu'
       ? [...getModelsByPlatform(openAIModelCatalog)]
       : []
     modelMappings.value = []
@@ -4354,7 +4358,7 @@ watch(
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
     }
-    if (newPlatform !== 'openai') {
+    if (newPlatform !== 'openai' && newPlatform !== 'kimi' && newPlatform !== 'zhipu') {
       openaiPassthroughEnabled.value = false
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -4408,7 +4412,7 @@ watch(
 watch(
   [accountCategory, openAICompatibleProvider],
   ([category, provider], [previousCategory, previousProvider]) => {
-    if (form.platform !== 'openai' || provider !== 'kimi') return
+    if (form.platform !== 'kimi' || provider !== 'kimi') return
     if (category === previousCategory && provider === previousProvider) return
 
     const modelCatalog = getOpenAIProviderModelCatalog(provider, category)
@@ -4851,7 +4855,7 @@ const handleClose = () => {
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'openai') {
+  if (form.platform !== 'openai' && form.platform !== 'kimi' && form.platform !== 'zhipu') {
     return base
   }
 
@@ -5187,11 +5191,15 @@ const handleSubmit = async () => {
   const defaultBaseUrl =
     form.platform === 'openai'
       ? 'https://api.openai.com'
-      : form.platform === 'gemini'
-        ? 'https://generativelanguage.googleapis.com'
-        : form.platform === 'grok'
-          ? 'https://api.x.ai/v1'
-          : 'https://api.anthropic.com'
+      : form.platform === 'kimi'
+        ? 'https://api.moonshot.cn/v1'
+        : form.platform === 'zhipu'
+          ? 'https://open.bigmodel.cn/api/coding/paas/v4'
+          : form.platform === 'gemini'
+            ? 'https://generativelanguage.googleapis.com'
+            : form.platform === 'grok'
+              ? 'https://api.x.ai/v1'
+              : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
@@ -5209,7 +5217,7 @@ const handleSubmit = async () => {
       credentials.model_mapping = modelMapping
     }
   }
-  if (form.platform === 'openai') {
+  if (form.platform === 'openai' || form.platform === 'kimi' || form.platform === 'zhipu') {
     applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
