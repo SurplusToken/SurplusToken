@@ -120,27 +120,41 @@
                   <span class="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-dark-300">
                     <span>{{ t('accountPool.dynamicPools.rate') }}</span>
                     <strong class="font-mono font-semibold text-gray-800 dark:text-gray-100">{{ dynamicPoolRateRange(pool) }}</strong>
-                    <span v-if="pool.models.length">· {{ dynamicPoolModelSummary(pool) }}</span>
                   </span>
                   <Icon name="chevronDown" size="sm" class="justify-self-end text-gray-400 transition-transform" :class="expandedDynamicPools.has(pool.group_id) ? 'rotate-180' : ''" />
                 </button>
 
-                <div v-if="expandedDynamicPools.has(pool.group_id)" class="mt-2 grid gap-3 bg-gray-50 px-3 py-2.5 dark:bg-dark-900/40 md:grid-cols-2">
-                  <div>
-                    <div class="text-[11px] font-medium text-gray-500 dark:text-dark-300">{{ t('accountPool.dynamicPools.models') }}</div>
-                    <div class="mt-1 flex flex-wrap gap-1">
-                      <span v-for="model in pool.models" :key="model" class="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-gray-700 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-dark-100 dark:ring-dark-600">{{ model }}</span>
-                      <span v-if="pool.models.length === 0" class="text-xs text-gray-400">{{ t('accountPool.dynamicPools.modelsUnknown') }}</span>
-                    </div>
+                <div v-if="expandedDynamicPools.has(pool.group_id)" class="mt-2 overflow-hidden bg-gray-50 dark:bg-dark-900/40">
+                  <div class="grid grid-cols-[minmax(0,1fr)_5rem_5rem] gap-3 border-b border-gray-200 px-3 py-1.5 text-[11px] font-medium text-gray-500 dark:border-dark-700 dark:text-dark-300">
+                    <span>{{ t('accountPool.dynamicPools.account') }}</span>
+                    <span class="text-right">{{ t('accountPool.dynamicPools.rate') }}</span>
+                    <span class="text-right">{{ t('accountPool.dynamicPools.availability') }}</span>
                   </div>
-                  <div>
-                    <div class="text-[11px] font-medium text-gray-500 dark:text-dark-300">{{ t('accountPool.dynamicPools.sources') }}</div>
-                    <div class="mt-1 flex flex-wrap gap-1.5">
-                      <span v-for="source in pool.sources" :key="source.kind" class="text-xs text-gray-700 dark:text-dark-100">
-                        {{ dynamicPoolSourceLabel(source.kind) }} {{ source.available }}/{{ source.total }}
+                  <div v-if="pool.accounts.length === 0" class="px-3 py-3 text-xs text-gray-400">
+                    {{ t('accountPool.dynamicPools.noAccounts') }}
+                  </div>
+                  <template v-else>
+                    <div
+                      v-for="account in pool.accounts"
+                      :key="account.id"
+                      class="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-3 border-b border-gray-100 px-3 py-2 last:border-b-0 dark:border-dark-700/70"
+                    >
+                      <span class="flex min-w-0 items-center gap-2">
+                        <span class="truncate text-xs font-medium text-gray-800 dark:text-dark-100">{{ account.name || `#${account.id}` }}</span>
+                        <span v-if="account.is_mine" class="badge badge-gray shrink-0">{{ t('accountPool.mine') }}</span>
+                      </span>
+                      <span class="text-right font-mono text-xs font-semibold text-gray-800 dark:text-dark-100">
+                        {{ formatSharingRate(account.sharing_rate_multiplier) }}
+                      </span>
+                      <span class="text-right">
+                        <span :class="account.available ? 'badge badge-success' : 'badge badge-danger'">
+                          {{ account.available ? t('accountPool.dynamicPools.accountAvailable') : t('accountPool.dynamicPools.accountUnavailable') }}
+                        </span>
                       </span>
                     </div>
-                    <div class="mt-1 text-[11px] text-gray-400">{{ t('accountPool.dynamicPools.updatedAt', { time: formatRelativePoolTime(pool.updated_at) }) }}</div>
+                  </template>
+                  <div class="border-t border-gray-200 px-3 py-1.5 text-right text-[11px] text-gray-400 dark:border-dark-700">
+                    {{ t('accountPool.dynamicPools.updatedAt', { time: formatRelativePoolTime(pool.updated_at) }) }}
                   </div>
                 </div>
               </div>
@@ -2334,17 +2348,6 @@ function dynamicPoolRateRange(pool: UserDynamicPoolSummary): string {
   const min = formatSharingRate(pool.min_sharing_rate)
   const max = formatSharingRate(pool.max_sharing_rate)
   return min === max ? min : `${min} - ${max}`
-}
-
-function dynamicPoolModelSummary(pool: UserDynamicPoolSummary): string {
-  if (pool.models.length <= 2) return pool.models.join(', ')
-  return `${pool.models.slice(0, 2).join(', ')} +${pool.models.length - 2}`
-}
-
-function dynamicPoolSourceLabel(kind: string): string {
-  const key = `accountPool.dynamicPools.sourceKinds.${kind}`
-  const translated = t(key)
-  return translated === key ? kind.replace(/_/g, ' ') : translated
 }
 
 function formatRelativePoolTime(value: string): string {

@@ -334,6 +334,14 @@ func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	require.Contains(t, summary.Models, "k3")
 	require.Contains(t, summary.Models, "kimi-k3")
 	require.Len(t, summary.Sources, 3)
+	require.Len(t, summary.Accounts, 3)
+	require.Equal(t, int64(1), summary.Accounts[0].ID)
+	require.True(t, summary.Accounts[0].Available)
+	require.True(t, summary.Accounts[0].IsMine)
+	require.Equal(t, rateLow, summary.Accounts[0].SharingRateMultiplier)
+	require.Equal(t, int64(3), summary.Accounts[2].ID)
+	require.False(t, summary.Accounts[2].Available)
+	require.Equal(t, 1.0, summary.Accounts[2].SharingRateMultiplier)
 }
 
 func TestAccountServiceListOwnedUserOAuthAccountsFiltersOwnerPlatformAndType(t *testing.T) {

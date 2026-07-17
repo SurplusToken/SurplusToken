@@ -65,6 +65,14 @@ export interface UserDynamicPoolSource {
   available: number
 }
 
+export interface UserDynamicPoolAccount {
+  id: number
+  name: string
+  is_mine: boolean
+  sharing_rate_multiplier: number
+  available: boolean
+}
+
 export interface UserDynamicPoolSummary {
   group_id: number
   group_name: string
@@ -78,6 +86,7 @@ export interface UserDynamicPoolSummary {
   max_sharing_rate: number | null
   models: string[]
   sources: UserDynamicPoolSource[]
+  accounts: UserDynamicPoolAccount[]
   updated_at: string
 }
 

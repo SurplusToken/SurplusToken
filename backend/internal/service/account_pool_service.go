@@ -163,20 +163,29 @@ type UserDynamicPoolSource struct {
 	Available int    `json:"available"`
 }
 
+type UserDynamicPoolAccount struct {
+	ID                    int64   `json:"id"`
+	Name                  string  `json:"name"`
+	IsMine                bool    `json:"is_mine"`
+	SharingRateMultiplier float64 `json:"sharing_rate_multiplier"`
+	Available             bool    `json:"available"`
+}
+
 type UserDynamicPoolSummary struct {
-	GroupID           int64                   `json:"group_id"`
-	GroupName         string                  `json:"group_name"`
-	Platform          string                  `json:"platform"`
-	TotalAccounts     int                     `json:"total_accounts"`
-	AvailableAccounts int                     `json:"available_accounts"`
-	LimitedAccounts   int                     `json:"limited_accounts"`
-	MineTotal         int                     `json:"mine_total"`
-	MineAvailable     int                     `json:"mine_available"`
-	MinSharingRate    *float64                `json:"min_sharing_rate"`
-	MaxSharingRate    *float64                `json:"max_sharing_rate"`
-	Models            []string                `json:"models"`
-	Sources           []UserDynamicPoolSource `json:"sources"`
-	UpdatedAt         time.Time               `json:"updated_at"`
+	GroupID           int64                    `json:"group_id"`
+	GroupName         string                   `json:"group_name"`
+	Platform          string                   `json:"platform"`
+	TotalAccounts     int                      `json:"total_accounts"`
+	AvailableAccounts int                      `json:"available_accounts"`
+	LimitedAccounts   int                      `json:"limited_accounts"`
+	MineTotal         int                      `json:"mine_total"`
+	MineAvailable     int                      `json:"mine_available"`
+	MinSharingRate    *float64                 `json:"min_sharing_rate"`
+	MaxSharingRate    *float64                 `json:"max_sharing_rate"`
+	Models            []string                 `json:"models"`
+	Sources           []UserDynamicPoolSource  `json:"sources"`
+	Accounts          []UserDynamicPoolAccount `json:"accounts"`
+	UpdatedAt         time.Time                `json:"updated_at"`
 }
 
 type UpdateUserAccountScopeRequest struct {
@@ -315,6 +324,7 @@ func summarizeUserDynamicPool(ctx context.Context, service *AccountService, user
 		Platform:  group.Platform,
 		Models:    []string{},
 		Sources:   []UserDynamicPoolSource{},
+		Accounts:  []UserDynamicPoolAccount{},
 		UpdatedAt: updatedAt,
 	}
 	models := make(map[string]struct{})
@@ -332,12 +342,19 @@ func summarizeUserDynamicPool(ctx context.Context, service *AccountService, user
 			summary.MineTotal++
 		}
 		available := account.IsSchedulable() && (account.IsSurplusAIOwner(userID) || account.IsSurplusAIContributionProtectionSchedulable())
+		rate := accountStoredSharingRate(account)
+		summary.Accounts = append(summary.Accounts, UserDynamicPoolAccount{
+			ID:                    account.ID,
+			Name:                  account.Name,
+			IsMine:                mine,
+			SharingRateMultiplier: rate,
+			Available:             available,
+		})
 		if available {
 			summary.AvailableAccounts++
 			if mine {
 				summary.MineAvailable++
 			}
-			rate := accountStoredSharingRate(account)
 			if summary.MinSharingRate == nil || rate < *summary.MinSharingRate {
 				value := rate
 				summary.MinSharingRate = &value
@@ -372,6 +389,18 @@ func summarizeUserDynamicPool(ctx context.Context, service *AccountService, user
 		counts := sources[kind]
 		summary.Sources = append(summary.Sources, UserDynamicPoolSource{Kind: kind, Total: counts.total, Available: counts.available})
 	}
+	sort.SliceStable(summary.Accounts, func(i, j int) bool {
+		if summary.Accounts[i].Available != summary.Accounts[j].Available {
+			return summary.Accounts[i].Available
+		}
+		if summary.Accounts[i].SharingRateMultiplier != summary.Accounts[j].SharingRateMultiplier {
+			return summary.Accounts[i].SharingRateMultiplier < summary.Accounts[j].SharingRateMultiplier
+		}
+		if summary.Accounts[i].Name != summary.Accounts[j].Name {
+			return summary.Accounts[i].Name < summary.Accounts[j].Name
+		}
+		return summary.Accounts[i].ID < summary.Accounts[j].ID
+	})
 	return summary
 }
 
