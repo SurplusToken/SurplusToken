@@ -10,6 +10,16 @@
     ></iframe>
     <!-- HTML mode - SECURITY: homeContent is admin-only setting, XSS risk is acceptable -->
     <div v-else v-html="homeContent"></div>
+    <a
+      :href="docUrl"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="fixed right-4 top-4 z-30 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white/90 text-gray-600 shadow-sm backdrop-blur transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-dark-700 dark:bg-dark-800/90 dark:text-dark-300 dark:hover:bg-dark-700 dark:hover:text-white"
+      :title="t('home.viewDocs')"
+      :aria-label="t('home.viewDocs')"
+    >
+      <Icon name="book" size="md" />
+    </a>
   </div>
 
   <!-- Default Home Page -->
@@ -421,7 +431,7 @@ const appStore = useAppStore()
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'SurplusToken')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'Shared AI token gateway for internal teams')
-const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
+const docUrl = computed(() => sanitizeUrl('https://docs.surplustoken.com'))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 
 // Check if homeContent is a URL (for iframe display)

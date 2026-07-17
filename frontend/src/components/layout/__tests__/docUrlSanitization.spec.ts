@@ -14,16 +14,17 @@ describe('doc_url sanitization', () => {
     expect(headerSource).toContain("import { sanitizeUrl } from '@/utils/url'")
   })
 
-  it('AppHeader applies sanitizeUrl to docUrl', () => {
-    expect(headerSource).toContain('sanitizeUrl(appStore.docUrl)')
+  it('AppHeader uses the public SurplusToken docs URL', () => {
+    expect(headerSource).toContain("sanitizeUrl('https://docs.surplustoken.com')")
   })
 
   it('HomeView imports sanitizeUrl', () => {
     expect(homeViewSource).toContain("import { sanitizeUrl } from '@/utils/url'")
   })
 
-  it('HomeView applies sanitizeUrl to docUrl', () => {
-    expect(homeViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl')
+  it('HomeView exposes the public SurplusToken docs URL without authentication', () => {
+    expect(homeViewSource).toContain("sanitizeUrl('https://docs.surplustoken.com')")
+    expect(homeViewSource).toContain(':href="docUrl"')
   })
 
   it('KeyUsageView imports sanitizeUrl', () => {

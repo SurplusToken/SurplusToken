@@ -170,7 +170,7 @@
                   <span>{{ t('carpool.actions.invite') }}</span>
                 </button>
                 <button
-                  v-if="authStore.isAdmin && carpool.status === 'recruiting'"
+                  v-if="authStore.isAdmin && carpool.status === 'recruiting' && !isSystemLockedCarpool(carpool)"
                   type="button"
                   class="btn btn-secondary h-9 px-3 py-2"
                   @click="toggleJoinLock(carpool)"
@@ -431,6 +431,20 @@ const isoDateAfterDays = (days: number): string => {
   return date.toISOString().slice(0, 10)
 }
 
+const SYSTEM_LOCKED_CARPOOLS = new Set(['car1', 'car2'])
+
+function isSystemLockedCarpool(carpool: Pick<PreviewCarpool, 'name' | 'groupName'>): boolean {
+  const name = carpool.name.trim().toLowerCase()
+  const groupName = carpool.groupName?.trim().toLowerCase() || ''
+  return SYSTEM_LOCKED_CARPOOLS.has(name) || SYSTEM_LOCKED_CARPOOLS.has(groupName)
+}
+
+function enforceSystemLocks(carpools: PreviewCarpool[]): PreviewCarpool[] {
+  return carpools.map((carpool) => isSystemLockedCarpool(carpool)
+    ? { ...carpool, joinLocked: true }
+    : carpool)
+}
+
 const defaultCarpools = (): PreviewCarpool[] => [
   {
     id: 6,
@@ -461,7 +475,7 @@ const defaultCarpools = (): PreviewCarpool[] => [
     memberCount: 7,
     visibility: 'public',
     status: 'recruiting',
-    joinLocked: false,
+    joinLocked: true,
     scheduledStartAt: isoDateAfterDays(5),
     groupName: 'car2',
     memberRole: null,
@@ -472,12 +486,12 @@ const defaultCarpools = (): PreviewCarpool[] => [
 
 const loadCarpools = (): PreviewCarpool[] => {
   const saved = localStorage.getItem(STORAGE_KEY)
-  if (!saved) return defaultCarpools()
+  if (!saved) return enforceSystemLocks(defaultCarpools())
   try {
     const parsed = JSON.parse(saved)
-    return Array.isArray(parsed) ? parsed : defaultCarpools()
+    return enforceSystemLocks(Array.isArray(parsed) ? parsed : defaultCarpools())
   } catch {
-    return defaultCarpools()
+    return enforceSystemLocks(defaultCarpools())
   }
 }
 
@@ -661,6 +675,11 @@ async function copyInvite(carpool: PreviewCarpool): Promise<void> {
 }
 
 function toggleJoinLock(carpool: PreviewCarpool): void {
+  if (isSystemLockedCarpool(carpool)) {
+    carpool.joinLocked = true
+    appStore.showWarning(t('carpool.unavailable'))
+    return
+  }
   carpool.joinLocked = !carpool.joinLocked
   appStore.showSuccess(t(carpool.joinLocked ? 'carpool.admin.locked' : 'carpool.admin.unlocked'))
 }

@@ -68,4 +68,32 @@ describe('CarpoolView', () => {
     expect(rules.text()).toContain('carpool.rules.lockNotice')
     expect(wrapper.findAll('article')).toHaveLength(2)
   })
+
+  it('keeps car1 and car2 locked even when saved preview data says they are open', () => {
+    localStorage.setItem('surplusai_carpool_preview_v2', JSON.stringify([
+      {
+        id: 8,
+        name: 'car2',
+        description: 'saved open car',
+        organizer: 'SurplusToken',
+        carType: 'small',
+        level: 2,
+        capacity: 10,
+        memberCount: 7,
+        visibility: 'public',
+        status: 'recruiting',
+        joinLocked: false,
+        scheduledStartAt: '2026-08-01',
+        groupName: 'car2',
+        memberRole: null,
+        inviteCode: 'CAR2DEMO',
+        createdAt: '2026-07-01T00:00:00Z',
+      },
+    ]))
+
+    const wrapper = mountView()
+
+    expect(wrapper.get('article').text()).toContain('carpool.status.locked')
+    expect(wrapper.get('article').text()).not.toContain('carpool.actions.join')
+  })
 })
