@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout page-scrollable>
       <template #actions>
         <div class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-800">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -283,7 +283,7 @@
       </template>
 
       <template #table>
-        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="min-w-0">
           <DataTable
             :columns="visibleColumns"
             :data="accounts"
@@ -292,6 +292,7 @@
             :sticky-first-column="true"
             :sticky-actions-column="true"
             :estimate-row-height="96"
+            :virtualize-threshold="1000"
           >
             <template #empty>
               <div class="flex flex-col items-center">
