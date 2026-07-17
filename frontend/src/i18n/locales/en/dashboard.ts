@@ -568,6 +568,26 @@ export default {
     schedulableSaved: 'Scheduling setting updated',
     loadFailed: 'Failed to load account pool',
     moreActions: 'More Actions',
+    carpoolRules: {
+      title: 'GPT Carpool Rules',
+      monthlyLock: 'Choose a level at departure; locked for the month',
+      accountCost: 'Each account: 1,400',
+      small: {
+        title: 'Small Car',
+        capacity: '1 account · 5 people per level',
+        upgrade: 'The level sets accounts and seats: Level 1 has 1 account for 5 people; Level 2 has 2 accounts for 10 people, and so on.',
+        baseFee: 'Base fee: 130 / person',
+        usageFee: 'Relative usage: 1,400 - 5 × 130 = 750 / account',
+      },
+      large: {
+        title: 'Large Car',
+        capacity: '1 account · 10 people per level',
+        upgrade: 'The level sets accounts and seats: Level 1 has 1 account for 10 people; each higher level adds 1 account and 10 seats.',
+        baseFee: 'Base fee: 65 / person',
+        usageFee: 'Relative usage: 1,400 - 10 × 65 = 750 / account',
+      },
+      lockNotice: 'Choose both the car type and level (account count) before departure. The level cannot change during the month and can be selected again next month.',
+    },
     dynamicPools: {
       title: 'Live Dynamic Pools',
       groupCount: '{count} groups',

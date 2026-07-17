@@ -22,6 +22,72 @@
             </button>
           </div>
 
+          <section
+            data-testid="gpt-carpool-rules"
+            class="overflow-hidden rounded-md border border-amber-200 bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/20"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-4 py-3 dark:border-amber-900/70">
+              <div class="flex items-center gap-2">
+                <Icon name="book" size="sm" class="text-amber-700 dark:text-amber-400" />
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                  {{ t('accountPool.carpoolRules.title') }}
+                </h3>
+              </div>
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+                <Icon name="lock" size="xs" />
+                {{ t('accountPool.carpoolRules.monthlyLock') }}
+              </span>
+            </div>
+
+            <div class="grid lg:grid-cols-2 lg:divide-x lg:divide-amber-200 dark:lg:divide-amber-900/70">
+              <div class="px-4 py-3">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t('accountPool.carpoolRules.small.title') }}
+                  </h4>
+                  <span class="text-xs font-medium text-gray-600 dark:text-dark-200">
+                    {{ t('accountPool.carpoolRules.small.capacity') }}
+                  </span>
+                </div>
+                <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">
+                  {{ t('accountPool.carpoolRules.small.upgrade') }}
+                </p>
+                <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-dark-100">
+                  <span>{{ t('accountPool.carpoolRules.accountCost') }}</span>
+                  <span>{{ t('accountPool.carpoolRules.small.baseFee') }}</span>
+                  <strong class="font-mono font-semibold text-amber-800 dark:text-amber-300">
+                    {{ t('accountPool.carpoolRules.small.usageFee') }}
+                  </strong>
+                </div>
+              </div>
+
+              <div class="border-t border-amber-200 px-4 py-3 dark:border-amber-900/70 lg:border-t-0">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t('accountPool.carpoolRules.large.title') }}
+                  </h4>
+                  <span class="text-xs font-medium text-gray-600 dark:text-dark-200">
+                    {{ t('accountPool.carpoolRules.large.capacity') }}
+                  </span>
+                </div>
+                <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">
+                  {{ t('accountPool.carpoolRules.large.upgrade') }}
+                </p>
+                <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-dark-100">
+                  <span>{{ t('accountPool.carpoolRules.accountCost') }}</span>
+                  <span>{{ t('accountPool.carpoolRules.large.baseFee') }}</span>
+                  <strong class="font-mono font-semibold text-amber-800 dark:text-amber-300">
+                    {{ t('accountPool.carpoolRules.large.usageFee') }}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <p class="border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
+              {{ t('accountPool.carpoolRules.lockNotice') }}
+            </p>
+          </section>
+
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900/40">
               <div class="text-xs text-gray-500 dark:text-dark-300">{{ t('accountPool.rewards.available') }}</div>

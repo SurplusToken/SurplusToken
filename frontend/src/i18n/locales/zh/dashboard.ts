@@ -573,6 +573,26 @@ export default {
     schedulableSaved: '调度设置已更新',
     loadFailed: '账号池加载失败',
     moreActions: '更多操作',
+    carpoolRules: {
+      title: 'GPT 拼车规则',
+      monthlyLock: '开车时定级，本月锁定',
+      accountCost: '每个号：1400',
+      small: {
+        title: '小车',
+        capacity: '每级 1 个号 · 5 人',
+        upgrade: '等级决定账号数和席位数：1 级为 1 个号、5 人；2 级为 2 个号、10 人，依此类推。',
+        baseFee: '基础费用：130 / 人',
+        usageFee: '相对用量费用：1400 - 5 × 130 = 750 / 号',
+      },
+      large: {
+        title: '大车',
+        capacity: '每级 1 个号 · 10 人',
+        upgrade: '等级决定账号数和席位数：1 级为 1 个号、10 人；升级后每级再增加 1 个号和 10 个席位。',
+        baseFee: '基础费用：65 / 人',
+        usageFee: '相对用量费用：1400 - 10 × 65 = 750 / 号',
+      },
+      lockNotice: '开车前需同时确定车型和等级（账号数）。确认后当月不再升降级，下个月可重新选择。',
+    },
     dynamicPools: {
       title: '动态池实时状态',
       groupCount: '{count} 个分组',
