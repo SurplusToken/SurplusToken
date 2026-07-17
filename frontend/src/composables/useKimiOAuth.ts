@@ -4,7 +4,12 @@ import type { KimiTokenInfo } from '@/api/admin/kimi'
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-export function useKimiOAuth() {
+interface KimiOAuthAPI {
+  startDeviceAuthorization: typeof adminAPI.kimi.startDeviceAuthorization
+  pollDeviceToken: typeof adminAPI.kimi.pollDeviceToken
+}
+
+export function useKimiOAuth(api: KimiOAuthAPI = adminAPI.kimi) {
   const authUrl = ref('')
   const userCode = ref('')
   const sessionId = ref('')
@@ -38,7 +43,7 @@ export function useKimiOAuth() {
     userCode.value = ''
 
     try {
-      const authorization = await adminAPI.kimi.startDeviceAuthorization(proxyId)
+      const authorization = await api.startDeviceAuthorization(proxyId)
       if (currentGeneration !== generation) {
         popup?.close()
         return null
@@ -60,7 +65,7 @@ export function useKimiOAuth() {
           popup?.close()
           return null
         }
-        const result = await adminAPI.kimi.pollDeviceToken(authorization.session_id)
+        const result = await api.pollDeviceToken(authorization.session_id)
         if (result.status === 'pending') continue
         if (result.status === 'success' && result.token) return result.token
         error.value = result.description || (result.status === 'denied' ? 'Authorization denied' : 'Authorization expired')

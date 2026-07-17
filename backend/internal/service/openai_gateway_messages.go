@@ -35,7 +35,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	if account.IsKimiCode() {
+	if account.IsKimiNativeAnthropic() {
 		return s.forwardNativeAnthropicCompatible(ctx, c, account, body, defaultMappedModel)
 	}
 	if account.IsZhipuCoding() {

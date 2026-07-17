@@ -137,6 +137,7 @@ func RegisterUserRoutes(
 		accounts := authenticated.Group("/accounts")
 		{
 			accounts.GET("/pool", h.AccountPool.ListPool)
+			accounts.GET("/pool/dynamic-groups", h.AccountPool.ListDynamicPools)
 			accounts.GET("/proxies", h.AccountPool.ListProxies)
 			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
 			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
@@ -144,6 +145,10 @@ func RegisterUserRoutes(
 			accounts.POST("/oauth/refresh-token", h.AccountPool.RefreshOpenAIToken)
 			accounts.POST("/oauth/import/codex-session", h.AccountPool.ImportCodexSession)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
+			accounts.POST("/kimi/oauth/device-authorization", h.AccountPool.StartKimiDeviceAuthorization)
+			accounts.POST("/kimi/oauth/device-token", h.AccountPool.PollKimiDeviceToken)
+			accounts.POST("/kimi/oauth", h.AccountPool.CreateKimiOAuth)
+			accounts.POST("/kimi/api-key", h.AccountPool.CreateKimiAPIKey)
 			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
 			accounts.POST("/:id/test", h.AccountPool.Test)
 			accounts.POST("/:id/refresh", h.AccountPool.Refresh)

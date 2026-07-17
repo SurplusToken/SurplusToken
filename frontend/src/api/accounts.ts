@@ -15,6 +15,7 @@ import type {
   UserAccountPoolItem,
 } from '@/types'
 import type { OpenAIQuotaUsage, OpenAIQuotaResetResult } from './admin/accounts'
+import type { KimiDeviceAuthorization, KimiDeviceTokenResult, KimiTokenInfo } from './admin/kimi'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -38,6 +39,46 @@ export interface CreateUserOAuthAccountRequest {
   contribution_probe_failure_policy?: ContributionProbeFailurePolicy
   contribution_share_mode?: ContributionShareMode
   contribution_weekly_share_budget?: number
+}
+
+export type KimiAPIProtocol = 'openai' | 'anthropic'
+
+export interface CreateUserKimiAccountOptions {
+  name: string
+  model_mapping?: Record<string, string>
+  proxy_id?: number | null
+  concurrency?: number
+  schedulable?: boolean
+  group_ids?: number[]
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  contribution_5h_reserve_percent?: number
+  contribution_weekly_reserve_percent?: number
+  contribution_probe_failure_policy?: ContributionProbeFailurePolicy
+  contribution_share_mode?: ContributionShareMode
+  contribution_weekly_share_budget?: number
+}
+
+export interface UserDynamicPoolSource {
+  kind: string
+  total: number
+  available: number
+}
+
+export interface UserDynamicPoolSummary {
+  group_id: number
+  group_name: string
+  platform: AccountPlatform
+  total_accounts: number
+  available_accounts: number
+  limited_accounts: number
+  mine_total: number
+  mine_available: number
+  min_sharing_rate: number | null
+  max_sharing_rate: number | null
+  models: string[]
+  sources: UserDynamicPoolSource[]
+  updated_at: string
 }
 
 export interface UpdateUserAccountScopeRequest {
@@ -159,6 +200,33 @@ export async function testProxy(id: number): Promise<{
 
 export async function createOAuth(payload: CreateUserOAuthAccountRequest): Promise<UserAccountPoolItem> {
   const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/oauth', payload)
+  return data
+}
+
+export async function listDynamicPools(): Promise<UserDynamicPoolSummary[]> {
+  const { data } = await apiClient.get<UserDynamicPoolSummary[]>('/accounts/pool/dynamic-groups')
+  return data
+}
+
+export async function startKimiDeviceAuthorization(proxyId?: number | null): Promise<KimiDeviceAuthorization> {
+  const payload: Record<string, unknown> = {}
+  if (proxyId) payload.proxy_id = proxyId
+  const { data } = await apiClient.post<KimiDeviceAuthorization>('/accounts/kimi/oauth/device-authorization', payload)
+  return data
+}
+
+export async function pollKimiDeviceToken(sessionId: string): Promise<KimiDeviceTokenResult> {
+  const { data } = await apiClient.post<KimiDeviceTokenResult>('/accounts/kimi/oauth/device-token', { session_id: sessionId })
+  return data
+}
+
+export async function createKimiOAuth(payload: CreateUserKimiAccountOptions & { token: KimiTokenInfo }): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/kimi/oauth', payload)
+  return data
+}
+
+export async function createKimiAPIKey(payload: CreateUserKimiAccountOptions & { api_key: string; protocol: KimiAPIProtocol }): Promise<UserAccountPoolItem> {
+  const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/kimi/api-key', payload)
   return data
 }
 
@@ -432,6 +500,7 @@ export async function resetOwnerOpenAIQuota(id: number): Promise<OpenAIQuotaRese
 
 export const accountsAPI = {
   listPool,
+  listDynamicPools,
   getContributionPool,
   distributeContributionPool,
   getOwnerAccountUsage,
@@ -440,6 +509,10 @@ export const accountsAPI = {
   listProxies,
   testProxy,
   createOAuth,
+  startKimiDeviceAuthorization,
+  pollKimiDeviceToken,
+  createKimiOAuth,
+  createKimiAPIKey,
   generateOAuthAuthUrl,
   exchangeOAuthCode,
   refreshOpenAIToken,

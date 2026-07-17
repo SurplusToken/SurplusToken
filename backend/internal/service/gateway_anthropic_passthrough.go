@@ -301,7 +301,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 ) (*http.Request, []byte, error) {
 	targetURL := claudeAPIURL
 	baseURL := account.GetBaseURL()
-	if account.IsKimiCode() {
+	if account.IsKimiNativeAnthropic() {
 		baseURL = strings.TrimSpace(account.GetCredential("base_url"))
 	} else if account.IsZhipuCoding() {
 		baseURL = account.GetZhipuAnthropicBaseURL()
@@ -311,7 +311,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		if err != nil {
 			return nil, nil, err
 		}
-		if account.IsKimiCode() || account.IsZhipuCoding() {
+		if account.IsKimiNativeAnthropic() || account.IsZhipuCoding() {
 			targetURL = strings.TrimRight(validatedURL, "/")
 			if !strings.HasSuffix(targetURL, "/v1") {
 				targetURL += "/v1"

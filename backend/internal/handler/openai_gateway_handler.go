@@ -868,7 +868,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			currentRoutingModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
-			service.OpenAIEndpointCapabilityChatCompletions,
+			service.OpenAIEndpointCapabilityAnthropicMessages,
 			false,
 			false,
 			requestPlatform,

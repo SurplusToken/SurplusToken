@@ -346,6 +346,34 @@ func TestGatewayService_KimiCodeOAuthBuildsNativeAnthropicRequest(t *testing.T) 
 	require.Empty(t, getHeaderRaw(req.Header, "x-api-key"))
 }
 
+func TestGatewayService_KimiOpenPlatformBuildsNativeAnthropicRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{cfg: &config.Config{Security: config.SecurityConfig{
+		URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+	}}}
+	account := &Account{
+		Platform: PlatformKimi,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "kimi-platform-key",
+			"base_url": KimiAPIAnthropicBaseURL,
+		},
+	}
+
+	req, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(
+		context.Background(), c, account, []byte(`{"model":"kimi-k3","messages":[]}`), "kimi-platform-key",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "https://api.moonshot.cn/anthropic/v1/messages", req.URL.String())
+	require.JSONEq(t, `{"model":"kimi-k3","messages":[]}`, string(wireBody))
+	require.Equal(t, "kimi-platform-key", getHeaderRaw(req.Header, "x-api-key"))
+	require.Empty(t, getHeaderRaw(req.Header, "authorization"))
+}
+
 func TestGatewayService_ZhipuCodingBuildsNativeAnthropicRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

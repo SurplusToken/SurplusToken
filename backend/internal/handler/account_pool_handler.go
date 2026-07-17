@@ -34,6 +34,7 @@ type AccountPoolHandler struct {
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
+	kimiOAuthService        *service.KimiOAuthService
 	accountTestService      *service.AccountTestService
 	scheduledTestService    *service.ScheduledTestService
 	rateLimitService        *service.RateLimitService
@@ -52,6 +53,7 @@ func NewAccountPoolHandler(
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
+	kimiOAuthService *service.KimiOAuthService,
 	accountTestService *service.AccountTestService,
 	scheduledTestService *service.ScheduledTestService,
 	rateLimitService *service.RateLimitService,
@@ -69,6 +71,7 @@ func NewAccountPoolHandler(
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
+		kimiOAuthService:        kimiOAuthService,
 		accountTestService:      accountTestService,
 		scheduledTestService:    scheduledTestService,
 		rateLimitService:        rateLimitService,
@@ -98,6 +101,33 @@ type createUserOAuthAccountPayload struct {
 	ContributionShareMode              *string            `json:"contribution_share_mode"`
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+}
+
+type userContributionAccountOptions struct {
+	Name                               string             `json:"name"`
+	ModelMapping                       *map[string]string `json:"model_mapping"`
+	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
+	Schedulable                        *bool              `json:"schedulable"`
+	GroupIDs                           []int64            `json:"group_ids"`
+	ExpiresAt                          *int64             `json:"expires_at"`
+	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
+	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
+	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+}
+
+type createUserKimiOAuthAccountPayload struct {
+	userContributionAccountOptions
+	Token *service.KimiTokenInfo `json:"token" binding:"required"`
+}
+
+type createUserKimiAPIKeyAccountPayload struct {
+	userContributionAccountOptions
+	APIKey   string `json:"api_key" binding:"required"`
+	Protocol string `json:"protocol" binding:"required,oneof=openai anthropic"`
 }
 
 type setUserAccountSchedulablePayload struct {
@@ -231,7 +261,7 @@ func (h *AccountPoolHandler) TestProxy(c *gin.Context) {
 }
 
 func (h *AccountPoolHandler) requireOwnedUserAccount(c *gin.Context, userID, accountID int64) (*service.Account, bool) {
-	account, err := h.accountService.GetOwnedUserOAuthAccount(c.Request.Context(), userID, accountID)
+	account, err := h.accountService.GetOwnedUserPoolAccount(c.Request.Context(), userID, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return nil, false
@@ -309,6 +339,157 @@ func (h *AccountPoolHandler) ListPool(c *gin.Context) {
 	}
 	h.hydrateCurrentWindowCost(c.Request.Context(), items)
 	response.Paginated(c, items, result.Total, result.Page, result.PageSize)
+}
+
+func (h *AccountPoolHandler) ListDynamicPools(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	groups, err := h.apiKeyService.GetAvailableGroups(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	summaries, err := h.accountService.ListUserDynamicPoolSummaries(c.Request.Context(), subject.UserID, groups)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, summaries)
+}
+
+func (h *AccountPoolHandler) StartKimiDeviceAuthorization(c *gin.Context) {
+	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.kimiOAuthService == nil {
+		response.InternalError(c, "Kimi OAuth service is not configured")
+		return
+	}
+	var payload struct {
+		ProxyID *int64 `json:"proxy_id"`
+	}
+	_ = c.ShouldBindJSON(&payload)
+	result, err := h.kimiOAuthService.StartDeviceAuthorization(c.Request.Context(), payload.ProxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AccountPoolHandler) PollKimiDeviceToken(c *gin.Context) {
+	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.kimiOAuthService == nil {
+		response.InternalError(c, "Kimi OAuth service is not configured")
+		return
+	}
+	var payload struct {
+		SessionID string `json:"session_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	result, err := h.kimiOAuthService.PollDeviceToken(c.Request.Context(), payload.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AccountPoolHandler) CreateKimiOAuth(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.kimiOAuthService == nil {
+		response.InternalError(c, "Kimi OAuth service is not configured")
+		return
+	}
+	var payload createUserKimiOAuthAccountPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if payload.Token == nil || strings.TrimSpace(payload.Token.AccessToken) == "" || strings.TrimSpace(payload.Token.RefreshToken) == "" || payload.Token.ExpiresAt <= 0 {
+		response.BadRequest(c, "A complete Kimi OAuth token is required")
+		return
+	}
+	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformKimi, payload.GroupIDs)
+	if !ok {
+		return
+	}
+	item, err := h.accountService.CreateUserOAuthAccount(c.Request.Context(), subject.UserID, service.CreateUserOAuthAccountRequest{
+		Name:                               payload.Name,
+		Platform:                           service.PlatformKimi,
+		Type:                               service.AccountTypeOAuth,
+		Credentials:                        h.kimiOAuthService.BuildAccountCredentials(payload.Token),
+		ModelMapping:                       payload.ModelMapping,
+		ProxyID:                            payload.ProxyID,
+		Concurrency:                        payload.Concurrency,
+		Schedulable:                        payload.Schedulable,
+		GroupIDs:                           groupIDs,
+		ExpiresAt:                          payload.ExpiresAt,
+		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
+		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionShareMode:              payload.ContributionShareMode,
+		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
+		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *AccountPoolHandler) CreateKimiAPIKey(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	var payload createUserKimiAPIKeyAccountPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformKimi, payload.GroupIDs)
+	if !ok {
+		return
+	}
+	item, err := h.accountService.CreateUserKimiAPIKeyAccount(c.Request.Context(), subject.UserID, service.CreateUserKimiAPIKeyAccountRequest{
+		Name:                               payload.Name,
+		APIKey:                             payload.APIKey,
+		Protocol:                           payload.Protocol,
+		ModelMapping:                       payload.ModelMapping,
+		ProxyID:                            payload.ProxyID,
+		Concurrency:                        payload.Concurrency,
+		Schedulable:                        payload.Schedulable,
+		GroupIDs:                           groupIDs,
+		ExpiresAt:                          payload.ExpiresAt,
+		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
+		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
+		ContributionShareMode:              payload.ContributionShareMode,
+		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
+		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
@@ -1178,7 +1359,7 @@ func (h *AccountPoolHandler) RecoverState(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	refreshed, err := h.accountService.GetOwnedUserOAuthAccount(c.Request.Context(), subject.UserID, accountID)
+	refreshed, err := h.accountService.GetOwnedUserPoolAccount(c.Request.Context(), subject.UserID, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

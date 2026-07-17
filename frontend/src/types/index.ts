@@ -1071,7 +1071,7 @@ export interface UserAccountPoolItem {
   id: number
   name: string
   platform: AccountPlatform
-  type: 'oauth'
+  type: 'oauth' | 'apikey'
   plan_type?: string | null
   privacy_mode?: string | null
   subscription_expires_at?: string | null
@@ -1094,7 +1094,7 @@ export interface UserAccountPoolItem {
   schedulable: boolean
   effective_schedulable: boolean
   group_ids?: number[]
-  groups?: Array<Pick<Group, 'id' | 'name' | 'platform'>>
+  groups?: Array<Pick<Group, 'id' | 'name' | 'platform' | 'dynamic_sharing_pool'>>
   expires_at?: string | null
   auto_pause_on_expired: boolean
   model_mapping?: Record<string, string> | null
@@ -1228,7 +1228,7 @@ export interface CodexUsageSnapshot {
 
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
-export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
+export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'anthropic_messages'
 
 export interface OpenAICompactState {
   openai_compact_mode?: OpenAICompactMode

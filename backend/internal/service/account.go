@@ -106,8 +106,9 @@ type Account struct {
 type OpenAIEndpointCapability string
 
 const (
-	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
-	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
+	OpenAIEndpointCapabilityChatCompletions   OpenAIEndpointCapability = "chat_completions"
+	OpenAIEndpointCapabilityEmbeddings        OpenAIEndpointCapability = "embeddings"
+	OpenAIEndpointCapabilityAnthropicMessages OpenAIEndpointCapability = "anthropic_messages"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -667,6 +668,21 @@ func (a *Account) IsKimiCode() bool {
 	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
 	return err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "api.kimi.com") &&
 		strings.Contains(strings.Trim(parsed.Path, "/"), "coding")
+}
+
+func (a *Account) IsKimiAnthropicAPI() bool {
+	if a == nil || !a.IsKimi() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
+	if err != nil || parsed == nil || !strings.EqualFold(parsed.Hostname(), "api.moonshot.cn") {
+		return false
+	}
+	return strings.Trim(strings.ToLower(parsed.Path), "/") == "anthropic"
+}
+
+func (a *Account) IsKimiNativeAnthropic() bool {
+	return a != nil && (a.IsKimiCode() || a.IsKimiAnthropicAPI())
 }
 
 func (a *Account) IsOpenAICompatible() bool {
@@ -1867,8 +1883,17 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if a.IsGrok() {
 		return capability == OpenAIEndpointCapabilityChatCompletions
 	}
+	if capability == OpenAIEndpointCapabilityAnthropicMessages {
+		if a.IsKimiNativeAnthropic() {
+			return true
+		}
+		return a.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions)
+	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
+		if a.IsKimiAnthropicAPI() {
+			return false
+		}
 	case OpenAIEndpointCapabilityEmbeddings:
 		if a.Type != AccountTypeAPIKey {
 			return false

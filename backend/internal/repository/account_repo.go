@@ -819,7 +819,7 @@ func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, 
 					dbaccount.OwnerUserIDNotNil(),
 				),
 			),
-			dbaccount.PlatformIn(service.PlatformAnthropic, service.PlatformOpenAI),
+			dbaccount.PlatformIn(service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformKimi),
 		)
 
 	if platform != "" {

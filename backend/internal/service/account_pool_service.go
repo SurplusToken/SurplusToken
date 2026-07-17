@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -17,6 +19,10 @@ const (
 	maxUserAccountLimitUSD            = 1_000_000
 	defaultUserAccountConcurrency     = 5
 	minContributionAutoPauseThreshold = 0.000001
+	KimiAPIProtocolOpenAI             = "openai"
+	KimiAPIProtocolAnthropic          = "anthropic"
+	KimiAPIOpenAIBaseURL              = "https://api.moonshot.cn/v1"
+	KimiAPIAnthropicBaseURL           = "https://api.moonshot.cn/anthropic"
 )
 
 var (
@@ -107,9 +113,10 @@ type userAccountSharingRateUpdater interface {
 }
 
 type UserAccountPoolGroup struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Platform string `json:"platform"`
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	Platform           string `json:"platform"`
+	DynamicSharingPool bool   `json:"dynamic_sharing_pool"`
 }
 
 type CreateUserOAuthAccountRequest struct {
@@ -130,6 +137,46 @@ type CreateUserOAuthAccountRequest struct {
 	ContributionShareMode              *string            `json:"contribution_share_mode"`
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+}
+
+type CreateUserKimiAPIKeyAccountRequest struct {
+	Name                               string             `json:"name"`
+	APIKey                             string             `json:"api_key"`
+	Protocol                           string             `json:"protocol"`
+	ModelMapping                       *map[string]string `json:"model_mapping"`
+	ProxyID                            *int64             `json:"proxy_id"`
+	Concurrency                        *int               `json:"concurrency"`
+	Schedulable                        *bool              `json:"schedulable"`
+	GroupIDs                           []int64            `json:"group_ids"`
+	ExpiresAt                          *int64             `json:"expires_at"`
+	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
+	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
+	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
+	ContributionShareMode              *string            `json:"contribution_share_mode"`
+	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
+	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
+}
+
+type UserDynamicPoolSource struct {
+	Kind      string `json:"kind"`
+	Total     int    `json:"total"`
+	Available int    `json:"available"`
+}
+
+type UserDynamicPoolSummary struct {
+	GroupID           int64                   `json:"group_id"`
+	GroupName         string                  `json:"group_name"`
+	Platform          string                  `json:"platform"`
+	TotalAccounts     int                     `json:"total_accounts"`
+	AvailableAccounts int                     `json:"available_accounts"`
+	LimitedAccounts   int                     `json:"limited_accounts"`
+	MineTotal         int                     `json:"mine_total"`
+	MineAvailable     int                     `json:"mine_available"`
+	MinSharingRate    *float64                `json:"min_sharing_rate"`
+	MaxSharingRate    *float64                `json:"max_sharing_rate"`
+	Models            []string                `json:"models"`
+	Sources           []UserDynamicPoolSource `json:"sources"`
+	UpdatedAt         time.Time               `json:"updated_at"`
 }
 
 type UpdateUserAccountScopeRequest struct {
@@ -234,6 +281,156 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 	return items, result, nil
 }
 
+func (s *AccountService) ListUserDynamicPoolSummaries(ctx context.Context, userID int64, availableGroups []Group) ([]UserDynamicPoolSummary, error) {
+	if userID <= 0 {
+		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
+	}
+	now := time.Now().UTC()
+	summaries := make([]UserDynamicPoolSummary, 0)
+	for i := range availableGroups {
+		group := availableGroups[i]
+		if !group.IsDynamicSharingPool() || !group.IsActive() {
+			continue
+		}
+		accounts, err := s.accountRepo.ListByGroup(ctx, group.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list dynamic pool accounts for group %d: %w", group.ID, err)
+		}
+		summary := summarizeUserDynamicPool(ctx, s, userID, group, accounts, now)
+		summaries = append(summaries, summary)
+	}
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if summaries[i].Platform != summaries[j].Platform {
+			return summaries[i].Platform < summaries[j].Platform
+		}
+		return summaries[i].GroupName < summaries[j].GroupName
+	})
+	return summaries, nil
+}
+
+func summarizeUserDynamicPool(ctx context.Context, service *AccountService, userID int64, group Group, accounts []Account, updatedAt time.Time) UserDynamicPoolSummary {
+	summary := UserDynamicPoolSummary{
+		GroupID:   group.ID,
+		GroupName: group.Name,
+		Platform:  group.Platform,
+		Models:    []string{},
+		Sources:   []UserDynamicPoolSource{},
+		UpdatedAt: updatedAt,
+	}
+	models := make(map[string]struct{})
+	type sourceCounts struct{ total, available int }
+	sources := make(map[string]sourceCounts)
+	for i := range accounts {
+		account := &accounts[i]
+		if account.Platform != group.Platform || !account.IsUserContributed() || !account.IsSurplusAISchedulableType() {
+			continue
+		}
+		service.hydrateOthersWeeklySpend(ctx, account)
+		summary.TotalAccounts++
+		mine := account.OwnerUserID != nil && *account.OwnerUserID == userID
+		if mine {
+			summary.MineTotal++
+		}
+		available := account.IsSchedulable() && (account.IsSurplusAIOwner(userID) || account.IsSurplusAIContributionProtectionSchedulable())
+		if available {
+			summary.AvailableAccounts++
+			if mine {
+				summary.MineAvailable++
+			}
+			rate := accountStoredSharingRate(account)
+			if summary.MinSharingRate == nil || rate < *summary.MinSharingRate {
+				value := rate
+				summary.MinSharingRate = &value
+			}
+			if summary.MaxSharingRate == nil || rate > *summary.MaxSharingRate {
+				value := rate
+				summary.MaxSharingRate = &value
+			}
+			for _, model := range userDynamicPoolAccountModels(account) {
+				models[model] = struct{}{}
+			}
+		}
+		kind := userDynamicPoolSourceKind(account)
+		counts := sources[kind]
+		counts.total++
+		if available {
+			counts.available++
+		}
+		sources[kind] = counts
+	}
+	summary.LimitedAccounts = summary.TotalAccounts - summary.AvailableAccounts
+	for model := range models {
+		summary.Models = append(summary.Models, model)
+	}
+	sort.Strings(summary.Models)
+	sourceKinds := make([]string, 0, len(sources))
+	for kind := range sources {
+		sourceKinds = append(sourceKinds, kind)
+	}
+	sort.Strings(sourceKinds)
+	for _, kind := range sourceKinds {
+		counts := sources[kind]
+		summary.Sources = append(summary.Sources, UserDynamicPoolSource{Kind: kind, Total: counts.total, Available: counts.available})
+	}
+	return summary
+}
+
+func accountStoredSharingRate(account *Account) float64 {
+	if account == nil || account.SharingRateMultiplier == nil {
+		return SharingRateMultiplierDefault
+	}
+	rate := *account.SharingRateMultiplier
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < SharingRateMultiplierHardMin || rate > SharingRateMultiplierHardMax {
+		return SharingRateMultiplierDefault
+	}
+	return rate
+}
+
+func userDynamicPoolAccountModels(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	if mapping := account.GetModelMapping(); len(mapping) > 0 {
+		models := make([]string, 0, len(mapping))
+		for requested := range mapping {
+			if requested = strings.TrimSpace(requested); requested != "" && !strings.ContainsAny(requested, "*?") {
+				models = append(models, requested)
+			}
+		}
+		return models
+	}
+	if account.IsKimiOAuth() {
+		return kimi.CodeModelIDs()
+	}
+	if account.IsKimi() && account.Type == AccountTypeAPIKey {
+		return kimi.APIModelIDs()
+	}
+	return nil
+}
+
+func userDynamicPoolSourceKind(account *Account) string {
+	if account == nil {
+		return "other"
+	}
+	if account.IsKimiOAuth() {
+		return "kimi_code_oauth"
+	}
+	if account.IsKimi() && account.Type == AccountTypeAPIKey {
+		if strings.EqualFold(strings.TrimSpace(account.GetCredential("base_url")), KimiAPIAnthropicBaseURL) {
+			return "kimi_api_anthropic"
+		}
+		return "kimi_api_openai"
+	}
+	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
+		plan := strings.ToLower(strings.TrimSpace(account.GetCredential("plan_type")))
+		if plan != "" {
+			return "openai_" + plan
+		}
+		return "openai_oauth"
+	}
+	return account.Platform + "_" + account.Type
+}
+
 func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int64, req CreateUserOAuthAccountRequest) (*UserAccountPoolItem, error) {
 	if userID <= 0 {
 		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
@@ -255,6 +452,62 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if len(req.Credentials) == 0 {
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
+	if platform == PlatformKimi {
+		req.Credentials = normalizeUserKimiOAuthCredentials(req.Credentials)
+		if strings.TrimSpace(stringValue(req.Credentials["access_token"])) == "" || strings.TrimSpace(stringValue(req.Credentials["refresh_token"])) == "" {
+			return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "Kimi OAuth access_token and refresh_token are required")
+		}
+	}
+	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)
+}
+
+func (s *AccountService) CreateUserKimiAPIKeyAccount(ctx context.Context, userID int64, req CreateUserKimiAPIKeyAccountRequest) (*UserAccountPoolItem, error) {
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey == "" {
+		return nil, infraerrors.BadRequest("ACCOUNT_API_KEY_REQUIRED", "Kimi API key is required")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
+	baseURL := KimiAPIOpenAIBaseURL
+	capabilities := []string{string(OpenAIEndpointCapabilityChatCompletions)}
+	switch protocol {
+	case KimiAPIProtocolOpenAI:
+	case KimiAPIProtocolAnthropic:
+		baseURL = KimiAPIAnthropicBaseURL
+		capabilities = []string{string(OpenAIEndpointCapabilityAnthropicMessages)}
+	default:
+		return nil, infraerrors.BadRequest("KIMI_API_PROTOCOL_INVALID", "Kimi API protocol must be openai or anthropic")
+	}
+
+	oauthReq := CreateUserOAuthAccountRequest{
+		Name:                               req.Name,
+		Platform:                           PlatformKimi,
+		Credentials:                        map[string]any{"api_key": apiKey, "base_url": baseURL, openAIEndpointCapabilitiesCredentialKey: capabilities},
+		ModelMapping:                       req.ModelMapping,
+		Extra:                              map[string]any{"openai_compatible_provider": "kimi", "openai_responses_mode": "force_chat_completions", "kimi_api_protocol": protocol},
+		ProxyID:                            req.ProxyID,
+		Concurrency:                        req.Concurrency,
+		Schedulable:                        req.Schedulable,
+		GroupIDs:                           req.GroupIDs,
+		ExpiresAt:                          req.ExpiresAt,
+		AutoPauseOnExpired:                 req.AutoPauseOnExpired,
+		ContributionFiveHourReservePercent: req.ContributionFiveHourReservePercent,
+		ContributionWeeklyReservePercent:   req.ContributionWeeklyReservePercent,
+		ContributionShareMode:              req.ContributionShareMode,
+		ContributionWeeklyShareBudget:      req.ContributionWeeklyShareBudget,
+		ContributionProbeFailurePolicy:     req.ContributionProbeFailurePolicy,
+	}
+	return s.createUserContributedAccount(ctx, userID, oauthReq, AccountTypeAPIKey)
+}
+
+func (s *AccountService) createUserContributedAccount(ctx context.Context, userID int64, req CreateUserOAuthAccountRequest, accountType string) (*UserAccountPoolItem, error) {
+	if userID <= 0 {
+		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, infraerrors.BadRequest("ACCOUNT_NAME_REQUIRED", "account name is required")
+	}
+	platform := strings.TrimSpace(req.Platform)
 	concurrency, err := userAccountConcurrencyFromRequest(req.Concurrency)
 	if err != nil {
 		return nil, err
@@ -304,7 +557,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	account := &Account{
 		Name:               name,
 		Platform:           platform,
-		Type:               AccountTypeOAuth,
+		Type:               accountType,
 		Credentials:        credentials,
 		Extra:              extra,
 		ProxyID:            normalizeUserAccountProxyID(req.ProxyID),
@@ -321,7 +574,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
-		return nil, fmt.Errorf("create user OAuth account: %w", err)
+		return nil, fmt.Errorf("create user contributed account: %w", err)
 	}
 	if len(req.GroupIDs) > 0 {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, req.GroupIDs); err != nil {
@@ -340,19 +593,42 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	return &item, nil
 }
 
-func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any) map[string]any {
-	extra := make(map[string]any, 4)
-	if rawExtra == nil {
-		return extra
+func normalizeUserKimiOAuthCredentials(raw map[string]any) map[string]any {
+	credentials := make(map[string]any, 8)
+	for _, key := range []string{"access_token", "refresh_token", "token_type", "scope", "expires_at"} {
+		if value, ok := raw[key]; ok {
+			credentials[key] = value
+		}
 	}
-	for _, key := range []string{"email", "name", "privacy_mode"} {
-		if value, ok := safeUserOAuthExtraString(rawExtra[key]); ok {
-			extra[key] = value
+	credentials["base_url"] = KimiCodeBaseURL
+	credentials[openAIEndpointCapabilitiesCredentialKey] = []string{string(OpenAIEndpointCapabilityChatCompletions), string(OpenAIEndpointCapabilityAnthropicMessages)}
+	return credentials
+}
+
+func stringValue(value any) string {
+	s, _ := value.(string)
+	return s
+}
+
+func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any) map[string]any {
+	extra := make(map[string]any, 6)
+	if rawExtra != nil {
+		for _, key := range []string{"email", "name", "privacy_mode"} {
+			if value, ok := safeUserOAuthExtraString(rawExtra[key]); ok {
+				extra[key] = value
+			}
 		}
 	}
 	if platform == PlatformOpenAI {
 		if value, ok := rawExtra["codex_cli_only"].(bool); ok && value {
 			extra["codex_cli_only"] = true
+		}
+	}
+	if platform == PlatformKimi {
+		extra["openai_compatible_provider"] = "kimi"
+		extra["openai_responses_mode"] = "force_chat_completions"
+		if value, ok := safeUserOAuthExtraString(rawExtra["kimi_api_protocol"]); ok {
+			extra["kimi_api_protocol"] = value
 		}
 	}
 	return extra
@@ -388,7 +664,7 @@ func validateUserAccountConcurrency(value int) error {
 }
 
 func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, accountID int64, schedulable bool) (*UserAccountPoolItem, error) {
-	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+	account, err := s.getOwnedUserPoolAccount(ctx, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +679,7 @@ func (s *AccountService) SetUserAccountSchedulable(ctx context.Context, userID, 
 }
 
 func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountID int64) error {
-	if _, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID); err != nil {
+	if _, err := s.getOwnedUserPoolAccount(ctx, userID, accountID); err != nil {
 		return err
 	}
 	if err := s.accountRepo.Delete(ctx, accountID); err != nil {
@@ -418,7 +694,7 @@ func (s *AccountService) DeleteUserAccount(ctx context.Context, userID, accountI
 }
 
 func (s *AccountService) UpdateUserAccountLimits(ctx context.Context, userID, accountID int64, req UpdateUserAccountLimitsRequest) (*UserAccountPoolItem, error) {
-	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+	account, err := s.getOwnedUserPoolAccount(ctx, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +721,7 @@ func (s *AccountService) UpdateUserAccountLimits(ctx context.Context, userID, ac
 }
 
 func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, accountID int64, req UpdateUserAccountScopeRequest) (*UserAccountPoolItem, error) {
-	account, err := s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+	account, err := s.getOwnedUserPoolAccount(ctx, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -583,6 +859,10 @@ func (s *AccountService) UpdateUserAccountScope(ctx context.Context, userID, acc
 
 func (s *AccountService) GetOwnedUserOAuthAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
 	return s.getOwnedUserOAuthAccount(ctx, userID, accountID)
+}
+
+func (s *AccountService) GetOwnedUserPoolAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
+	return s.getOwnedUserPoolAccount(ctx, userID, accountID)
 }
 
 func (s *AccountService) ListOwnedUserOAuthAccounts(ctx context.Context, userID int64, platform string) ([]Account, error) {
@@ -733,6 +1013,17 @@ func (s *AccountService) userAccountProxyURL(ctx context.Context, account *Accou
 }
 
 func (s *AccountService) getOwnedUserOAuthAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
+	account, err := s.getOwnedUserPoolAccount(ctx, userID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account.Type != AccountTypeOAuth {
+		return nil, ErrUserOAuthOnly
+	}
+	return account, nil
+}
+
+func (s *AccountService) getOwnedUserPoolAccount(ctx context.Context, userID, accountID int64) (*Account, error) {
 	if userID <= 0 {
 		return nil, infraerrors.Unauthorized("USER_NOT_AUTHENTICATED", "user not authenticated")
 	}
@@ -747,7 +1038,7 @@ func (s *AccountService) getOwnedUserOAuthAccount(ctx context.Context, userID, a
 	if account.OwnerUserID == nil || *account.OwnerUserID != userID {
 		return nil, ErrAccountOwnerRequired
 	}
-	if account.Type != AccountTypeOAuth {
+	if account.Type != AccountTypeOAuth && !(account.Platform == PlatformKimi && account.Type == AccountTypeAPIKey) {
 		return nil, ErrUserOAuthOnly
 	}
 	return account, nil
@@ -869,9 +1160,10 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 				continue
 			}
 			item.Groups = append(item.Groups, UserAccountPoolGroup{
-				ID:       group.ID,
-				Name:     group.Name,
-				Platform: group.Platform,
+				ID:                 group.ID,
+				Name:               group.Name,
+				Platform:           group.Platform,
+				DynamicSharingPool: group.IsDynamicSharingPool(),
 			})
 		}
 	}
@@ -1036,7 +1328,7 @@ func (s *AccountService) validateUserAccountProxy(ctx context.Context, proxyID *
 
 func isUserOAuthPlatformAllowed(platform string) bool {
 	switch platform {
-	case PlatformOpenAI:
+	case PlatformOpenAI, PlatformKimi:
 		return true
 	default:
 		return false
@@ -1045,7 +1337,7 @@ func isUserOAuthPlatformAllowed(platform string) bool {
 
 func isUserAccountPoolPlatformVisible(platform string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI:
+	case PlatformAnthropic, PlatformOpenAI, PlatformKimi:
 		return true
 	default:
 		return false

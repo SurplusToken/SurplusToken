@@ -101,6 +101,19 @@ func (s *accountPoolRepoStub) ListByPlatform(ctx context.Context, platform strin
 	return out, nil
 }
 
+func (s *accountPoolRepoStub) ListByGroup(ctx context.Context, groupID int64) ([]Account, error) {
+	out := make([]Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		for _, id := range account.GroupIDs {
+			if id == groupID {
+				out = append(out, account)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s *accountPoolRepoStub) ListCoOwnersByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64][]int64, error) {
 	return nil, nil
 }
@@ -239,6 +252,88 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing
 
 	require.Error(t, err)
 	require.Nil(t, repo.created)
+}
+
+func TestAccountServiceCreateUserKimiOAuthForcesOfficialCodeEndpoint(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:     "Kimi Code",
+		Platform: PlatformKimi,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "access",
+			"refresh_token": "refresh",
+			"base_url":      "https://evil.example/v1",
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, PlatformKimi, item.Platform)
+	require.Equal(t, KimiCodeBaseURL, repo.created.Credentials["base_url"])
+	require.Equal(t, []string{"chat_completions", "anthropic_messages"}, repo.created.Credentials[openAIEndpointCapabilitiesCredentialKey])
+	require.Equal(t, "kimi", repo.created.Extra["openai_compatible_provider"])
+}
+
+func TestAccountServiceCreateUserKimiAPIKeyUsesWhitelistedEndpoints(t *testing.T) {
+	for _, tt := range []struct {
+		protocol   string
+		baseURL    string
+		capability string
+	}{
+		{KimiAPIProtocolOpenAI, KimiAPIOpenAIBaseURL, "chat_completions"},
+		{KimiAPIProtocolAnthropic, KimiAPIAnthropicBaseURL, "anthropic_messages"},
+	} {
+		t.Run(tt.protocol, func(t *testing.T) {
+			repo := &accountPoolRepoStub{}
+			svc := &AccountService{accountRepo: repo}
+			item, err := svc.CreateUserKimiAPIKeyAccount(context.Background(), 42, CreateUserKimiAPIKeyAccountRequest{
+				Name: "Kimi API", APIKey: "secret", Protocol: tt.protocol,
+			})
+			require.NoError(t, err)
+			require.Equal(t, AccountTypeAPIKey, item.Type)
+			require.Equal(t, tt.baseURL, repo.created.Credentials["base_url"])
+			require.Equal(t, []string{tt.capability}, repo.created.Credentials[openAIEndpointCapabilitiesCredentialKey])
+		})
+	}
+
+	repo := &accountPoolRepoStub{}
+	_, err := (&AccountService{accountRepo: repo}).CreateUserKimiAPIKeyAccount(context.Background(), 42, CreateUserKimiAPIKeyAccountRequest{
+		Name: "bad", APIKey: "secret", Protocol: "custom",
+	})
+	require.Error(t, err)
+	require.Nil(t, repo.created)
+}
+
+func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
+	ownerID := int64(42)
+	otherID := int64(9)
+	limitedUntil := time.Now().Add(time.Hour)
+	rateLow, rateHigh := 0.8, 1.2
+	repo := &accountPoolRepoStub{accounts: []Account{
+		{ID: 1, Name: "mine", Platform: PlatformKimi, Type: AccountTypeOAuth, OwnerUserID: &ownerID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, SharingRateMultiplier: &rateLow},
+		{ID: 2, Name: "api", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, SharingRateMultiplier: &rateHigh, Credentials: map[string]any{"base_url": KimiAPIOpenAIBaseURL}},
+		{ID: 3, Name: "limited", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, RateLimitResetAt: &limitedUntil, Credentials: map[string]any{"base_url": KimiAPIAnthropicBaseURL}},
+		{ID: 4, Name: "system", Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}},
+	}}
+	svc := &AccountService{accountRepo: repo}
+
+	summaries, err := svc.ListUserDynamicPoolSummaries(context.Background(), ownerID, []Group{{ID: 7, Name: "Kimi Pool", Platform: PlatformKimi, Status: StatusActive, DynamicSharingPool: true}})
+
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	summary := summaries[0]
+	require.Equal(t, 3, summary.TotalAccounts)
+	require.Equal(t, 2, summary.AvailableAccounts)
+	require.Equal(t, 1, summary.LimitedAccounts)
+	require.Equal(t, 1, summary.MineTotal)
+	require.Equal(t, 1, summary.MineAvailable)
+	require.Equal(t, rateLow, *summary.MinSharingRate)
+	require.Equal(t, rateHigh, *summary.MaxSharingRate)
+	require.Contains(t, summary.Models, "k3")
+	require.Contains(t, summary.Models, "kimi-k3")
+	require.Len(t, summary.Sources, 3)
 }
 
 func TestAccountServiceListOwnedUserOAuthAccountsFiltersOwnerPlatformAndType(t *testing.T) {

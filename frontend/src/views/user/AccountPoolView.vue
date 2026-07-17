@@ -68,6 +68,84 @@
               <span>{{ transferringContribution ? t('accountPool.rewards.transferring') : t('accountPool.rewards.transfer') }}</span>
             </button>
           </div>
+
+          <div class="border-t border-gray-200 pt-3 dark:border-dark-700">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-2">
+                <Icon name="chart" size="sm" class="text-emerald-600 dark:text-emerald-400" />
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                  {{ t('accountPool.dynamicPools.title') }}
+                </h3>
+                <span v-if="dynamicPools.length" class="text-xs text-gray-400">
+                  {{ t('accountPool.dynamicPools.groupCount', { count: dynamicPools.length }) }}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-dark-300 dark:hover:bg-dark-700 dark:hover:text-white"
+                :title="t('accountPool.dynamicPools.refresh')"
+                :disabled="dynamicPoolsLoading"
+                @click="loadDynamicPools"
+              >
+                <Icon name="refresh" size="sm" :class="dynamicPoolsLoading ? 'animate-spin' : ''" />
+              </button>
+            </div>
+
+            <div v-if="dynamicPoolsLoading && dynamicPools.length === 0" class="mt-3 space-y-2">
+              <div v-for="index in 2" :key="index" class="h-12 animate-pulse rounded-md bg-gray-100 dark:bg-dark-700/70" />
+            </div>
+            <p v-else-if="dynamicPools.length === 0" class="mt-2 text-xs text-gray-500 dark:text-dark-300">
+              {{ t('accountPool.dynamicPools.empty') }}
+            </p>
+            <div v-else class="mt-2 divide-y divide-gray-100 dark:divide-dark-700">
+              <div v-for="pool in dynamicPools" :key="pool.group_id" class="py-2.5 first:pt-1.5 last:pb-0">
+                <button
+                  type="button"
+                  class="grid w-full gap-2 text-left lg:grid-cols-[minmax(11rem,1.2fr)_minmax(15rem,1.5fr)_minmax(12rem,1fr)_auto] lg:items-center"
+                  :aria-expanded="expandedDynamicPools.has(pool.group_id)"
+                  @click="toggleDynamicPool(pool.group_id)"
+                >
+                  <span class="flex min-w-0 items-center gap-2">
+                    <PlatformIcon :platform="pool.platform" size="sm" />
+                    <span class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ pool.group_name }}</span>
+                    <span :class="dynamicPoolStatusClass(pool)">{{ dynamicPoolStatusLabel(pool) }}</span>
+                  </span>
+                  <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-dark-200">
+                    <span>{{ t('accountPool.dynamicPools.poolAvailability', { available: pool.available_accounts, total: pool.total_accounts }) }}</span>
+                    <span>{{ t('accountPool.dynamicPools.mineAvailability', { available: pool.mine_available, total: pool.mine_total }) }}</span>
+                    <span v-if="pool.limited_accounts > 0" class="text-amber-600 dark:text-amber-400">
+                      {{ t('accountPool.dynamicPools.limited', { count: pool.limited_accounts }) }}
+                    </span>
+                  </span>
+                  <span class="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-dark-300">
+                    <span>{{ t('accountPool.dynamicPools.rate') }}</span>
+                    <strong class="font-mono font-semibold text-gray-800 dark:text-gray-100">{{ dynamicPoolRateRange(pool) }}</strong>
+                    <span v-if="pool.models.length">· {{ dynamicPoolModelSummary(pool) }}</span>
+                  </span>
+                  <Icon name="chevronDown" size="sm" class="justify-self-end text-gray-400 transition-transform" :class="expandedDynamicPools.has(pool.group_id) ? 'rotate-180' : ''" />
+                </button>
+
+                <div v-if="expandedDynamicPools.has(pool.group_id)" class="mt-2 grid gap-3 bg-gray-50 px-3 py-2.5 dark:bg-dark-900/40 md:grid-cols-2">
+                  <div>
+                    <div class="text-[11px] font-medium text-gray-500 dark:text-dark-300">{{ t('accountPool.dynamicPools.models') }}</div>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                      <span v-for="model in pool.models" :key="model" class="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-gray-700 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-dark-100 dark:ring-dark-600">{{ model }}</span>
+                      <span v-if="pool.models.length === 0" class="text-xs text-gray-400">{{ t('accountPool.dynamicPools.modelsUnknown') }}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] font-medium text-gray-500 dark:text-dark-300">{{ t('accountPool.dynamicPools.sources') }}</div>
+                    <div class="mt-1 flex flex-wrap gap-1.5">
+                      <span v-for="source in pool.sources" :key="source.kind" class="text-xs text-gray-700 dark:text-dark-100">
+                        {{ dynamicPoolSourceLabel(source.kind) }} {{ source.available }}/{{ source.total }}
+                      </span>
+                    </div>
+                    <div class="mt-1 text-[11px] text-gray-400">{{ t('accountPool.dynamicPools.updatedAt', { time: formatRelativePoolTime(pool.updated_at) }) }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -553,7 +631,7 @@
       width="wide"
       @close="handleCreateClose"
     >
-      <div class="mb-6 flex items-center justify-center">
+      <div v-if="createForm.accountType === 'oauth'" class="mb-6 flex items-center justify-center">
         <div class="flex items-center space-x-4">
           <div class="flex items-center">
             <div
@@ -589,7 +667,7 @@
         v-if="createStep === 1"
         id="user-account-pool-create-form"
         class="space-y-5"
-        @submit.prevent="goToOAuthStep"
+        @submit.prevent="handleCreateFirstStep"
       >
         <div>
           <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
@@ -613,6 +691,14 @@
               <Icon name="key" size="sm" />
               OpenAI
             </button>
+            <button
+              type="button"
+              @click="selectCreatePlatform('kimi')"
+              :class="platformButtonClass('kimi', 'amber')"
+            >
+              <Icon name="globe" size="sm" />
+              Kimi
+            </button>
           </div>
         </div>
 
@@ -621,7 +707,9 @@
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
               type="button"
-              class="flex items-center gap-3 rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-left transition-all dark:bg-primary-900/20"
+              class="flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all"
+              :class="createForm.accountType === 'oauth' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
+              @click="selectCreateAccountType('oauth')"
             >
               <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white">
                 <Icon name="key" size="sm" />
@@ -631,6 +719,45 @@
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauthSetupToken') }}</span>
               </div>
             </button>
+            <button
+              v-if="createForm.platform === 'kimi'"
+              type="button"
+              class="flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all"
+              :class="createForm.accountType === 'apikey' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 hover:border-amber-300 dark:border-dark-600'"
+              @click="selectCreateAccountType('apikey')"
+            >
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500 text-white">
+                <Icon name="key" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('accountPool.kimi.apiKeyDescription') }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="createForm.platform === 'kimi' && createForm.accountType === 'apikey'" class="space-y-4 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+          <label class="block">
+            <span class="input-label">Kimi API Key</span>
+            <input v-model.trim="createForm.apiKey" type="password" required autocomplete="off" class="input font-mono" placeholder="sk-..." />
+          </label>
+          <div>
+            <label class="input-label">{{ t('accountPool.kimi.protocol') }}</label>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <button
+                v-for="option in kimiAPIProtocolOptions"
+                :key="option.value"
+                type="button"
+                class="rounded-md border-2 px-3 py-2.5 text-left transition-colors"
+                :class="createForm.kimiAPIProtocol === option.value ? 'border-amber-500 bg-white dark:bg-dark-800' : 'border-gray-200 dark:border-dark-600'"
+                @click="createForm.kimiAPIProtocol = option.value"
+              >
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</span>
+                <span class="mt-0.5 block break-all font-mono text-[11px] text-gray-500 dark:text-dark-300">{{ option.baseUrl }}</span>
+              </button>
+            </div>
+            <p class="input-hint">{{ t('accountPool.kimi.fixedEndpointHint') }}</p>
           </div>
         </div>
 
@@ -843,7 +970,26 @@
       </form>
 
       <div v-else class="space-y-5">
+        <div v-if="createForm.platform === 'kimi'" class="space-y-4">
+          <div class="border-b border-gray-200 pb-3 dark:border-dark-600">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('accountPool.kimi.oauthTitle') }}</h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('accountPool.kimi.oauthDescription') }}</p>
+          </div>
+          <div v-if="kimiOAuth.userCode.value" class="space-y-2">
+            <label class="input-label">{{ t('accountPool.kimi.userCode') }}</label>
+            <div class="flex items-center gap-2">
+              <code class="min-w-0 flex-1 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-center text-xl font-semibold text-gray-950 dark:border-dark-500 dark:bg-dark-700 dark:text-white">{{ kimiOAuth.userCode.value }}</code>
+              <a :href="kimiOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary whitespace-nowrap">{{ t('accountPool.kimi.openAuthorization') }}</a>
+            </div>
+            <p class="text-sm text-gray-500 dark:text-dark-300">{{ t('accountPool.kimi.waiting') }}</p>
+          </div>
+          <div v-if="kimiOAuth.error.value" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">{{ kimiOAuth.error.value }}</div>
+          <button type="button" class="btn btn-primary w-full" :disabled="kimiOAuth.loading.value || kimiOAuth.polling.value || creating" @click="handleKimiAuthorization">
+            {{ kimiOAuth.loading.value || kimiOAuth.polling.value || creating ? t('accountPool.kimi.authorizing') : t('accountPool.kimi.startAuthorization') }}
+          </button>
+        </div>
         <OAuthAuthorizationFlow
+          v-else
           ref="oauthFlowRef"
           add-method="oauth"
           :auth-url="oauthSession.authUrl"
@@ -877,8 +1023,9 @@
             type="submit"
             form="user-account-pool-create-form"
             class="btn btn-primary"
+            :disabled="creating"
           >
-            {{ t('common.next') }}
+            {{ createForm.accountType === 'apikey' ? (creating ? t('accountPool.creating') : t('accountPool.create')) : t('common.next') }}
           </button>
         </div>
         <div v-else class="flex justify-between gap-3">
@@ -1530,6 +1677,7 @@ import OpenAIQuotaResetCell from '@/components/account/OpenAIQuotaResetCell.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
@@ -1537,6 +1685,8 @@ import UserAccountActionMenu from '@/components/user/UserAccountActionMenu.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
   type ContributionShareMode,
+  type KimiAPIProtocol,
+  type UserDynamicPoolSummary,
   type UserOAuthAuthUrlRequest,
   type UserOAuthTokenInfo,
 } from '@/api/accounts'
@@ -1560,6 +1710,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import type { CodexSessionImportMessage } from '@/types'
+import { useKimiOAuth } from '@/composables/useKimiOAuth'
 
 type UserAccountModalItem = UserAccountPoolItem & {
   credentials?: Record<string, unknown>
@@ -1618,8 +1769,11 @@ const sharingRateCooldownMinutes = computed(() => {
 const sharingRateClock = ref(Date.now())
 let sharingRateClockTimer: number | null = null
 
-const platforms: AccountPlatform[] = ['anthropic', 'openai']
+const platforms: AccountPlatform[] = ['anthropic', 'openai', 'kimi']
 const accounts = ref<UserAccountPoolItem[]>([])
+const dynamicPools = ref<UserDynamicPoolSummary[]>([])
+const dynamicPoolsLoading = ref(false)
+const expandedDynamicPools = reactive(new Set<number>())
 const availableGroups = ref<Group[]>([])
 const proxies = ref<Proxy[]>([])
 const loading = ref(false)
@@ -1741,6 +1895,11 @@ const oauthSession = reactive({
   sessionId: '',
   state: '',
 })
+const kimiOAuth = useKimiOAuth({
+  startDeviceAuthorization: accountsAPI.startKimiDeviceAuthorization,
+  pollDeviceToken: accountsAPI.pollKimiDeviceToken,
+})
+let dynamicPoolRefreshTimer: number | null = null
 
 const pagination = reactive({
   page: 1,
@@ -1944,6 +2103,9 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
 const createForm = reactive({
   name: '',
   platform: 'openai' as AccountPlatform,
+  accountType: 'oauth' as 'oauth' | 'apikey',
+  apiKey: '',
+  kimiAPIProtocol: 'openai' as KimiAPIProtocol,
   oauthType: 'code_assist' as 'code_assist' | 'google_one' | 'ai_studio',
   projectId: '',
   tierId: '',
@@ -2015,6 +2177,11 @@ const geminiOAuthOptions = [
   { value: 'code_assist' as const, label: 'Code Assist' },
   { value: 'google_one' as const, label: 'Google One' },
   { value: 'ai_studio' as const, label: 'AI Studio' },
+]
+
+const kimiAPIProtocolOptions = [
+  { value: 'openai' as const, label: 'OpenAI Chat Completions', baseUrl: 'https://api.moonshot.cn/v1' },
+  { value: 'anthropic' as const, label: 'Anthropic Messages', baseUrl: 'https://api.moonshot.cn/anthropic' },
 ]
 
 const probeFailurePolicyOptions = computed(() => [
@@ -2143,6 +2310,49 @@ function formatSharingRate(value: number | null | undefined): string {
   const rate = value ?? 1
   if (!Number.isFinite(rate)) return '1x'
   return `${rate.toFixed(4).replace(/\.?0+$/, '')}x`
+}
+
+function toggleDynamicPool(groupID: number) {
+  if (expandedDynamicPools.has(groupID)) expandedDynamicPools.delete(groupID)
+  else expandedDynamicPools.add(groupID)
+}
+
+function dynamicPoolStatusLabel(pool: UserDynamicPoolSummary): string {
+  if (pool.available_accounts >= 3) return t('accountPool.dynamicPools.statusSufficient')
+  if (pool.available_accounts > 0) return t('accountPool.dynamicPools.statusLimited')
+  return t('accountPool.dynamicPools.statusUnavailable')
+}
+
+function dynamicPoolStatusClass(pool: UserDynamicPoolSummary): string {
+  if (pool.available_accounts >= 3) return 'badge badge-success'
+  if (pool.available_accounts > 0) return 'badge badge-warning'
+  return 'badge badge-danger'
+}
+
+function dynamicPoolRateRange(pool: UserDynamicPoolSummary): string {
+  if (pool.min_sharing_rate == null || pool.max_sharing_rate == null) return '-'
+  const min = formatSharingRate(pool.min_sharing_rate)
+  const max = formatSharingRate(pool.max_sharing_rate)
+  return min === max ? min : `${min} - ${max}`
+}
+
+function dynamicPoolModelSummary(pool: UserDynamicPoolSummary): string {
+  if (pool.models.length <= 2) return pool.models.join(', ')
+  return `${pool.models.slice(0, 2).join(', ')} +${pool.models.length - 2}`
+}
+
+function dynamicPoolSourceLabel(kind: string): string {
+  const key = `accountPool.dynamicPools.sourceKinds.${kind}`
+  const translated = t(key)
+  return translated === key ? kind.replace(/_/g, ' ') : translated
+}
+
+function formatRelativePoolTime(value: string): string {
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return '-'
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000))
+  if (seconds < 60) return t('accountPool.dynamicPools.secondsAgo', { count: seconds })
+  return t('accountPool.dynamicPools.minutesAgo', { count: Math.floor(seconds / 60) })
 }
 
 function validSharingRate(value: unknown): value is number {
@@ -2370,8 +2580,21 @@ function openCreateDialog() {
 function handleCreateClose() {
   showCreateForm.value = false
   createStep.value = 1
+  createForm.apiKey = ''
   resetOAuthSession()
+  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
+}
+
+async function handleCreateFirstStep() {
+  createForm.groupIds = createForm.groupIds.filter((groupID) =>
+    availableGroupsForPlatform.value.some((group) => group.id === groupID)
+  )
+  if (createForm.platform === 'kimi' && createForm.accountType === 'apikey') {
+    await handleCreateKimiAPIKey()
+    return
+  }
+  goToOAuthStep()
 }
 
 function goToOAuthStep() {
@@ -2386,16 +2609,27 @@ function goToOAuthStep() {
 function goBackToBasicInfo() {
   createStep.value = 1
   resetOAuthSession()
+  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
-function selectCreatePlatform(platform: 'openai' | 'gemini' | 'antigravity') {
+function selectCreatePlatform(platform: 'openai' | 'kimi' | 'gemini' | 'antigravity') {
   createForm.platform = platform
+  createForm.accountType = 'oauth'
   createForm.groupIds = []
+  resetModelWhitelist()
   if (platform !== 'openai') {
     createForm.codexCLIOnly = false
   }
   resetOAuthSession()
+  kimiOAuth.resetState()
+  oauthFlowRef.value?.reset()
+}
+
+function selectCreateAccountType(accountType: 'oauth' | 'apikey') {
+  createForm.accountType = accountType
+  resetOAuthSession()
+  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
@@ -2405,10 +2639,11 @@ function selectGeminiOAuthType(oauthType: 'code_assist' | 'google_one' | 'ai_stu
   oauthFlowRef.value?.reset()
 }
 
-function platformButtonClass(platform: 'openai' | 'gemini' | 'antigravity', color: 'green' | 'blue' | 'purple') {
+function platformButtonClass(platform: 'openai' | 'kimi' | 'gemini' | 'antigravity', color: 'green' | 'amber' | 'blue' | 'purple') {
   const active = createForm.platform === platform
   const activeClass = {
     green: 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400',
+    amber: 'bg-white text-amber-600 shadow-sm dark:bg-dark-600 dark:text-amber-400',
     blue: 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400',
     purple: 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400',
   }[color]
@@ -2416,6 +2651,63 @@ function platformButtonClass(platform: 'openai' | 'gemini' | 'antigravity', colo
     'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
     active ? activeClass : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
   ]
+}
+
+function buildKimiContributionOptions() {
+  return {
+    name: createForm.name.trim(),
+    model_mapping: buildUserModelWhitelist(allowedModels.value),
+    proxy_id: createForm.proxyId,
+    concurrency: normalizeConcurrency(createForm.concurrency),
+    schedulable: createForm.schedulable,
+    group_ids: createForm.groupIds,
+    expires_at: createForm.expiresAt,
+    auto_pause_on_expired: createForm.autoPauseOnExpired,
+    ...buildContributionPayload(createForm),
+    contribution_probe_failure_policy: createForm.probeFailurePolicy,
+  }
+}
+
+async function finishKimiCreation() {
+  appStore.showSuccess(t('accountPool.createSuccess'))
+  resetCreateForm()
+  handleCreateClose()
+  reloadFirstPage()
+  await loadDynamicPools()
+}
+
+async function handleCreateKimiAPIKey() {
+  if (!createForm.apiKey.trim()) {
+    appStore.showError(t('accountPool.kimi.apiKeyRequired'))
+    return
+  }
+  creating.value = true
+  try {
+    await accountsAPI.createKimiAPIKey({
+      ...buildKimiContributionOptions(),
+      api_key: createForm.apiKey.trim(),
+      protocol: createForm.kimiAPIProtocol,
+    })
+    await finishKimiCreation()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  } finally {
+    creating.value = false
+  }
+}
+
+async function handleKimiAuthorization() {
+  const token = await kimiOAuth.authorize(createForm.proxyId)
+  if (!token) return
+  creating.value = true
+  try {
+    await accountsAPI.createKimiOAuth({ ...buildKimiContributionOptions(), token })
+    await finishKimiCreation()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  } finally {
+    creating.value = false
+  }
 }
 
 function toggleClass(active: boolean) {
@@ -2518,6 +2810,17 @@ async function loadAccounts() {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.loadFailed')))
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDynamicPools() {
+  dynamicPoolsLoading.value = true
+  try {
+    dynamicPools.value = await accountsAPI.listDynamicPools()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('accountPool.dynamicPools.loadFailed')))
+  } finally {
+    dynamicPoolsLoading.value = false
   }
 }
 
@@ -2972,6 +3275,10 @@ async function handleImportCodexSession(content: string) {
 
 function resetCreateForm() {
   createForm.name = ''
+  createForm.platform = 'openai'
+  createForm.accountType = 'oauth'
+  createForm.apiKey = ''
+  createForm.kimiAPIProtocol = 'openai'
   createForm.oauthType = 'code_assist'
   createForm.projectId = ''
   createForm.tierId = ''
@@ -3356,6 +3663,7 @@ onMounted(() => {
     console.error('Failed to load sharing marketplace settings:', error)
   })
   loadAccounts()
+  loadDynamicPools()
   loadContributionSummary()
   loadAvailableGroups()
   loadProxies()
@@ -3364,6 +3672,9 @@ onMounted(() => {
   sharingRateClockTimer = window.setInterval(() => {
     sharingRateClock.value = Date.now()
   }, 30_000)
+  dynamicPoolRefreshTimer = window.setInterval(() => {
+    void loadDynamicPools()
+  }, 30_000)
 })
 
 onUnmounted(() => {
@@ -3371,6 +3682,9 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   if (sharingRateClockTimer !== null) {
     window.clearInterval(sharingRateClockTimer)
+  }
+  if (dynamicPoolRefreshTimer !== null) {
+    window.clearInterval(dynamicPoolRefreshTimer)
   }
   remoteSessions.forEach((state) => clearRemoteTimer(state))
 })
