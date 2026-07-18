@@ -157,6 +157,7 @@ const handleUpdateUser = async () => {
     appStore.showError(t('admin.users.concurrencyMin'))
     return
   }
+  const userId = props.user.id
   const rewardRateRaw = String(form.contribution_reward_rate ?? '').trim()
   let contributionRewardRate: number | null = null
   if (rewardRateRaw !== '') {

@@ -1103,7 +1103,9 @@ func (s *BillingService) computeTokenBreakdown(
 	}
 
 	longContextTierApplied := applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing)
+	var baselineCost *CostBreakdown
 	if longContextTierApplied {
+		baselineCost = s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false)
 		inputPrice *= pricing.LongContextInputMultiplier
 		outputPrice *= pricing.LongContextOutputMultiplier
 		// 缓存读取本质上是输入侧的复用，应与 input 一同应用长上下文倍率；

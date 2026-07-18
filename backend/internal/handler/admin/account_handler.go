@@ -82,7 +82,6 @@ func NewAccountHandler(
 	kimiOAuthService *service.KimiOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
-	grokOAuthService service.GrokOAuthTokenService,
 	rateLimitService *service.RateLimitService,
 	accountUsageService *service.AccountUsageService,
 	accountTestService *service.AccountTestService,
@@ -91,7 +90,12 @@ func NewAccountHandler(
 	sessionLimitCache service.SessionLimitCache,
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
+	grokOAuthServices ...service.GrokOAuthTokenService,
 ) *AccountHandler {
+	var grokOAuthService service.GrokOAuthTokenService
+	if len(grokOAuthServices) > 0 {
+		grokOAuthService = grokOAuthServices[0]
+	}
 	return &AccountHandler{
 		adminService:            adminService,
 		oauthService:            oauthService,

@@ -37,7 +37,18 @@ export interface HeaderOverrideRow {
 
 /** 请求头覆写支持的平台（与后端 IsHeaderOverrideEligible 保持一致） */
 export function isHeaderOverridePlatform(platform: string): boolean {
-  return platform === 'anthropic' || platform === 'openai' || platform === 'kimi' || platform === 'zhipu'
+  return ['anthropic', 'openai', 'grok', 'kimi', 'zhipu'].includes(platform)
+}
+
+/** 请求头覆写资格（与后端 IsHeaderOverrideEligible 保持一致） */
+export function isHeaderOverrideCapable(platform: string, type: string): boolean {
+  if (platform === 'anthropic' || platform === 'openai' || platform === 'kimi' || platform === 'zhipu') {
+    return type === 'apikey'
+  }
+  if (platform === 'grok') {
+    return type === 'apikey' || type === 'oauth'
+  }
+  return false
 }
 
 /** 禁止覆写的请求头（与后端 headerOverrideBlockedNames 保持一致） */

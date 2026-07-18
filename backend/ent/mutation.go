@@ -24720,7 +24720,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 50)
+	fields := make([]string, 0, 51)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -42880,85 +42880,86 @@ func (m *UsageCleanupTaskMutation) ResetEdge(name string) error {
 // UsageLogMutation represents an operation that mutates the UsageLog nodes in the graph.
 type UsageLogMutation struct {
 	config
-	op                          Op
-	typ                         string
-	id                          *int64
-	request_id                  *string
-	model                       *string
-	requested_model             *string
-	upstream_model              *string
-	channel_id                  *int64
-	addchannel_id               *int64
-	model_mapping_chain         *string
-	billing_tier                *string
-	billing_mode                *string
-	input_tokens                *int
-	addinput_tokens             *int
-	output_tokens               *int
-	addoutput_tokens            *int
-	cache_creation_tokens       *int
-	addcache_creation_tokens    *int
-	cache_read_tokens           *int
-	addcache_read_tokens        *int
-	cache_creation_5m_tokens    *int
-	addcache_creation_5m_tokens *int
-	cache_creation_1h_tokens    *int
-	addcache_creation_1h_tokens *int
-	input_cost                  *float64
-	addinput_cost               *float64
-	output_cost                 *float64
-	addoutput_cost              *float64
-	cache_creation_cost         *float64
-	addcache_creation_cost      *float64
-	cache_read_cost             *float64
-	addcache_read_cost          *float64
-	total_cost                  *float64
-	addtotal_cost               *float64
-	actual_cost                 *float64
-	addactual_cost              *float64
-	rate_multiplier             *float64
-	addrate_multiplier          *float64
-	account_rate_multiplier     *float64
-	addaccount_rate_multiplier  *float64
-	sharing_rate_multiplier     *float64
-	addsharing_rate_multiplier  *float64
-	billing_type                *int8
-	addbilling_type             *int8
-	stream                      *bool
-	duration_ms                 *int
-	addduration_ms              *int
-	first_token_ms              *int
-	addfirst_token_ms           *int
-	user_agent                  *string
-	ip_address                  *string
-	image_count                 *int
-	addimage_count              *int
-	image_size                  *string
-	image_input_size            *string
-	image_output_size           *string
-	image_size_source           *string
-	image_size_breakdown        *map[string]int
-	video_count                 *int
-	addvideo_count              *int
-	video_resolution            *string
-	video_duration_seconds      *int
-	addvideo_duration_seconds   *int
-	cache_ttl_overridden        *bool
-	created_at                  *time.Time
-	clearedFields               map[string]struct{}
-	user                        *int64
-	cleareduser                 bool
-	api_key                     *int64
-	clearedapi_key              bool
-	account                     *int64
-	clearedaccount              bool
-	group                       *int64
-	clearedgroup                bool
-	subscription                *int64
-	clearedsubscription         bool
-	done                        bool
-	oldValue                    func(context.Context) (*UsageLog, error)
-	predicates                  []predicate.UsageLog
+	op                           Op
+	typ                          string
+	id                           *int64
+	request_id                   *string
+	model                        *string
+	requested_model              *string
+	upstream_model               *string
+	channel_id                   *int64
+	addchannel_id                *int64
+	model_mapping_chain          *string
+	billing_tier                 *string
+	billing_mode                 *string
+	input_tokens                 *int
+	addinput_tokens              *int
+	output_tokens                *int
+	addoutput_tokens             *int
+	cache_creation_tokens        *int
+	addcache_creation_tokens     *int
+	cache_read_tokens            *int
+	addcache_read_tokens         *int
+	cache_creation_5m_tokens     *int
+	addcache_creation_5m_tokens  *int
+	cache_creation_1h_tokens     *int
+	addcache_creation_1h_tokens  *int
+	input_cost                   *float64
+	addinput_cost                *float64
+	output_cost                  *float64
+	addoutput_cost               *float64
+	cache_creation_cost          *float64
+	addcache_creation_cost       *float64
+	cache_read_cost              *float64
+	addcache_read_cost           *float64
+	total_cost                   *float64
+	addtotal_cost                *float64
+	actual_cost                  *float64
+	addactual_cost               *float64
+	rate_multiplier              *float64
+	addrate_multiplier           *float64
+	long_context_billing_applied *bool
+	account_rate_multiplier      *float64
+	addaccount_rate_multiplier   *float64
+	sharing_rate_multiplier      *float64
+	addsharing_rate_multiplier   *float64
+	billing_type                 *int8
+	addbilling_type              *int8
+	stream                       *bool
+	duration_ms                  *int
+	addduration_ms               *int
+	first_token_ms               *int
+	addfirst_token_ms            *int
+	user_agent                   *string
+	ip_address                   *string
+	image_count                  *int
+	addimage_count               *int
+	image_size                   *string
+	image_input_size             *string
+	image_output_size            *string
+	image_size_source            *string
+	image_size_breakdown         *map[string]int
+	video_count                  *int
+	addvideo_count               *int
+	video_resolution             *string
+	video_duration_seconds       *int
+	addvideo_duration_seconds    *int
+	cache_ttl_overridden         *bool
+	created_at                   *time.Time
+	clearedFields                map[string]struct{}
+	user                         *int64
+	cleareduser                  bool
+	api_key                      *int64
+	clearedapi_key               bool
+	account                      *int64
+	clearedaccount               bool
+	group                        *int64
+	clearedgroup                 bool
+	subscription                 *int64
+	clearedsubscription          bool
+	done                         bool
+	oldValue                     func(context.Context) (*UsageLog, error)
+	predicates                   []predicate.UsageLog
 }
 
 var _ ent.Mutation = (*UsageLogMutation)(nil)
@@ -45603,7 +45604,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 45)
+	fields := make([]string, 0, 46)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}

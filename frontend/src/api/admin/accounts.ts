@@ -990,7 +990,12 @@ export const accountsAPI = {
   setAccountOwners,
   setAccountPrimaryOwner,
   setAccountSharingRate,
-  createSparkShadow
+  createSparkShadow,
+  getUpstreamBillingProbeSettings,
+  updateUpstreamBillingProbeSettings,
+  setUpstreamBillingProbeEnabled,
+  probeUpstreamBilling,
+  probeUpstreamBillingBatch
 }
 
 export default accountsAPI

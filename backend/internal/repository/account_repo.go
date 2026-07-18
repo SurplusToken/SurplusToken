@@ -109,16 +109,6 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
-	if err := createAccountRecord(ctx, r.client, account); err != nil {
-		return err
-	}
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
-	}
-	return nil
-}
-
-func createAccountRecord(ctx context.Context, client *dbent.Client, account *service.Account) error {
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
@@ -136,6 +126,25 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 			client = tx.Client()
 		}
 	}
+	if err := createAccountRecord(ctx, client, account); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+	}
+	return nil
+}
+
+func createAccountRecord(ctx context.Context, client *dbent.Client, account *service.Account) error {
+	if account == nil {
+		return service.ErrAccountNilInput
+	}
+
 	if account.OwnerUserID != nil {
 		if *account.OwnerUserID <= 0 {
 			return service.ErrUserNotFound
@@ -220,12 +229,6 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-
 	account.ID = created.ID
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
@@ -1311,9 +1314,21 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 		SELECT id
 		FROM accounts
 		WHERE deleted_at IS NULL
-			AND status = 'active'
-			AND type IN ('oauth', 'setup-token')
-			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'kimi')
+			AND platform = ANY($1)
+			AND id > $2`
+	if options.ActiveOnly {
+		query += `
+			AND status = 'active'`
+	}
+	if options.IncludeSetupToken {
+		query += `
+			AND type IN ('oauth', 'setup-token')`
+	} else {
+		query += `
+			AND type = 'oauth'`
+	}
+	if options.RequireRefreshToken {
+		query += `
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''`
 	}

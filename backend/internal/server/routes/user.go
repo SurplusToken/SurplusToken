@@ -16,6 +16,7 @@ func RegisterUserRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
 	jwtAuth middleware.JWTAuthMiddleware,
+	auditLog middleware.AuditLogMiddleware,
 	apiKeyAuth middleware.APIKeyAuthMiddleware,
 	settingService *service.SettingService,
 	opsService *service.OpsService,

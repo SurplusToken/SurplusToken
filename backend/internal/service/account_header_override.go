@@ -77,14 +77,13 @@ func (a *Account) IsHeaderOverrideEligible() bool {
 		return false
 	}
 	switch a.Platform {
-	case PlatformAnthropic, PlatformOpenAI:
+	case PlatformAnthropic, PlatformOpenAI, PlatformKimi, PlatformZhipu:
 		return a.Type == AccountTypeAPIKey
 	case PlatformGrok:
 		return a.Type == AccountTypeAPIKey || a.Type == AccountTypeOAuth
 	default:
 		return false
 	}
-	return a.Platform == PlatformAnthropic || a.Platform == PlatformOpenAI || a.Platform == PlatformKimi || a.Platform == PlatformZhipu
 }
 
 // IsHeaderOverrideEnabled 报告账号是否启用了请求头覆写。

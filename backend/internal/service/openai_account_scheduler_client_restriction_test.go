@@ -89,6 +89,7 @@ func TestOpenAIAccountScheduling_ClientRestrictionSkipsStickyAccount(t *testing.
 				OpenAIEndpointCapabilityChatCompletions,
 				false,
 				false,
+				false,
 			)
 			require.NoError(t, err)
 			require.NotNil(t, selection)
@@ -136,6 +137,7 @@ func TestOpenAIAccountScheduling_ClientRestrictionSkipsPreviousResponseAccountBe
 		OpenAIEndpointCapabilityChatCompletions,
 		false,
 		false,
+		false,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
@@ -154,7 +156,9 @@ func TestOpenAIAccountScheduling_OfficialCodexCanSelectRestrictedAccount(t *test
 	groupID := int64(512)
 	body := []byte(`{"model":"gpt-5.4"}`)
 	cfg := &config.Config{}
-	cfg.Gateway.OpenAIWS.LBTopK = 2
+	// Keep selection deterministic: this test verifies that the restricted
+	// account is eligible for official Codex clients, not weighted Top-K choice.
+	cfg.Gateway.OpenAIWS.LBTopK = 1
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: openAIClientRestrictionTestAccounts(groupID)},
 		cache:              &schedulerTestGatewayCache{},
@@ -176,6 +180,7 @@ func TestOpenAIAccountScheduling_OfficialCodexCanSelectRestrictedAccount(t *test
 		nil,
 		OpenAIUpstreamTransportAny,
 		OpenAIEndpointCapabilityChatCompletions,
+		false,
 		false,
 		false,
 	)

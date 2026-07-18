@@ -180,8 +180,11 @@ func (s *TokenRefreshService) SetKimiOAuthService(kimiOAuthService *KimiOAuthSer
 		return
 	}
 	refresher := NewKimiTokenRefresher(kimiOAuthService)
-	s.refreshers = append(s.refreshers, refresher)
-	s.executors = append(s.executors, refresher)
+	s.registrations = append(s.registrations, tokenRefreshRegistration{
+		platform:  PlatformKimi,
+		refresher: refresher,
+		executor:  refresher,
+	})
 }
 
 // SetRefreshPolicy 注入后台刷新调用侧策略（用于显式化平台/场景差异行为）。

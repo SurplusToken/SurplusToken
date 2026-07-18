@@ -795,8 +795,8 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [5]string {
-	return [5]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}
+func schedulerSnapshotPlatforms() [7]string {
+	return [7]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu}
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。
@@ -826,12 +826,9 @@ func (s *SchedulerSnapshotService) rebuildByGroupIDs(ctx context.Context, groupI
 	if len(groupIDs) == 0 {
 		return nil
 	}
-	platforms := []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu}
-	var firstErr error
-	for _, platform := range platforms {
-		if err := s.rebuildBucketsForPlatform(ctx, platform, groupIDs, reason, seen); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	buckets := make([]SchedulerBucket, 0, len(groupIDs)*len(schedulerSnapshotPlatforms())*2)
+	for _, platform := range schedulerSnapshotPlatforms() {
+		buckets = append(buckets, s.bucketsForPlatform(platform, groupIDs, seen)...)
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
 }

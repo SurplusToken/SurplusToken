@@ -8434,6 +8434,7 @@ const form = reactive<SettingsForm>({
   affiliate_rebate_freeze_hours: 0,
   affiliate_rebate_duration_days: 0,
   affiliate_rebate_per_invitee_cap: 0,
+  affiliate_admin_recharge_enabled: false,
   contribution_reward_rate: 80,
   contribution_reward_freeze_hours: 0,
   default_concurrency: 1,
@@ -9846,6 +9847,7 @@ async function saveSettings() {
       affiliate_rebate_freeze_hours: Math.max(0, Math.min(720, Number(form.affiliate_rebate_freeze_hours) || 0)),
       affiliate_rebate_duration_days: Math.max(0, Math.min(3650, Math.floor(Number(form.affiliate_rebate_duration_days) || 0))),
       affiliate_rebate_per_invitee_cap: Math.max(0, Number(form.affiliate_rebate_per_invitee_cap) || 0),
+      affiliate_admin_recharge_enabled: form.affiliate_admin_recharge_enabled,
       contribution_reward_rate: Math.min(
         100,
         Math.max(0, Number(form.contribution_reward_rate) || 0),

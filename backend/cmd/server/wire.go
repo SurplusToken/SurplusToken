@@ -25,8 +25,9 @@ import (
 )
 
 type Application struct {
-	Server  *http.Server
-	Cleanup func()
+	Server      *http.Server
+	PromptAudit *securityaudit.PromptService
+	Cleanup     func()
 	// AccountService is exposed for one-shot CLI maintenance commands
 	// (e.g. -backfill-self-use); not used by the running HTTP server.
 	AccountService *service.AccountService
@@ -58,7 +59,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "Cleanup", "AccountService"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "Cleanup", "AccountService"),
 	)
 	return nil, nil
 }
@@ -114,6 +115,9 @@ func provideCleanup(
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	remoteSession *service.RemoteSessionService,
 	chatDB *repository.ChatDB,
+	upstreamBillingProbe *service.UpstreamBillingProbeService,
+	auditLog *service.AuditLogService,
+	promptAudit *securityaudit.PromptService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

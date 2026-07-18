@@ -96,6 +96,7 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	Kasm                    KasmConfig                    `mapstructure:"kasm"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	Chat                    ChatConfig                    `mapstructure:"chat"`
 }
 
@@ -1955,6 +1956,14 @@ func setDefaults() {
 	viper.SetDefault("batch_image.lock_key_prefix", "batch_image:queue:lock:")
 	viper.SetDefault("batch_image.idempotency_key_prefix", "batch_image:queue:idem:")
 	viper.SetDefault("batch_image.inflight_ttl_seconds", 604800)
+
+	// Image storage (async image task result offload to S3-compatible object storage)
+	viper.SetDefault("image_storage.enabled", false)
+	viper.SetDefault("image_storage.region", "auto")
+	viper.SetDefault("image_storage.prefix", "images/")
+	viper.SetDefault("image_storage.force_path_style", false)
+	viper.SetDefault("image_storage.presign_expiry_hours", 24)
+	viper.SetDefault("image_storage.max_download_bytes", 33554432)
 	viper.SetDefault("batch_image.job_lock_ttl_seconds", 300)
 	viper.SetDefault("batch_image.default_requeue_delay_seconds", 30)
 	viper.SetDefault("batch_image.error_retry_delay_seconds", 60)

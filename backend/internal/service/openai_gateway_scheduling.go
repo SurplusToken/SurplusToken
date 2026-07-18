@@ -620,7 +620,8 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	return upstreamModel
 }
 
-func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
+func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRateOpt ...bool) (*Account, error) {
+	preferLowUpstreamRate := len(preferLowUpstreamRateOpt) > 0 && preferLowUpstreamRateOpt[0]
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -737,7 +738,8 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // Returns nil if no available account. The second return reports whether at
 // least one candidate was filtered out solely because it lacks compact support
 // (only meaningful when requireCompact=true).
-func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, bool) {
+func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRateOpt ...bool) (*Account, bool) {
+	preferLowUpstreamRate := len(preferLowUpstreamRateOpt) > 0 && preferLowUpstreamRateOpt[0]
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	compactBlocked := false
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
@@ -773,35 +775,8 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			}
 		}
 
-		// 选择优先级最高且最久未使用的账号
-		// Select highest priority and least recently used
-		if selected == nil {
-			selected = fresh
-			selectedCompactTier = compactTier
-			continue
-		}
-
-		// compact 模式下高 tier 优先；同 tier 内才比较共享价格和 priority/LRU。
-		if requireCompact && compactTier != selectedCompactTier {
-			if compactTier > selectedCompactTier {
-				selected = fresh
-				selectedCompactTier = compactTier
-			}
-			continue
-		}
-
-		if rateOrder := compareSharingRateForScheduling(ctx, fresh, selected); rateOrder != 0 {
-			if rateOrder < 0 {
-				selected = fresh
-				selectedCompactTier = compactTier
-			}
-			continue
-		}
-
-		if s.isBetterAccount(fresh, selected) {
-			selected = fresh
-			selectedCompactTier = compactTier
-		}
+		eligible = append(eligible, fresh)
+		compactTiers[fresh.ID] = compactTier
 	}
 
 	if len(eligible) == 0 {
@@ -815,6 +790,9 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		a, b := eligible[i], eligible[j]
 		if requireCompact && compactTiers[a.ID] != compactTiers[b.ID] {
 			return compactTiers[a.ID] > compactTiers[b.ID]
+		}
+		if sharingCmp := compareSharingRateForScheduling(ctx, a, b); sharingCmp != 0 {
+			return sharingCmp < 0
 		}
 		if rateCmp := rateOrder.compare(a, b); rateCmp != 0 {
 			return rateCmp < 0
@@ -859,10 +837,10 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
-	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", nil)
+	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", true, nil)
 }
 
-func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, accountEligibility OpenAIAccountEligibility) (*AccountSelectionResult, error) {
+func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool, accountEligibility OpenAIAccountEligibility) (*AccountSelectionResult, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -887,7 +865,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 		var fallbackAccount *Account
 		for {
-			account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, localExcluded, requireCompact, stickyAccountID, requiredCapability)
+			account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, localExcluded, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
 			if err != nil {
 				if fallbackAccount == nil {
 					return nil, err
@@ -976,7 +954,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				}
 				if !clearSticky && isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) &&
 					matchesOpenAIAccountEligibility(ctx, account, accountEligibility) {
-					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
+					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
@@ -1114,6 +1092,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			}
 		})
 		shuffleWithinSortGroups(available)
+		if rateOrder.enabled {
+			sort.SliceStable(available, func(i, j int) bool {
+				return rateOrder.compare(available[i].account, available[j].account) < 0
+			})
+		}
 		sortOpenAIAccountLoadsBySharingRate(ctx, available)
 
 		selectionOrder := make([]accountWithLoad, 0, len(available))
@@ -1169,6 +1152,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if err != nil {
 		ordered := append([]*Account(nil), candidates...)
 		sortAccountsByPriorityAndLastUsed(ordered, false)
+		if rateOrder.enabled {
+			sort.SliceStable(ordered, func(i, j int) bool {
+				return rateOrder.compare(ordered[i], ordered[j]) < 0
+			})
+		}
 		sortOpenAIAccountsBySharingRate(ctx, ordered)
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
@@ -1218,6 +1206,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	// ============ Layer 3: Fallback wait ============
 	sortAccountsByPriorityAndLastUsed(candidates, false)
+	if rateOrder.enabled {
+		sort.SliceStable(candidates, func(i, j int) bool {
+			return rateOrder.compare(candidates[i], candidates[j]) < 0
+		})
+	}
 	sortOpenAIAccountsBySharingRate(ctx, candidates)
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
@@ -1459,6 +1452,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	// has fresh data on this DB-recheck path. Best-effort / fails open.
 	latest.OthersWeeklySpend = account.OthersWeeklySpend
 	s.hydrateOthersWeeklySpendSingle(ctx, latest)
+	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
+		return nil
+	}
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, latest, platform, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}

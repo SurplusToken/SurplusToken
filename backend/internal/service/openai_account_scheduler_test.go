@@ -98,6 +98,9 @@ func (c schedulerTestConcurrencyCache) AcquireAccountSlot(ctx context.Context, a
 	if c.acquireOrder != nil {
 		*c.acquireOrder = append(*c.acquireOrder, accountID)
 	}
+	if c.acquiredIDs != nil {
+		*c.acquiredIDs = append(*c.acquiredIDs, accountID)
+	}
 	if c.acquireResults != nil {
 		if result, ok := c.acquireResults[accountID]; ok {
 			return result, nil

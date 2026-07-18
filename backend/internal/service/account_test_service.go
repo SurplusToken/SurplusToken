@@ -887,6 +887,14 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 // resulting capability state on the account.
 func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account *Account, testModelID string) error {
 	ctx := c.Request.Context()
+	credentialAccount := account
+	if account.IsShadow() {
+		resolved, err := resolveCredentialAccount(ctx, s.accountRepo, account)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to resolve account credentials")
+		}
+		credentialAccount = resolved
+	}
 	if account.IsKimi() || account.IsZhipu() {
 		return s.sendErrorAndEnd(c, "This platform does not support the OpenAI compact endpoint")
 	}

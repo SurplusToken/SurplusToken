@@ -52,7 +52,7 @@ func RegisterGatewayRoutes(
 		return getGroupPlatform(c) == service.PlatformOpenAI
 	}
 	modelsHandler := func(c *gin.Context) {
-		if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
+		if isOpenAIGatewayPlatform(c) && (c.Query("client_version") != "" || c.Query("codex_manifest") == "1") {
 			h.OpenAIGateway.CodexModels(c)
 			return
 		}
@@ -172,13 +172,7 @@ func RegisterGatewayRoutes(
 		// Codex manifest format. The built-in Chat uses codex_manifest=1 to
 		// consume the same per-model capability catalog without pinning a client
 		// version; other clients keep the OpenAI-style list.
-		gateway.GET("/models", func(c *gin.Context) {
-			if isOpenAIGatewayPlatform(c) && (c.Query("client_version") != "" || c.Query("codex_manifest") == "1") {
-				h.OpenAIGateway.CodexModels(c)
-				return
-			}
-			h.Gateway.Models(c)
-		})
+		gateway.GET("/models", modelsHandler)
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", func(c *gin.Context) {

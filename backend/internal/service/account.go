@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -108,9 +109,12 @@ type OpenAIEndpointCapability string
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 
 const (
-	OpenAIEndpointCapabilityChatCompletions   OpenAIEndpointCapability = "chat_completions"
-	OpenAIEndpointCapabilityEmbeddings        OpenAIEndpointCapability = "embeddings"
-	OpenAIEndpointCapabilityAnthropicMessages OpenAIEndpointCapability = "anthropic_messages"
+	OpenAIEndpointCapabilityChatCompletions     OpenAIEndpointCapability = "chat_completions"
+	OpenAIEndpointCapabilityEmbeddings          OpenAIEndpointCapability = "embeddings"
+	OpenAIEndpointCapabilityAlphaSearch         OpenAIEndpointCapability = "alpha_search"
+	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
+	OpenAIEndpointCapabilityResponses           OpenAIEndpointCapability = "responses"
+	OpenAIEndpointCapabilityAnthropicMessages   OpenAIEndpointCapability = "anthropic_messages"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -1887,6 +1891,15 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
 		if a.IsKimiAnthropicAPI() {
+			return false
+		}
+	case OpenAIEndpointCapabilityResponses:
+		if a.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(a.Extra) {
+			return false
+		}
+		capability = OpenAIEndpointCapabilityChatCompletions
+	case OpenAIEndpointCapabilityAlphaSearch:
+		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey {
 			return false
 		}
 	case OpenAIEndpointCapabilityEmbeddings:

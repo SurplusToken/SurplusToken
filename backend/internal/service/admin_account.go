@@ -408,25 +408,10 @@ func (s *adminServiceImpl) GetAccountCoOwnerUserIDs(ctx context.Context, account
 	return s.accountRepo.ListCoOwnerUserIDsByAccount(ctx, accountID)
 }
 
-func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
-	if err := validateSurplusAIUpstreamAccountType(input.Type); err != nil {
-		return nil, err
-	}
-
-	// 绑定分组
-	groupIDs := input.GroupIDs
-	// 如果没有指定分组,自动绑定对应平台的默认分组
-	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
-		defaultGroupName := input.Platform + "-default"
-		groups, err := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
-		if err == nil {
-			for _, g := range groups {
-				if g.Name == defaultGroupName {
-					groupIDs = []int64{g.ID}
-					break
-				}
-			}
-		}
+// ValidateOpenAILongContextBillingExtra validates the OpenAI account billing flag when present.
+func ValidateOpenAILongContextBillingExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
 	}
 	raw, exists := extra[openAILongContextBillingEnabledKey]
 	if !exists {
@@ -593,6 +578,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := validateSurplusAIUpstreamAccountType(input.Type); err != nil {
+		return nil, err
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -682,6 +670,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	var normalizedExtra map[string]any
+	if input.Extra != nil {
+		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
+		if err != nil {
+			return nil, err
+		}
+		normalizedExtra, err = normalizeGrokMediaEligibilityUpdateExtra(account, input, normalizedExtra)
+		if err != nil {
+			return nil, err
+		}
+	}
+	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	// Owner-tied accounts belong to the user OAuth pool. Letting a generic admin
 	// edit change them to apikey/upstream would keep owner/pool state while making
 	// the owner-only pricing API (OAuth-only by contract) unable to manage them.

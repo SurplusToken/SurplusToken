@@ -18,6 +18,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// ResolveUserGroupRateMultiplier resolves the cached user/group override used by OpenAI billing.
+func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if s == nil || s.userGroupRateResolver == nil {
+		return groupDefaultMultiplier
+	}
+	return s.userGroupRateResolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
+}
+
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
 	Result             *OpenAIForwardResult

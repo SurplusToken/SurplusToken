@@ -119,6 +119,34 @@ func RegisterAdminRoutes(
 
 		// 贡献收益提现审核
 		registerContributionWithdrawalRoutes(admin, h)
+
+		// 操作审计日志
+		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	promptAudit := admin.Group("/prompt-audit")
+	{
+		promptAudit.GET("/config", h.Admin.PromptAudit.GetConfig)
+		promptAudit.PUT("/config", h.Admin.PromptAudit.UpdateConfig)
+		promptAudit.POST("/endpoints/probe", h.Admin.PromptAudit.ProbeEndpoint)
+		promptAudit.GET("/runtime", h.Admin.PromptAudit.GetRuntime)
+		promptAudit.GET("/events", h.Admin.PromptAudit.ListEvents)
+		promptAudit.GET("/events/:id", h.Admin.PromptAudit.GetEvent)
+		promptAudit.DELETE("/events/:id", h.Admin.PromptAudit.DeleteEvent)
+		promptAudit.POST("/events/batch-delete", h.Admin.PromptAudit.BatchDelete)
+		promptAudit.POST("/events/delete-preview", h.Admin.PromptAudit.DeletePreview)
+		promptAudit.POST("/events/delete-by-filter", h.Admin.PromptAudit.DeleteByFilter)
+	}
+}
+
+func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, _ middleware.StepUpAuthMiddleware) {
+	auditLogs := admin.Group("/audit-logs")
+	{
+		auditLogs.GET("", h.Admin.AuditLog.List)
+		auditLogs.GET("/:id", h.Admin.AuditLog.Get)
+		auditLogs.POST("/clear", h.Admin.AuditLog.Clear)
 	}
 }
 
@@ -458,7 +486,7 @@ func registerKimiOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerProxyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+func registerProxyRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	proxies := admin.Group("/proxies")
 	{
 		proxies.GET("", h.Admin.Proxy.List)
