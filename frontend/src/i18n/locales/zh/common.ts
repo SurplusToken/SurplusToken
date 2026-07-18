@@ -195,6 +195,10 @@ export default {
     channelMonitor: '渠道监控',
     channelStatus: '渠道状态',
     riskControl: '风控中心',
+    securityAudit: '安全审计',
+    contentModeration: '内容审核',
+    promptAudit: '提示词审计',
+    auditLogs: '操作日志',
   },
 
   // Auth
@@ -415,6 +419,15 @@ export default {
     invalidResetLinkHint: '此密码重置链接无效或已过期。请重新请求一个新链接。',
     requestNewResetLink: '请求新的重置链接',
     invalidOrExpiredToken: '密码重置链接无效或已过期。请重新请求一个新链接。'
+  },
+
+  // Step-up（敏感操作二次验证）
+  stepUp: {
+    title: '需要二次验证',
+    hint: '请输入身份验证器应用中的 6 位验证码以继续此敏感操作。',
+    verifyFailed: '验证失败，请重试',
+    notEnabled: '此操作需要开启二次验证，请先在个人资料中启用 TOTP。',
+    adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。'
   },
 
   // Dashboard

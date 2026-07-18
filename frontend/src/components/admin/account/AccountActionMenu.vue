@@ -70,6 +70,10 @@ import type { Account } from '@/types'
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'manage-owners', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
+const canDuplicate = computed(() => {
+  if (!props.account || props.account.parent_account_id != null) return false
+  return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
+})
 const isRateLimited = computed(() => {
   if (props.account?.rate_limit_reset_at && new Date(props.account.rate_limit_reset_at) > new Date()) {
     return true
