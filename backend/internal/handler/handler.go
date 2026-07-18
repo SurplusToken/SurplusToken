@@ -54,6 +54,7 @@ type Handlers struct {
 	Chat             *ChatHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
 	AccountPool      *AccountPoolHandler
+	Carpool          *CarpoolHandler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler

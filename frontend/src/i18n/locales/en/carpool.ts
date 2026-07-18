@@ -18,15 +18,15 @@ export default {
         capacity: '1 account · 5 people per level',
         upgrade: 'Level 1 has 1 account for 5 people; Level 2 has 2 accounts for 10 people. Each higher level adds 1 account and 5 seats.',
         baseFee: 'Base fee: 130 / person',
-        usageFee: 'Relative usage: 1,400 - 5 × 130 = 750 / account'
+        usageFee: 'Remaining cost: 750 CNY / account, shared in proportion to each member\'s relative usage'
       },
       large: {
         capacity: '1 account · 10 people per level',
         upgrade: 'Level 1 has 1 account for 10 people. Each higher level adds 1 account and 10 seats.',
         baseFee: 'Base fee: 65 / person',
-        usageFee: 'Relative usage: 1,400 - 10 × 65 = 750 / account'
+        usageFee: 'Remaining cost: 750 CNY / account, shared in proportion to each member\'s relative usage'
       },
-      lockNotice: 'Choose both the car type and level (account count) before departure. The level cannot change during the month and can be selected again next month.'
+      lockNotice: 'Choose the car type and level before departure; they remain fixed for the month. When full, an unlimited 1x OpenAI subscription group with the same name is created and every member receives one month.'
     },
     plaza: 'Carpool plaza',
     mine: 'My carpools',
@@ -123,6 +123,8 @@ export default {
       description: 'Change the filters or start a new carpool'
     },
     unavailable: 'This carpool is not accepting members',
-    inviteNotFound: 'This invite is invalid or has expired'
+    inviteNotFound: 'This invite is invalid or has expired',
+    loadFailed: 'Failed to load carpools',
+    actionFailed: 'Carpool action failed'
   }
 }

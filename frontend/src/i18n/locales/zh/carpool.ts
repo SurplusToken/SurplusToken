@@ -18,15 +18,15 @@ export default {
         capacity: '每级 1 个号 · 5 人',
         upgrade: '1 级为 1 个号、5 人；2 级为 2 个号、10 人，之后每升 1 级增加 1 个号和 5 个席位。',
         baseFee: '基础费用：130 / 人',
-        usageFee: '相对用量：1400 - 5 × 130 = 750 / 号'
+        usageFee: '剩余费用：750 元 / 号，按成员的相对用量比例分摊'
       },
       large: {
         capacity: '每级 1 个号 · 10 人',
         upgrade: '1 级为 1 个号、10 人；之后每升 1 级增加 1 个号和 10 个席位。',
         baseFee: '基础费用：65 / 人',
-        usageFee: '相对用量：1400 - 10 × 65 = 750 / 号'
+        usageFee: '剩余费用：750 元 / 号，按成员的相对用量比例分摊'
       },
-      lockNotice: '开车前需同时确定车型和等级（账号数）。确认后当月不再升降级，下个月可重新选择。'
+      lockNotice: '开车前需同时确定车型和等级（账号数），确认后当月不再升降级。满员后自动创建同名 OpenAI 订阅分组，并为每位成员开通一个月订阅；倍率 1，不限制用量。'
     },
     plaza: '拼车广场',
     mine: '我的拼车',
@@ -123,6 +123,8 @@ export default {
       description: '调整筛选条件，或发起一辆新车'
     },
     unavailable: '这辆车当前不能上人',
-    inviteNotFound: '邀请链接无效或已失效'
+    inviteNotFound: '邀请链接无效或已失效',
+    loadFailed: '加载拼车失败',
+    actionFailed: '拼车操作失败'
   }
 }

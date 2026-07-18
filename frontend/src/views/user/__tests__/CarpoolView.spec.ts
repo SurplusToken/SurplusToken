@@ -1,12 +1,26 @@
 import { ref } from 'vue'
-import { shallowMount } from '@vue/test-utils'
+import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CarpoolView from '../CarpoolView.vue'
 
-const { replace, showWarning } = vi.hoisted(() => ({
+const { replace, showWarning, listCarpools } = vi.hoisted(() => ({
   replace: vi.fn(),
   showWarning: vi.fn(),
+  listCarpools: vi.fn(),
+}))
+
+vi.mock('@/api/carpools', () => ({
+  default: {
+    list: listCarpools,
+    create: vi.fn(),
+    resolveInvite: vi.fn(),
+    createInvite: vi.fn(),
+    join: vi.fn(),
+    joinByInvite: vi.fn(),
+    cancel: vi.fn(),
+    setJoinLocked: vi.fn(),
+  },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -57,43 +71,74 @@ describe('CarpoolView', () => {
     localStorage.clear()
     replace.mockReset()
     showWarning.mockReset()
+    listCarpools.mockReset()
+    listCarpools.mockResolvedValue([])
   })
 
-  it('shows the GPT tier rules on the standalone carpool page', () => {
+  it('shows the GPT tier rules and does not seed car1 or car2', async () => {
     const wrapper = mountView()
+    await flushPromises()
     const rules = wrapper.get('[data-testid="gpt-carpool-rules"]')
 
     expect(rules.text()).toContain('carpool.rules.small.usageFee')
     expect(rules.text()).toContain('carpool.rules.large.usageFee')
     expect(rules.text()).toContain('carpool.rules.lockNotice')
-    expect(wrapper.findAll('article')).toHaveLength(2)
+    expect(wrapper.findAll('article')).toHaveLength(0)
+    expect(listCarpools).toHaveBeenCalledOnce()
   })
 
-  it('keeps car1 and car2 locked even when saved preview data says they are open', () => {
-    localStorage.setItem('surplusai_carpool_preview_v2', JSON.stringify([
+  it('renders joined state only from the current user membership returned by the API', async () => {
+    listCarpools.mockResolvedValue([
       {
-        id: 8,
-        name: 'car2',
-        description: 'saved open car',
-        organizer: 'SurplusToken',
+        id: 10,
+        name: 'open-car',
+        description: '',
+        organizer: 'owner-a',
+        platform: 'openai',
+        planType: 'openai_pro',
         carType: 'small',
-        level: 2,
-        capacity: 10,
-        memberCount: 7,
+        level: 1,
+        capacity: 5,
+        memberCount: 2,
+        baseFeeCny: 130,
+        usagePoolCnyPerAccount: 750,
         visibility: 'public',
         status: 'recruiting',
         joinLocked: false,
         scheduledStartAt: '2026-08-01',
-        groupName: 'car2',
+        groupName: null,
         memberRole: null,
-        inviteCode: 'CAR2DEMO',
         createdAt: '2026-07-01T00:00:00Z',
+      }, {
+        id: 11,
+        name: 'joined-car',
+        description: '',
+        organizer: 'owner-b',
+        platform: 'openai',
+        planType: 'openai_pro',
+        carType: 'small',
+        level: 1,
+        capacity: 5,
+        memberCount: 3,
+        baseFeeCny: 130,
+        usagePoolCnyPerAccount: 750,
+        visibility: 'public',
+        status: 'recruiting',
+        joinLocked: false,
+        scheduledStartAt: '2026-08-02',
+        groupName: null,
+        memberRole: 'member',
+        createdAt: '2026-07-02T00:00:00Z',
       },
-    ]))
+    ])
 
     const wrapper = mountView()
+    await flushPromises()
+    const cards = wrapper.findAll('article')
 
-    expect(wrapper.get('article').text()).toContain('carpool.status.locked')
-    expect(wrapper.get('article').text()).not.toContain('carpool.actions.join')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].text()).toContain('carpool.actions.join')
+    expect(cards[0].text()).not.toContain('carpool.actions.joined')
+    expect(cards[1].text()).toContain('carpool.actions.joined')
   })
 })

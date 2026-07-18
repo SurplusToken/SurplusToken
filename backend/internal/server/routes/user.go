@@ -229,6 +229,18 @@ func RegisterUserRoutes(
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
 
+		carpools := authenticated.Group("/carpools")
+		{
+			carpools.GET("", h.Carpool.List)
+			carpools.POST("", h.Carpool.Create)
+			carpools.GET("/invites/:token", h.Carpool.ResolveInvite)
+			carpools.POST("/join-by-invite", h.Carpool.JoinByInvite)
+			carpools.POST("/:id/invites", h.Carpool.CreateInvite)
+			carpools.POST("/:id/join", h.Carpool.Join)
+			carpools.POST("/:id/cancel", h.Carpool.Cancel)
+			carpools.PATCH("/:id/join-lock", h.Carpool.SetJoinLocked)
+		}
+
 		// 渠道监控（用户只读）
 		monitors := authenticated.Group("/channel-monitors")
 		{

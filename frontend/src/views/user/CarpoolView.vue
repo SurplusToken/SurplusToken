@@ -101,7 +101,11 @@
           </div>
         </div>
 
-        <div v-if="filteredCarpools.length" class="grid gap-4 lg:grid-cols-2">
+        <div v-if="loading" class="flex min-h-64 items-center justify-center border-y border-gray-200 dark:border-dark-700">
+          <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+        </div>
+
+        <div v-else-if="filteredCarpools.length" class="grid gap-4 lg:grid-cols-2">
           <article
             v-for="carpool in filteredCarpools"
             :key="carpool.id"
@@ -170,7 +174,7 @@
                   <span>{{ t('carpool.actions.invite') }}</span>
                 </button>
                 <button
-                  v-if="authStore.isAdmin && carpool.status === 'recruiting' && !isSystemLockedCarpool(carpool)"
+                  v-if="authStore.isAdmin && carpool.status === 'recruiting'"
                   type="button"
                   class="btn btn-secondary h-9 px-3 py-2"
                   @click="toggleJoinLock(carpool)"
@@ -284,7 +288,7 @@
       <template #footer>
         <div class="flex justify-end gap-3">
           <button type="button" class="btn btn-secondary" @click="createDialogOpen = false">{{ t('common.cancel') }}</button>
-          <button type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid">
+          <button type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid || actionPending">
             <Icon name="plus" size="sm" />
             {{ t('carpool.createDialog.submit') }}
           </button>
@@ -366,39 +370,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import carpoolAPI, { type Carpool, type CarpoolType, type CarpoolVisibility } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-
-type CarpoolStatus = 'recruiting' | 'starting' | 'active' | 'cancelled' | 'ended'
-type CarpoolVisibility = 'public' | 'invite_only'
-type CarpoolRole = 'owner' | 'member'
-type CarpoolType = 'small' | 'large'
-
-interface PreviewCarpool {
-  id: number
-  name: string
-  description: string
-  organizer: string
-  carType: CarpoolType
-  level: number
-  capacity: number
-  memberCount: number
-  visibility: CarpoolVisibility
-  status: CarpoolStatus
-  joinLocked: boolean
-  scheduledStartAt: string
-  groupName: string | null
-  memberRole: CarpoolRole | null
-  inviteCode: string
-  createdAt: string
-}
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 interface CreateForm {
   name: string
@@ -409,7 +391,11 @@ interface CreateForm {
   scheduledStartAt: string
 }
 
-const STORAGE_KEY = 'surplusai_carpool_preview_v2'
+interface ConfirmAction {
+  type: 'join' | 'cancel'
+  carpool: Carpool
+  inviteToken?: string
+}
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -420,82 +406,20 @@ const authStore = useAuthStore()
 const activeTab = ref<'plaza' | 'mine'>('plaza')
 const searchQuery = ref('')
 const statusFilter = ref('')
+const loading = ref(true)
+const actionPending = ref(false)
 const createDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
-const selectedCarpool = ref<PreviewCarpool | null>(null)
-const confirmAction = ref<{ type: 'join' | 'cancel'; carpool: PreviewCarpool } | null>(null)
+const selectedCarpool = ref<Carpool | null>(null)
+const selectedInviteToken = ref('')
+const confirmAction = ref<ConfirmAction | null>(null)
+const carpools = ref<Carpool[]>([])
 
 const isoDateAfterDays = (days: number): string => {
   const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
   return date.toISOString().slice(0, 10)
 }
-
-const SYSTEM_LOCKED_CARPOOLS = new Set(['car1', 'car2'])
-
-function isSystemLockedCarpool(carpool: Pick<PreviewCarpool, 'name' | 'groupName'>): boolean {
-  const name = carpool.name.trim().toLowerCase()
-  const groupName = carpool.groupName?.trim().toLowerCase() || ''
-  return SYSTEM_LOCKED_CARPOOLS.has(name) || SYSTEM_LOCKED_CARPOOLS.has(groupName)
-}
-
-function enforceSystemLocks(carpools: PreviewCarpool[]): PreviewCarpool[] {
-  return carpools.map((carpool) => isSystemLockedCarpool(carpool)
-    ? { ...carpool, joinLocked: true }
-    : carpool)
-}
-
-const defaultCarpools = (): PreviewCarpool[] => [
-  {
-    id: 6,
-    name: 'car1',
-    description: 'OpenAI Pro 订阅拼车，当前已稳定运行。',
-    organizer: 'SurplusToken',
-    carType: 'large',
-    level: 1,
-    capacity: 10,
-    memberCount: 10,
-    visibility: 'public',
-    status: 'active',
-    joinLocked: true,
-    scheduledStartAt: isoDateAfterDays(-18),
-    groupName: 'car1',
-    memberRole: 'member',
-    inviteCode: 'CAR1DEMO',
-    createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-  },
-  {
-    id: 8,
-    name: 'car2',
-    description: 'OpenAI Pro 拼车，仍有少量座位可加入。',
-    organizer: 'SurplusToken',
-    carType: 'small',
-    level: 2,
-    capacity: 10,
-    memberCount: 7,
-    visibility: 'public',
-    status: 'recruiting',
-    joinLocked: true,
-    scheduledStartAt: isoDateAfterDays(5),
-    groupName: 'car2',
-    memberRole: null,
-    inviteCode: 'CAR2DEMO',
-    createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-  }
-]
-
-const loadCarpools = (): PreviewCarpool[] => {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  if (!saved) return enforceSystemLocks(defaultCarpools())
-  try {
-    const parsed = JSON.parse(saved)
-    return enforceSystemLocks(Array.isArray(parsed) ? parsed : defaultCarpools())
-  } catch {
-    return enforceSystemLocks(defaultCarpools())
-  }
-}
-
-const carpools = ref<PreviewCarpool[]>(loadCarpools())
 
 const newCreateForm = (): CreateForm => ({
   name: '',
@@ -507,45 +431,33 @@ const newCreateForm = (): CreateForm => ({
 })
 
 const createForm = reactive<CreateForm>(newCreateForm())
-
 const tabs = computed(() => [
   { value: 'plaza' as const, label: t('carpool.plaza') },
   { value: 'mine' as const, label: t('carpool.mine') }
 ])
-
 const visibilityOptions = computed(() => [
   { value: 'public' as const, label: t('carpool.visibility.public') },
   { value: 'invite_only' as const, label: t('carpool.visibility.inviteOnly') }
 ])
-
 const carTypeOptions = computed(() => [
   { value: 'small' as const, label: t('carpool.types.small'), hint: t('carpool.types.smallHint') },
   { value: 'large' as const, label: t('carpool.types.large'), hint: t('carpool.types.largeHint') }
 ])
-
 const createCapacity = computed(() => createForm.level * (createForm.carType === 'small' ? 5 : 10))
 const createTotalCost = computed(() => createForm.level * 1400)
-
-watch(carpools, (value) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(value))
-}, { deep: true })
-
 const stats = computed(() => [
   { label: t('carpool.stats.recruiting'), value: carpools.value.filter((item) => item.status === 'recruiting' && !item.joinLocked).length },
   { label: t('carpool.stats.seats'), value: carpools.value.reduce((sum, item) => sum + (canJoin(item) ? remainingSeats(item) : 0), 0) },
   { label: t('carpool.stats.joined'), value: carpools.value.filter((item) => item.memberRole !== null && item.status !== 'cancelled').length },
   { label: t('carpool.stats.launched'), value: carpools.value.filter((item) => item.status === 'active').length }
 ])
-
 const filteredCarpools = computed(() => {
   const query = searchQuery.value.toLowerCase()
   return carpools.value
     .filter((item) => activeTab.value === 'plaza' ? item.visibility === 'public' && item.status !== 'cancelled' : item.memberRole !== null)
     .filter((item) => !statusFilter.value || item.status === statusFilter.value)
     .filter((item) => !query || item.name.toLowerCase().includes(query) || item.organizer.toLowerCase().includes(query))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 })
-
 const createFormValid = computed(() => (
   createForm.name.length > 0
   && Number.isInteger(createForm.level)
@@ -553,7 +465,6 @@ const createFormValid = computed(() => (
   && createForm.level <= 10
   && createForm.scheduledStartAt.length > 0
 ))
-
 const confirmMessage = computed(() => {
   if (!confirmAction.value) return ''
   return confirmAction.value.type === 'join'
@@ -561,40 +472,50 @@ const confirmMessage = computed(() => {
     : t('carpool.cancelDialog.message', { name: confirmAction.value.carpool.name })
 })
 
-function remainingSeats(carpool: PreviewCarpool): number {
+async function loadCarpools(): Promise<void> {
+  try {
+    carpools.value = await carpoolAPI.list()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.loadFailed')))
+  } finally {
+    loading.value = false
+  }
+}
+
+function remainingSeats(carpool: Carpool): number {
   return Math.max(0, carpool.capacity - carpool.memberCount)
 }
 
-function seatProgress(carpool: PreviewCarpool): number {
+function seatProgress(carpool: Carpool): number {
   return Math.min(100, Math.round((carpool.memberCount / carpool.capacity) * 100))
 }
 
-function canJoin(carpool: PreviewCarpool): boolean {
+function canJoin(carpool: Carpool): boolean {
   return carpool.status === 'recruiting' && !carpool.joinLocked && remainingSeats(carpool) > 0
 }
 
-function canInvite(carpool: PreviewCarpool): boolean {
+function canInvite(carpool: Carpool): boolean {
   return (carpool.memberRole === 'owner' || authStore.isAdmin) && canJoin(carpool)
 }
 
-function canCancel(carpool: PreviewCarpool): boolean {
+function canCancel(carpool: Carpool): boolean {
   return carpool.memberRole === 'owner' && (carpool.status === 'recruiting' || carpool.status === 'starting')
 }
 
-function statusLabel(carpool: PreviewCarpool): string {
+function statusLabel(carpool: Carpool): string {
   if (carpool.status === 'recruiting' && carpool.joinLocked) return t('carpool.status.locked')
   if (carpool.status === 'recruiting' && remainingSeats(carpool) === 0) return t('carpool.status.full')
   return t(`carpool.status.${carpool.status}`)
 }
 
-function statusBadgeClass(carpool: PreviewCarpool): string {
+function statusBadgeClass(carpool: Carpool): string {
   if (carpool.status === 'cancelled' || carpool.status === 'ended') return 'badge-gray'
   if (carpool.status === 'active') return 'badge-success'
   if (carpool.joinLocked || remainingSeats(carpool) === 0) return 'badge-warning'
   return 'badge-primary'
 }
 
-function seatProgressClass(carpool: PreviewCarpool): string {
+function seatProgressClass(carpool: Carpool): string {
   if (carpool.status === 'active') return 'bg-emerald-500'
   if (carpool.joinLocked || remainingSeats(carpool) === 0) return 'bg-amber-500'
   return 'bg-primary-500'
@@ -609,10 +530,9 @@ function carTypeLabel(carType: CarpoolType): string {
 }
 
 function formatDate(value: string): string {
+  if (!value) return '-'
   return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
+    month: 'short', day: 'numeric', year: 'numeric'
   }).format(new Date(`${value}T12:00:00`))
 }
 
@@ -621,112 +541,110 @@ function openCreateDialog(): void {
   createDialogOpen.value = true
 }
 
-function generateInviteCode(): string {
-  const bytes = new Uint8Array(9)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (byte) => byte.toString(36).padStart(2, '0')).join('').toUpperCase()
-}
-
-function createCarpool(): void {
-  if (!createFormValid.value) return
-  const id = Math.max(100, ...carpools.value.map((item) => item.id)) + 1
-  const carpool: PreviewCarpool = {
-    id,
-    name: createForm.name,
-    description: createForm.description || `GPT ${carTypeLabel(createForm.carType)} ${t('carpool.level', { level: createForm.level })}`,
-    organizer: authStore.user?.username || authStore.user?.email || `User #${authStore.user?.id ?? id}`,
-    carType: createForm.carType,
-    level: createForm.level,
-    capacity: createCapacity.value,
-    memberCount: 1,
-    visibility: createForm.visibility,
-    status: 'recruiting',
-    joinLocked: false,
-    scheduledStartAt: createForm.scheduledStartAt,
-    groupName: null,
-    memberRole: 'owner',
-    inviteCode: generateInviteCode(),
-    createdAt: new Date().toISOString()
+async function createCarpool(): Promise<void> {
+  if (!createFormValid.value || actionPending.value) return
+  actionPending.value = true
+  try {
+    const result = await carpoolAPI.create({
+      name: createForm.name,
+      description: createForm.description,
+      car_type: createForm.carType,
+      level: createForm.level,
+      visibility: createForm.visibility,
+      scheduled_start_at: createForm.scheduledStartAt
+    })
+    createDialogOpen.value = false
+    activeTab.value = 'mine'
+    await loadCarpools()
+    appStore.showSuccess(t('carpool.createDialog.success'))
+    await openInvite(result.carpool, result.inviteToken)
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  } finally {
+    actionPending.value = false
   }
-  carpools.value.unshift(carpool)
-  createDialogOpen.value = false
-  activeTab.value = 'mine'
-  appStore.showSuccess(t('carpool.createDialog.success'))
-  openInvite(carpool)
 }
 
-function openInvite(carpool: PreviewCarpool): void {
-  selectedCarpool.value = carpool
-  inviteDialogOpen.value = true
+async function openInvite(carpool: Carpool, token = ''): Promise<void> {
+  try {
+    selectedCarpool.value = carpool
+    selectedInviteToken.value = token || await carpoolAPI.createInvite(carpool.id)
+    inviteDialogOpen.value = true
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  }
 }
 
-function openDetails(carpool: PreviewCarpool): void {
+function openDetails(carpool: Carpool): void {
   selectedCarpool.value = carpool
   detailDialogOpen.value = true
 }
 
-function inviteURL(carpool: PreviewCarpool): string {
-  return `${window.location.origin}/carpools/join/${carpool.inviteCode}`
+function inviteURL(_carpool: Carpool): string {
+  return `${window.location.origin}/carpools/join/${selectedInviteToken.value}`
 }
 
-async function copyInvite(carpool: PreviewCarpool): Promise<void> {
+async function copyInvite(carpool: Carpool): Promise<void> {
   await navigator.clipboard.writeText(inviteURL(carpool))
   appStore.showSuccess(t('carpool.actions.copied'))
 }
 
-function toggleJoinLock(carpool: PreviewCarpool): void {
-  if (isSystemLockedCarpool(carpool)) {
-    carpool.joinLocked = true
+async function toggleJoinLock(carpool: Carpool): Promise<void> {
+  try {
+    await carpoolAPI.setJoinLocked(carpool.id, !carpool.joinLocked)
+    await loadCarpools()
+    appStore.showSuccess(t(!carpool.joinLocked ? 'carpool.admin.locked' : 'carpool.admin.unlocked'))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  }
+}
+
+function requestJoin(carpool: Carpool, inviteToken = ''): void {
+  if (!canJoin(carpool) || carpool.memberRole) {
     appStore.showWarning(t('carpool.unavailable'))
     return
   }
-  carpool.joinLocked = !carpool.joinLocked
-  appStore.showSuccess(t(carpool.joinLocked ? 'carpool.admin.locked' : 'carpool.admin.unlocked'))
+  confirmAction.value = { type: 'join', carpool, inviteToken }
 }
 
-function requestJoin(carpool: PreviewCarpool): void {
-  if (!canJoin(carpool)) {
-    appStore.showWarning(t('carpool.unavailable'))
-    return
-  }
-  confirmAction.value = { type: 'join', carpool }
-}
-
-function requestCancel(carpool: PreviewCarpool): void {
+function requestCancel(carpool: Carpool): void {
   confirmAction.value = { type: 'cancel', carpool }
 }
 
-function runConfirmedAction(): void {
-  if (!confirmAction.value) return
-  const { type, carpool } = confirmAction.value
-  if (type === 'join') {
-    if (!canJoin(carpool)) {
-      appStore.showWarning(t('carpool.unavailable'))
-    } else {
-      carpool.memberCount += 1
-      carpool.memberRole = 'member'
+async function runConfirmedAction(): Promise<void> {
+  if (!confirmAction.value || actionPending.value) return
+  const action = confirmAction.value
+  confirmAction.value = null
+  actionPending.value = true
+  try {
+    if (action.type === 'join') {
+      if (action.inviteToken) await carpoolAPI.joinByInvite(action.inviteToken)
+      else await carpoolAPI.join(action.carpool.id)
       activeTab.value = 'mine'
       appStore.showSuccess(t('carpool.joinDialog.success'))
+    } else {
+      await carpoolAPI.cancel(action.carpool.id)
+      appStore.showSuccess(t('carpool.cancelDialog.success'))
     }
-  } else if (canCancel(carpool)) {
-    carpool.status = 'cancelled'
-    carpool.joinLocked = true
-    appStore.showSuccess(t('carpool.cancelDialog.success'))
+    await loadCarpools()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  } finally {
+    actionPending.value = false
   }
-  confirmAction.value = null
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadCarpools()
   const inviteToken = typeof route.params.token === 'string' ? route.params.token : ''
   if (!inviteToken) return
-  const carpool = carpools.value.find((item) => item.inviteCode === inviteToken)
-  if (!carpool) {
+  try {
+    const carpool = await carpoolAPI.resolveInvite(inviteToken)
+    requestJoin(carpool, inviteToken)
+  } catch {
     appStore.showWarning(t('carpool.inviteNotFound'))
-    void router.replace('/carpools')
-    return
+  } finally {
+    await router.replace('/carpools')
   }
-  activeTab.value = 'plaza'
-  requestJoin(carpool)
-  void router.replace('/carpools')
 })
 </script>
