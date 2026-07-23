@@ -15,12 +15,14 @@ export default {
       monthlyLock: '开车时定级，本月锁定',
       accountCost: '每个号：1400',
       small: {
+        title: '5 人精品小车（适合量大用户）',
         capacity: '每级 1 个号 · 5 人',
         upgrade: '1 级为 1 个号、5 人；2 级为 2 个号、10 人，之后每升 1 级增加 1 个号和 5 个席位。',
         baseFee: '基础费用：130 / 人',
         usageFee: '剩余费用：750 元 / 号，按成员的相对用量比例分摊'
       },
       large: {
+        title: '10 人拼好车（适合中等用量用户，人均 2x Plus 用量）',
         capacity: '每级 1 个号 · 10 人',
         upgrade: '1 级为 1 个号、10 人；之后每升 1 级增加 1 个号和 10 个席位。',
         baseFee: '基础费用：65 / 人',

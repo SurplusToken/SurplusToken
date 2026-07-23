@@ -35,7 +35,7 @@
         <div class="grid lg:grid-cols-2 lg:divide-x lg:divide-amber-200 dark:lg:divide-amber-900/70">
           <div class="px-4 py-3">
             <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.types.small') }}</h3>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.small.title') }}</h3>
               <span class="text-xs font-medium text-gray-600 dark:text-dark-200">{{ t('carpool.rules.small.capacity') }}</span>
             </div>
             <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ t('carpool.rules.small.upgrade') }}</p>
@@ -48,7 +48,7 @@
 
           <div class="border-t border-amber-200 px-4 py-3 dark:border-amber-900/70 lg:border-t-0">
             <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.types.large') }}</h3>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.large.title') }}</h3>
               <span class="text-xs font-medium text-gray-600 dark:text-dark-200">{{ t('carpool.rules.large.capacity') }}</span>
             </div>
             <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ t('carpool.rules.large.upgrade') }}</p>

@@ -15,12 +15,14 @@ export default {
       monthlyLock: 'Choose a level at departure; locked for the month',
       accountCost: 'Each account: 1,400',
       small: {
+        title: 'Premium 5-person car (for heavy users)',
         capacity: '1 account · 5 people per level',
         upgrade: 'Level 1 has 1 account for 5 people; Level 2 has 2 accounts for 10 people. Each higher level adds 1 account and 5 seats.',
         baseFee: 'Base fee: 130 / person',
         usageFee: 'Remaining cost: 750 CNY / account, shared in proportion to each member\'s relative usage'
       },
       large: {
+        title: 'Balanced 10-person car (for moderate users, 2x Plus usage each)',
         capacity: '1 account · 10 people per level',
         upgrade: 'Level 1 has 1 account for 10 people. Each higher level adds 1 account and 10 seats.',
         baseFee: 'Base fee: 65 / person',
