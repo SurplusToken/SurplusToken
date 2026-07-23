@@ -192,6 +192,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 	}
 
 	out := make([]userAvailableChannel, 0, len(channels))
+	coveredGroupIDs := make(map[int64]struct{})
 	for _, ch := range channels {
 		if ch.Status != service.StatusActive {
 			continue
@@ -209,10 +210,11 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			Description: ch.Description,
 			Platforms:   sections,
 		})
+		for _, group := range visibleGroups {
+			coveredGroupIDs[group.ID] = struct{}{}
+		}
 	}
-	if len(out) == 0 {
-		out = h.buildGroupModelFallback(c, userGroups)
-	}
+	out = append(out, h.buildGroupModelFallback(c, filterUncoveredGroups(userGroups, coveredGroupIDs))...)
 	h.attachModelPerformance(c, out, userGroups)
 
 	response.Success(c, out)
@@ -341,8 +343,19 @@ func modelSuccessRate(successCount, sampleCount int64) float64 {
 	return math.Round(float64(successCount)/float64(sampleCount)*10000) / 100
 }
 
-// buildGroupModelFallback keeps the model catalog useful on installations that
-// have schedulable account groups but have not configured billing channels yet.
+func filterUncoveredGroups(groups []service.Group, coveredGroupIDs map[int64]struct{}) []service.Group {
+	result := make([]service.Group, 0, len(groups))
+	for i := range groups {
+		if _, covered := coveredGroupIDs[groups[i].ID]; covered {
+			continue
+		}
+		result = append(result, groups[i])
+	}
+	return result
+}
+
+// buildGroupModelFallback keeps the model catalog useful for schedulable
+// account groups that do not belong to an available billing channel.
 // Each synthetic row represents exactly one group so model visibility is not
 // accidentally broadened across groups on the same platform.
 func (h *AvailableChannelHandler) buildGroupModelFallback(c *gin.Context, groups []service.Group) []userAvailableChannel {
