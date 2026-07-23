@@ -62,7 +62,6 @@ type channelModelKey struct {
 type accountModelPricingKey struct {
 	groupID   int64
 	accountID int64
-	platform  string
 	model     string
 }
 
@@ -306,7 +305,10 @@ func populateAccountModelPricingOverrides(cache *channelCache, overrides []Accou
 	for i := range overrides {
 		override := overrides[i]
 		platform := strings.TrimSpace(override.Platform)
-		if cache.groupPlatform[override.GroupID] != platform {
+		if platform == "" {
+			continue
+		}
+		if groupPlatform := cache.groupPlatform[override.GroupID]; groupPlatform != "" && groupPlatform != platform {
 			continue
 		}
 		override.Pricing.Platform = platform
@@ -320,7 +322,6 @@ func populateAccountModelPricingOverrides(cache *channelCache, overrides []Accou
 			key := accountModelPricingKey{
 				groupID:   override.GroupID,
 				accountID: override.AccountID,
-				platform:  platform,
 				model:     model,
 			}
 			cache.accountPricingByModel[key] = pricing
@@ -536,26 +537,39 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 // account. It is intentionally separate from request admission, which happens
 // before an account has been selected.
 func (s *ChannelService) GetAccountModelPricing(ctx context.Context, groupID, accountID int64, model string) *ChannelModelPricing {
-	lk, err := s.lookupGroupChannel(ctx, groupID)
+	cache, err := s.loadCache(ctx)
 	if err != nil {
 		slog.Warn("failed to load account model pricing", "group_id", groupID, "account_id", accountID, "error", err)
-		return nil
-	}
-	if lk == nil {
 		return nil
 	}
 	key := accountModelPricingKey{
 		groupID:   groupID,
 		accountID: accountID,
-		platform:  lk.platform,
 		model:     strings.ToLower(strings.TrimSpace(model)),
 	}
-	pricing := lk.cache.accountPricingByModel[key]
+	pricing := cache.accountPricingByModel[key]
 	if pricing == nil {
 		return nil
 	}
 	cp := pricing.Clone()
 	return &cp
+}
+
+// GetAccountModelPricingOverridesForGroup returns active account-route prices
+// for catalog display, including groups that do not belong to a channel.
+func (s *ChannelService) GetAccountModelPricingOverridesForGroup(ctx context.Context, groupID int64) []AccountModelPricingOverride {
+	cache, err := s.loadCache(ctx)
+	if err != nil {
+		slog.Warn("failed to load account model pricing overrides", "group_id", groupID, "error", err)
+		return nil
+	}
+	result := make([]AccountModelPricingOverride, 0)
+	for _, override := range cache.accountPricingOverrides {
+		if override.GroupID == groupID {
+			result = append(result, override)
+		}
+	}
+	return result
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（热路径 O(1)）

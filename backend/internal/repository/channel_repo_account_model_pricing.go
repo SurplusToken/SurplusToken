@@ -9,7 +9,7 @@ import (
 	"github.com/lib/pq"
 )
 
-// ListAccountModelPricingOverrides returns only active, schedulable bindings.
+// ListAccountModelPricingOverrides returns only active account-group bindings.
 // Joining account_groups prevents a stale rule from applying after an account
 // has been removed from the configured group.
 func (r *channelRepository) ListAccountModelPricingOverrides(ctx context.Context) ([]service.AccountModelPricingOverride, error) {
@@ -23,11 +23,9 @@ func (r *channelRepository) ListAccountModelPricingOverrides(ctx context.Context
 		JOIN accounts a ON a.id = o.account_id
 		JOIN groups g ON g.id = o.group_id
 		JOIN account_groups ag ON ag.account_id = o.account_id AND ag.group_id = o.group_id
-		JOIN channel_groups cg ON cg.group_id = o.group_id
-		JOIN channels c ON c.id = cg.channel_id
 		WHERE a.status = 'active' AND a.deleted_at IS NULL
 		  AND g.status = 'active' AND g.deleted_at IS NULL
-		  AND c.status = 'active'
+		  AND g.platform = o.platform
 		ORDER BY o.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list account model pricing overrides: %w", err)

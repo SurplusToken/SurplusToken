@@ -357,13 +357,15 @@ func (h *AvailableChannelHandler) buildGroupModelFallback(c *gin.Context, groups
 		if len(models) == 0 {
 			continue
 		}
+		allowedGroupIDs := map[int64]struct{}{group.ID: {}}
+		overrides := h.channelService.GetAccountModelPricingOverridesForGroup(c.Request.Context(), group.ID)
 		out = append(out, userAvailableChannel{
 			Name:        group.Name,
 			Description: group.Description,
 			Platforms: []userChannelPlatformSection{{
 				Platform:        group.Platform,
 				Groups:          []userAvailableGroup{toUserAvailableGroup(group)},
-				SupportedModels: toUserSupportedModels(models, nil, nil, nil),
+				SupportedModels: toUserSupportedModels(models, nil, allowedGroupIDs, overrides),
 			}},
 		})
 	}
