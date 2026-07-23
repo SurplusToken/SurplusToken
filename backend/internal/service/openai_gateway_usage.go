@@ -194,20 +194,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.BillingModel != "" {
 		billingModel = strings.TrimSpace(result.BillingModel)
 	}
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" && input.ChannelMappedModel != input.OriginalModel {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
+	if input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
-	billingModels := usageBillingModelCandidates(
-		billingModel,
-		result.BillingModel,
-		input.ChannelMappedModel,
-		input.OriginalModel,
-		result.UpstreamModel,
-		result.Model,
-	)
+	billingModels := []string{billingModel}
 	serviceTier := ""
 	// Kimi accepts OpenAI-compatible request bodies, but its public pricing has no
 	// OpenAI service-tier rates. Keep the tier on the usage log for diagnostics,
@@ -235,6 +225,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		tokens,
 		serviceTier,
 		longContextBillingEnabled,
+		account.ID,
 	)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
@@ -446,6 +437,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	tokens UsageTokens,
 	serviceTier string,
 	longContextBillingEnabled bool,
+	accountID int64,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.WebSearchCalls > 0 {
@@ -483,6 +475,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			tokens,
 			serviceTier,
 			longContextBillingEnabled,
+			accountID,
 		)
 		if err == nil {
 			return cost, nil
@@ -532,6 +525,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	tokens UsageTokens,
 	serviceTier string,
 	longContextBillingEnabled bool,
+	accountID int64,
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
@@ -539,6 +533,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			Ctx:                       ctx,
 			Model:                     billingModel,
 			GroupID:                   &gid,
+			AccountID:                 &accountID,
 			Tokens:                    tokens,
 			RequestCount:              1,
 			RateMultiplier:            multiplier,
@@ -688,7 +683,7 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 	}
 	gid := apiKey.Group.ID
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid})
-	if resolved.Source == PricingSourceChannel {
+	if resolvedPricingUsable(resolved) {
 		return resolved
 	}
 	return nil

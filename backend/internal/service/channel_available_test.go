@@ -183,11 +183,11 @@ func TestPricingNeedsFallback(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, true},
-		{"empty struct", &ChannelModelPricing{BillingMode: BillingModeToken}, true},
+		{"empty struct", &ChannelModelPricing{BillingMode: BillingModeToken}, false},
 		{"all-empty intervals", &ChannelModelPricing{
 			BillingMode: BillingModeImage,
 			Intervals:   []PricingInterval{{TierLabel: "1K"}, {TierLabel: "2K"}},
-		}, true},
+		}, false},
 		{"flat input set", &ChannelModelPricing{InputPrice: testPtrFloat64(3e-6)}, false},
 		{"flat per_request set", &ChannelModelPricing{PerRequestPrice: testPtrFloat64(0.04)}, false},
 		{"interval with price", &ChannelModelPricing{
@@ -261,8 +261,8 @@ func TestFillGlobalPricingFallback_NilPricing(t *testing.T) {
 	require.InDelta(t, 5e-6, *models[0].Pricing.InputPrice, 1e-12)
 }
 
-func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
-	// 核心场景：admin UI 建了 pricing 条目（image 模式）但没填价，应走 LiteLLM 兜底。
+func TestFillGlobalPricingFallback_EmptyChannelPricingStaysAtomic(t *testing.T) {
+	// admin UI 建了 pricing 条目但没填价时保持原样，不从 LiteLLM 混合补价。
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"gpt-image-1": {
 			Mode:                    "image_generation",
@@ -284,8 +284,8 @@ func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
 	svc.fillGlobalPricingFallback(models)
 	require.NotNil(t, models[0].Pricing)
 	require.Equal(t, BillingModeImage, models[0].Pricing.BillingMode)
-	require.NotNil(t, models[0].Pricing.ImageOutputPrice)
-	require.InDelta(t, 4e-5, *models[0].Pricing.ImageOutputPrice, 1e-12)
+	require.Nil(t, models[0].Pricing.ImageOutputPrice)
+	require.False(t, channelPricingUsable(models[0].Pricing))
 }
 
 func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {

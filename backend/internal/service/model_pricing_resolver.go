@@ -2,14 +2,15 @@ package service
 
 import (
 	"context"
-	"log/slog"
+	"math"
+	"strings"
 )
 
 // PricingSource 定价来源标识
 const (
-	PricingSourceChannel  = "channel"
-	PricingSourceLiteLLM  = "litellm"
-	PricingSourceFallback = "fallback"
+	PricingSourceChannel     = "channel"
+	PricingSourceLiteLLM     = "litellm"
+	PricingSourceUnavailable = "unavailable"
 )
 
 // ResolvedPricing 统一定价解析结果
@@ -40,7 +41,7 @@ type ResolvedPricing struct {
 }
 
 // ModelPricingResolver 统一模型定价解析器。
-// 解析链：Channel → LiteLLM → Fallback。
+// 解析链：Channel → LiteLLM。两者都不可用时拒绝计费。
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
@@ -56,123 +57,151 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
-	Model   string
-	GroupID *int64 // nil 表示不检查渠道
+	Model     string
+	GroupID   *int64 // nil 表示不检查渠道
+	AccountID *int64 // 实际调度账号；nil 表示请求前校验或无账号覆盖
 }
 
 // Resolve 解析模型定价。
-// 1. 获取基础定价（LiteLLM → Fallback）
-// 2. 如果指定了 GroupID，查找渠道定价并覆盖
+// 渠道定价是原子配置：一旦存在就不会用 LiteLLM 补齐缺失字段。
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
-	var chPricing *ChannelModelPricing
 	if input.GroupID != nil && r.channelService != nil {
-		chPricing = r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
-		if chPricing != nil {
-			mode := chPricing.BillingMode
-			if mode == "" {
-				mode = BillingModeToken
+		if input.AccountID != nil {
+			accountPricing := r.channelService.GetAccountModelPricing(ctx, *input.GroupID, *input.AccountID, input.Model)
+			if accountPricing != nil {
+				return r.resolveChannelPricing(accountPricing)
 			}
-			if mode == BillingModePerRequest || mode == BillingModeImage {
-				resolved := &ResolvedPricing{
-					Mode:           mode,
-					Source:         PricingSourceChannel,
-					channelPricing: chPricing,
-				}
-				r.applyRequestTierOverrides(chPricing, resolved)
-				return resolved
+		}
+		chPricing := r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
+		if chPricing != nil {
+			return r.resolveChannelPricing(chPricing)
+		}
+	}
+
+	return r.resolveLiteLLMPricing(input.Model)
+}
+
+func (r *ModelPricingResolver) resolveChannelPricing(chPricing *ChannelModelPricing) *ResolvedPricing {
+	mode := chPricing.BillingMode
+	if mode == "" {
+		mode = BillingModeToken
+	}
+	resolved := &ResolvedPricing{
+		Mode:           mode,
+		Source:         PricingSourceChannel,
+		channelPricing: chPricing,
+	}
+	switch mode {
+	case BillingModePerRequest, BillingModeImage:
+		r.applyRequestTierOverrides(chPricing, resolved)
+	default:
+		resolved.Mode = BillingModeToken
+		r.applyTokenOverrides(chPricing, resolved)
+	}
+	return resolved
+}
+
+func (r *ModelPricingResolver) resolveLiteLLMPricing(model string) *ResolvedPricing {
+	unavailable := &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceUnavailable}
+	if r == nil || r.billingService == nil {
+		return unavailable
+	}
+
+	if r.billingService.pricingService != nil {
+		lp := r.billingService.pricingService.GetModelPricing(strings.ToLower(strings.TrimSpace(model)))
+		if liteLLMImagePricingUsable(lp) {
+			return &ResolvedPricing{
+				Mode:                   BillingModeImage,
+				DefaultPerRequestPrice: lp.OutputCostPerImage,
+				Source:                 PricingSourceLiteLLM,
 			}
 		}
 	}
 
-	// 1. 获取基础定价
-	basePricing, source := r.resolveBasePricing(input.Model)
-
-	resolved := &ResolvedPricing{
-		Mode:                   BillingModeToken,
-		BasePricing:            basePricing,
-		Source:                 source,
-		SupportsCacheBreakdown: basePricing != nil && basePricing.SupportsCacheBreakdown,
-	}
-
-	// 2. 如果有 GroupID，尝试渠道覆盖
-	if chPricing != nil {
-		resolved.Source = PricingSourceChannel
-		resolved.channelPricing = chPricing
-		r.applyTokenOverrides(chPricing, resolved)
-	} else if input.GroupID != nil {
-		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
-	}
-
-	return resolved
-}
-
-// resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
-func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
-	pricing, err := r.billingService.GetModelPricing(model)
+	pricing, err := r.billingService.getLiteLLMModelPricing(model)
 	if err != nil {
-		slog.Debug("failed to get model pricing from LiteLLM, using fallback",
-			"model", model, "error", err)
-		return nil, PricingSourceFallback
+		return unavailable
 	}
-	return pricing, PricingSourceLiteLLM
+	return &ResolvedPricing{
+		Mode:                   BillingModeToken,
+		BasePricing:            pricing,
+		Source:                 PricingSourceLiteLLM,
+		SupportsCacheBreakdown: pricing.SupportsCacheBreakdown,
+	}
 }
 
-// applyChannelOverrides 应用渠道定价覆盖
-func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupID int64, model string, resolved *ResolvedPricing) {
-	chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, model)
-	if chPricing == nil {
-		return
-	}
+// HasUsablePricing reports whether a request can be billed without built-in prices.
+func (r *ModelPricingResolver) HasUsablePricing(ctx context.Context, input PricingInput) bool {
+	return resolvedPricingUsable(r.Resolve(ctx, input))
+}
 
-	resolved.Source = PricingSourceChannel
-	resolved.channelPricing = chPricing
-	resolved.Mode = chPricing.BillingMode
-	if resolved.Mode == "" {
-		resolved.Mode = BillingModeToken
+func resolvedPricingUsable(resolved *ResolvedPricing) bool {
+	if resolved == nil || resolved.Source == PricingSourceUnavailable {
+		return false
 	}
-
+	if resolved.Source == PricingSourceChannel {
+		return channelPricingUsable(resolved.channelPricing)
+	}
 	switch resolved.Mode {
-	case BillingModeToken:
-		r.applyTokenOverrides(chPricing, resolved)
-	case BillingModePerRequest, BillingModeImage:
-		r.applyRequestTierOverrides(chPricing, resolved)
+	case BillingModeImage, BillingModePerRequest:
+		return validPrice(resolved.DefaultPerRequestPrice)
+	default:
+		return resolved.BasePricing != nil
 	}
+}
+
+func channelPricingUsable(p *ChannelModelPricing) bool {
+	if p == nil {
+		return false
+	}
+	mode := p.BillingMode
+	if mode == "" {
+		mode = BillingModeToken
+	}
+	switch mode {
+	case BillingModePerRequest, BillingModeImage:
+		if !validPricePointer(p.PerRequestPrice) {
+			return false
+		}
+		for i := range p.Intervals {
+			if !validPricePointer(p.Intervals[i].PerRequestPrice) {
+				return false
+			}
+		}
+		return true
+	default:
+		if !validPricePointer(p.InputPrice) || !validPricePointer(p.OutputPrice) {
+			return false
+		}
+		for i := range p.Intervals {
+			if !validPricePointer(p.Intervals[i].InputPrice) || !validPricePointer(p.Intervals[i].OutputPrice) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func liteLLMTokenPricingUsable(p *LiteLLMModelPricing) bool {
+	return p != nil && !p.TokenPricingAbsent && validPrice(p.InputCostPerToken) && validPrice(p.OutputCostPerToken)
+}
+
+func liteLLMImagePricingUsable(p *LiteLLMModelPricing) bool {
+	return p != nil && p.Mode == "image_generation" && p.OutputCostPerImage > 0 && validPrice(p.OutputCostPerImage)
+}
+
+func validPricePointer(price *float64) bool {
+	return price != nil && validPrice(*price)
+}
+
+func validPrice(price float64) bool {
+	return !math.IsNaN(price) && !math.IsInf(price, 0) && price >= 0
 }
 
 // applyTokenOverrides 应用 token 模式的渠道覆盖
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
-	// 过滤掉所有价格字段都为空的无效 interval
-	validIntervals := filterValidIntervals(chPricing.Intervals)
-
-	// 如果有有效的区间定价，使用区间
-	if len(validIntervals) > 0 {
-		resolved.Intervals = validIntervals
-		// 区间不匹配时回退到 BasePricing，也需要覆盖图片价格
-		if resolved.BasePricing == nil {
-			resolved.BasePricing = &ModelPricing{}
-		} else {
-			// 防止修改 fallbackPrices 中的共享指针
-			cloned := *resolved.BasePricing
-			resolved.BasePricing = &cloned
-		}
-		if chPricing.ImageOutputPrice != nil {
-			resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
-		} else {
-			resolved.BasePricing.ImageOutputPricePerToken = 0
-		}
-		resolved.BasePricing.ImageOutputPriceExplicit = true
-		applyChannelImageInputPrice(chPricing, resolved.BasePricing)
-		return
-	}
-
-	// 否则用 flat 字段覆盖 BasePricing
-	if resolved.BasePricing == nil {
-		resolved.BasePricing = &ModelPricing{}
-	} else {
-		// 防止修改 fallbackPrices 中的共享指针
-		cloned := *resolved.BasePricing
-		resolved.BasePricing = &cloned
-	}
+	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
+	resolved.BasePricing = &ModelPricing{}
 
 	if chPricing.InputPrice != nil {
 		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice

@@ -866,42 +866,8 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	}
 
 	// 1. 优先从动态价格服务获取
-	if s.pricingService != nil {
-		litellmPricing := s.pricingService.GetModelPricing(model)
-		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
-		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
-		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
-		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
-		// PricingService，不受影响。
-		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
-			litellmPricing = nil
-		}
-		if litellmPricing != nil {
-			// 启用 5m/1h 分类计费的条件：
-			// 1. 存在 1h 价格
-			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
-			price5m := litellmPricing.CacheCreationInputTokenCost
-			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
-			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
-				InputPricePerToken:                 litellmPricing.InputCostPerToken,
-				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
-				OutputPricePerToken:                litellmPricing.OutputCostPerToken,
-				OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
-				CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
-				CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
-				CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
-				CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
-				CacheCreation5mPrice:               price5m,
-				CacheCreation1hPrice:               price1h,
-				SupportsCacheBreakdown:             enableBreakdown,
-				LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
-				LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
-				LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
-				ImageInputPricePerToken:            litellmPricing.InputCostPerImageToken,
-				ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
-			}), nil
-		}
+	if pricing, err := s.getLiteLLMModelPricing(model); err == nil {
+		return pricing, nil
 	}
 
 	// 2. 使用硬编码回退价格
@@ -916,6 +882,41 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+}
+
+// getLiteLLMModelPricing 只读取 LiteLLM token 定价，不使用任何内置回退。
+// 严格定价链路使用本方法，以保证价格来源只有 channel 或 LiteLLM。
+func (s *BillingService) getLiteLLMModelPricing(model string) (*ModelPricing, error) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if s == nil || s.pricingService == nil || model == "" {
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	}
+	litellmPricing := s.pricingService.GetModelPricing(model)
+	if litellmPricing == nil || litellmPricing.TokenPricingAbsent {
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	}
+
+	price5m := litellmPricing.CacheCreationInputTokenCost
+	price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
+	enableBreakdown := price1h > 0 && price1h > price5m
+	return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
+		InputPricePerToken:                 litellmPricing.InputCostPerToken,
+		InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
+		OutputPricePerToken:                litellmPricing.OutputCostPerToken,
+		OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
+		CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
+		CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
+		CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
+		CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
+		CacheCreation5mPrice:               price5m,
+		CacheCreation1hPrice:               price1h,
+		SupportsCacheBreakdown:             enableBreakdown,
+		LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
+		LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
+		LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
+		ImageInputPricePerToken:            litellmPricing.InputCostPerImageToken,
+		ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
+	}), nil
 }
 
 func isCurrentKimiOfficialModel(model string) bool {
@@ -986,6 +987,7 @@ type CostInput struct {
 	Ctx                       context.Context
 	Model                     string
 	GroupID                   *int64 // 用于渠道定价查找
+	AccountID                 *int64 // 实际调度账号，用于账号线路覆盖价
 	Tokens                    UsageTokens
 	RequestCount              int    // 按次计费时使用
 	SizeTier                  string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
@@ -1019,9 +1021,13 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	resolved := input.Resolved
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
-			Model:   input.Model,
-			GroupID: input.GroupID,
+			Model:     input.Model,
+			GroupID:   input.GroupID,
+			AccountID: input.AccountID,
 		})
+	}
+	if !resolvedPricingUsable(resolved) {
+		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 
 	// 保存时强制 > 0；若仍有负数泄漏（缓存/迁移残留），按 0 处理避免按 1x 误扣。

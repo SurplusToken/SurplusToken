@@ -1027,40 +1027,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
-		writeCustomModelsList(c, platform, availableModels)
-		return
+	} else if len(availableModels) == 0 {
+		availableModels = defaultModelIDsForPlatform(platform)
 	}
 
-	if len(availableModels) > 0 {
-		writeModelsList(c, platform, availableModels)
-		return
-	}
-
-	// Fallback to default models
-	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
-		return
-	}
-
-	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   claude.DefaultModels,
-	})
+	availableModels = h.gatewayService.FilterModelsWithUsablePricing(c.Request.Context(), groupID, availableModels)
+	writeCustomModelsList(c, platform, availableModels)
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {

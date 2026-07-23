@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -732,12 +733,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 不并入上面的 getUserGroupRateMultiplier，以免污染 user:group 倍率缓存。
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, multiplier, timezone.Now())
 
-	// 确定计费模型
+	// 用户公开模型名是唯一计费键；渠道/账号映射只影响上游路由。
 	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
+	if input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
 
@@ -857,15 +855,14 @@ func (s *GatewayService) calculateRecordUsageCost(
 	return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
 }
 
-// resolveChannelPricing 检查指定模型是否存在渠道级别定价。
-// 返回非 nil 的 ResolvedPricing 表示有渠道定价，nil 表示走默认定价路径。
+// resolveChannelPricing resolves the strict channel -> LiteLLM pricing chain.
 func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing {
 	if s.resolver == nil || apiKey.Group == nil {
 		return nil
 	}
 	gid := apiKey.Group.ID
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid})
-	if resolved.Source == PricingSourceChannel {
+	if resolvedPricingUsable(resolved) {
 		return resolved
 	}
 	return nil
@@ -934,7 +931,7 @@ func (s *GatewayService) calculateTokenCost(
 	var cost *CostBreakdown
 	var err error
 
-	// 优先尝试渠道定价 → CalculateCostUnified
+	// 严格使用 channel -> LiteLLM，不进入内置价格回退。
 	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
 		gid := apiKey.Group.ID
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
@@ -947,6 +944,8 @@ func (s *GatewayService) calculateTokenCost(
 			Resolver:       s.resolver,
 			Resolved:       resolved,
 		})
+	} else if s.resolver != nil {
+		err = fmt.Errorf("no pricing available for model: %s: %w", billingModel, ErrModelPricingUnavailable)
 	} else if opts.LongContextThreshold > 0 {
 		// 长上下文双倍计费（如 Gemini 200K 阈值）
 		cost, err = s.billingService.CalculateCostWithLongContext(billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier)

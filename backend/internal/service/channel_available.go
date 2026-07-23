@@ -28,14 +28,15 @@ type AvailableGroupRef struct {
 // AvailableChannel 可用渠道视图：用于「可用渠道」页面展示渠道基础信息 +
 // 关联的分组 + 推导出的支持模型列表（无通配符）。
 type AvailableChannel struct {
-	ID                 int64
-	Name               string
-	Description        string
-	Status             string
-	BillingModelSource string
-	RestrictModels     bool
-	Groups             []AvailableGroupRef
-	SupportedModels    []SupportedModel
+	ID                      int64
+	Name                    string
+	Description             string
+	Status                  string
+	BillingModelSource      string
+	RestrictModels          bool
+	Groups                  []AvailableGroupRef
+	SupportedModels         []SupportedModel
+	AccountPricingOverrides []AccountModelPricingOverride
 }
 
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。
@@ -76,6 +77,14 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		}
 	}
 
+	var accountOverrides []AccountModelPricingOverride
+	if repo, ok := s.repo.(accountModelPricingOverrideRepository); ok {
+		accountOverrides, err = repo.ListAccountModelPricingOverrides(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list account model pricing overrides: %w", err)
+		}
+	}
+
 	out := make([]AvailableChannel, 0, len(channels))
 	for i := range channels {
 		ch := &channels[i]
@@ -91,16 +100,18 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 
 		supported := ch.SupportedModels()
 		s.fillGlobalPricingFallback(supported)
+		supported = filterUsableSupportedModels(supported)
 
 		out = append(out, AvailableChannel{
-			ID:                 ch.ID,
-			Name:               ch.Name,
-			Description:        ch.Description,
-			Status:             ch.Status,
-			BillingModelSource: ch.BillingModelSource,
-			RestrictModels:     ch.RestrictModels,
-			Groups:             groups,
-			SupportedModels:    supported,
+			ID:                      ch.ID,
+			Name:                    ch.Name,
+			Description:             ch.Description,
+			Status:                  ch.Status,
+			BillingModelSource:      ch.BillingModelSource,
+			RestrictModels:          ch.RestrictModels,
+			Groups:                  groups,
+			SupportedModels:         supported,
+			AccountPricingOverrides: accountOverridesForGroups(accountOverrides, ch.GroupIDs),
 		})
 	}
 
@@ -110,49 +121,93 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	return out, nil
 }
 
+func accountOverridesForGroups(overrides []AccountModelPricingOverride, groupIDs []int64) []AccountModelPricingOverride {
+	allowed := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		allowed[groupID] = struct{}{}
+	}
+	result := make([]AccountModelPricingOverride, 0)
+	for _, override := range overrides {
+		if _, ok := allowed[override.GroupID]; ok {
+			result = append(result, override)
+		}
+	}
+	return result
+}
+
 // fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份
 // 展示用定价。仅用于「可用渠道」展示，不影响真实计费链路。
 //
-// 触发条件：
-//  1. Pricing == nil（渠道完全没声明该模型的定价条目）
-//  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
-//
-// 当 s.pricingService 为 nil（测试场景），跳过回落。
+// 仅当 Pricing == nil 时回落。渠道一旦声明定价，就作为原子配置处理，
+// 不从 LiteLLM 补齐缺失字段。
 func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	if s.pricingService == nil {
 		return
 	}
 	for i := range models {
-		if !pricingNeedsFallback(models[i].Pricing) {
+		if models[i].Pricing != nil {
 			continue
 		}
 		lp := s.pricingService.GetModelPricing(models[i].Name)
-		if lp == nil {
+		if !liteLLMTokenPricingUsable(lp) && !liteLLMImagePricingUsable(lp) {
 			continue
 		}
 		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
 	}
 }
 
-// pricingNeedsFallback 判定一个 ChannelModelPricing 是否需要走全局回落。
-// 价格全部缺失（无 flat 字段且无任何带价 interval）即视为未配置。
-func pricingNeedsFallback(p *ChannelModelPricing) bool {
-	if p == nil {
-		return true
+// BuildSupportedModelsForDisplay converts resolved model IDs into the same
+// display shape used by configured channels and fills prices from LiteLLM.
+// Trailing-wildcard mappings are expanded against the platform defaults so the
+// user-facing catalog only contains model IDs that can be called directly.
+func (s *ChannelService) BuildSupportedModelsForDisplay(platform string, modelIDs []string) []SupportedModel {
+	expanded := make([]string, 0, len(modelIDs))
+	defaults := defaultAdvertisedModelIDsForPlatform(platform)
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if prefix, wildcard := splitWildcardSuffix(modelID); wildcard {
+			for _, candidate := range defaults {
+				if strings.HasPrefix(candidate, prefix) {
+					expanded = append(expanded, candidate)
+				}
+			}
+			continue
+		}
+		expanded = append(expanded, modelID)
 	}
-	if p.InputPrice != nil || p.OutputPrice != nil ||
-		p.CacheWritePrice != nil || p.CacheReadPrice != nil ||
-		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
-		return false
+
+	seen := make(map[string]struct{}, len(expanded))
+	models := make([]SupportedModel, 0, len(expanded))
+	for _, modelID := range expanded {
+		key := strings.ToLower(modelID)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		models = append(models, SupportedModel{Name: modelID, Platform: platform})
 	}
-	for _, iv := range p.Intervals {
-		if iv.InputPrice != nil || iv.OutputPrice != nil ||
-			iv.CacheWritePrice != nil || iv.CacheReadPrice != nil ||
-			iv.PerRequestPrice != nil {
-			return false
+	sort.SliceStable(models, func(i, j int) bool {
+		return strings.ToLower(models[i].Name) < strings.ToLower(models[j].Name)
+	})
+	s.fillGlobalPricingFallback(models)
+	return filterUsableSupportedModels(models)
+}
+
+func filterUsableSupportedModels(models []SupportedModel) []SupportedModel {
+	filtered := make([]SupportedModel, 0, len(models))
+	for _, model := range models {
+		if channelPricingUsable(model.Pricing) {
+			filtered = append(filtered, model)
 		}
 	}
-	return true
+	return filtered
+}
+
+func pricingNeedsFallback(p *ChannelModelPricing) bool {
+	return p == nil
 }
 
 // synthesizePricingFromLiteLLM 把 LiteLLM 的定价数据转成 ChannelModelPricing 形态，

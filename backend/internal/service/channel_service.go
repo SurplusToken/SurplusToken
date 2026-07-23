@@ -59,6 +59,17 @@ type channelModelKey struct {
 	model    string // lowercase
 }
 
+type accountModelPricingKey struct {
+	groupID   int64
+	accountID int64
+	platform  string
+	model     string
+}
+
+type accountModelPricingOverrideRepository interface {
+	ListAccountModelPricingOverrides(ctx context.Context) ([]AccountModelPricingOverride, error)
+}
+
 // channelGroupPlatformKey 通配符定价缓存键
 type channelGroupPlatformKey struct {
 	groupID  int64
@@ -86,6 +97,8 @@ type channelCache struct {
 	wildcardMappingByGP     map[channelGroupPlatformKey][]*wildcardMappingEntry // (groupID, platform) → 通配符映射（按配置顺序，先匹配先使用）
 	channelByGroupID        map[int64]*Channel                                  // groupID → 渠道
 	groupPlatform           map[int64]string                                    // groupID → platform
+	accountPricingByModel   map[accountModelPricingKey]*ChannelModelPricing     // (groupID, accountID, platform, model) → 覆盖定价
+	accountPricingOverrides []AccountModelPricingOverride                       // 模型广场冷路径展示
 
 	// 冷路径（CRUD 操作）
 	byID     map[int64]*Channel
@@ -198,6 +211,7 @@ func newEmptyChannelCache() *channelCache {
 		wildcardMappingByGP:     make(map[channelGroupPlatformKey][]*wildcardMappingEntry),
 		channelByGroupID:        make(map[int64]*Channel),
 		groupPlatform:           make(map[int64]string),
+		accountPricingByModel:   make(map[accountModelPricingKey]*ChannelModelPricing),
 		byID:                    make(map[int64]*Channel),
 	}
 }
@@ -274,8 +288,44 @@ func (s *ChannelService) buildCache(ctx context.Context) (*channelCache, error) 
 	}
 
 	cache := populateChannelCache(channels, groupPlatforms)
+	if repo, ok := s.repo.(accountModelPricingOverrideRepository); ok {
+		overrides, err := repo.ListAccountModelPricingOverrides(dbCtx)
+		if err != nil {
+			slog.Warn("failed to load account model pricing overrides", "error", err)
+			s.storeErrorCache()
+			return nil, fmt.Errorf("list account model pricing overrides: %w", err)
+		}
+		populateAccountModelPricingOverrides(cache, overrides)
+	}
 	s.cache.Store(cache)
 	return cache, nil
+}
+
+func populateAccountModelPricingOverrides(cache *channelCache, overrides []AccountModelPricingOverride) {
+	cache.accountPricingOverrides = make([]AccountModelPricingOverride, 0, len(overrides))
+	for i := range overrides {
+		override := overrides[i]
+		platform := strings.TrimSpace(override.Platform)
+		if cache.groupPlatform[override.GroupID] != platform {
+			continue
+		}
+		override.Pricing.Platform = platform
+		cache.accountPricingOverrides = append(cache.accountPricingOverrides, override)
+		pricing := &cache.accountPricingOverrides[len(cache.accountPricingOverrides)-1].Pricing
+		for _, model := range pricing.Models {
+			model = strings.ToLower(strings.TrimSpace(model))
+			if model == "" || strings.HasSuffix(model, "*") {
+				continue
+			}
+			key := accountModelPricingKey{
+				groupID:   override.GroupID,
+				accountID: override.AccountID,
+				platform:  platform,
+				model:     model,
+			}
+			cache.accountPricingByModel[key] = pricing
+		}
+	}
 }
 
 // fetchChannelData 从数据库加载渠道列表和分组平台映射。
@@ -478,6 +528,32 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 		return nil
 	}
 
+	cp := pricing.Clone()
+	return &cp
+}
+
+// GetAccountModelPricing returns the price attached to the actual serving
+// account. It is intentionally separate from request admission, which happens
+// before an account has been selected.
+func (s *ChannelService) GetAccountModelPricing(ctx context.Context, groupID, accountID int64, model string) *ChannelModelPricing {
+	lk, err := s.lookupGroupChannel(ctx, groupID)
+	if err != nil {
+		slog.Warn("failed to load account model pricing", "group_id", groupID, "account_id", accountID, "error", err)
+		return nil
+	}
+	if lk == nil {
+		return nil
+	}
+	key := accountModelPricingKey{
+		groupID:   groupID,
+		accountID: accountID,
+		platform:  lk.platform,
+		model:     strings.ToLower(strings.TrimSpace(model)),
+	}
+	pricing := lk.cache.accountPricingByModel[key]
+	if pricing == nil {
+		return nil
+	}
 	cp := pricing.Clone()
 	return &cp
 }

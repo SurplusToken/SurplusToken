@@ -100,6 +100,19 @@ type ChannelModelPricing struct {
 	UpdatedAt        time.Time
 }
 
+// AccountModelPricingOverride applies a model price only when a request in a
+// specific group is ultimately served by a specific account.
+type AccountModelPricingOverride struct {
+	ID          int64
+	GroupID     int64
+	AccountID   int64
+	AccountName string
+	Platform    string
+	Pricing     ChannelModelPricing
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
 type PricingInterval struct {
 	ID              int64
@@ -488,9 +501,8 @@ func buildPricingIndex(pricings []ChannelModelPricing) map[string]*platformPrici
 // 算法（mapping ∪ pricing 并联）：
 //
 //   - Pass A（mapping）：遍历 ModelMapping
-//   - 精确 src → target：显示名 = src（用户视角），定价用 target 在同 platform 定价里查
-//     （mapping 改写后实际计费的是 target；这是用户感知的"实际花费"）。
-//     target 为空或为通配符时退化为按 src 自查。
+//   - 精确 src → target：显示名和定价键都使用 src（用户公开模型）。
+//     target 只负责上游路由，不再改变用户计费模型。
 //   - 通配符 src（如 "claude-3-*"）：用同 platform 定价里前缀匹配的模型作为候选展开，
 //     每个候选用自身定价（通配符场景一般是 passthrough，target 通常也是通配符）。
 //   - "*" 单独 mapping key 走通配符分支（前缀为空 → 全展开）。
@@ -551,7 +563,7 @@ func (c *Channel) SupportedModels() []SupportedModel {
 			continue
 		}
 		pidx := idx[platform]
-		for src, target := range mapping {
+		for src := range mapping {
 			prefix, isWild := splitWildcardSuffix(src)
 			if isWild {
 				if pidx == nil {
@@ -566,17 +578,8 @@ func (c *Channel) SupportedModels() []SupportedModel {
 				}
 				continue
 			}
-			// 精确 mapping：定价按 target 查；target 缺失/通配则退化按 src 查
-			pricingKey := target
-			if pricingKey == "" {
-				pricingKey = src
-			}
-			if _, targetWild := splitWildcardSuffix(pricingKey); targetWild {
-				pricingKey = src
-			}
-			_, pricing := lookup(pidx, pricingKey)
-			// 显示名优先用 src 在定价里的原始大小写（若 src 本身是个定价模型名）
-			displayName, _ := lookup(pidx, src)
+			// 公开模型名是唯一计费键；映射目标只影响上游请求。
+			displayName, pricing := lookup(pidx, src)
 			add(platform, displayName, pricing)
 		}
 	}
