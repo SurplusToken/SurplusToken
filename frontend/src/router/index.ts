@@ -315,14 +315,14 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/available-channels',
-    name: 'UserAvailableChannels',
+    name: 'UserModelSquare',
     component: () => import('@/views/user/AvailableChannelsView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'Available Channels',
-      titleKey: 'availableChannels.title',
-      descriptionKey: 'availableChannels.description'
+      title: 'Model Square',
+      titleKey: 'modelSquare.title',
+      descriptionKey: 'modelSquare.description'
     }
   },
   {

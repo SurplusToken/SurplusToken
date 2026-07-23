@@ -39,11 +39,11 @@ export default {
           defaultIntervalHint: '新建渠道监控时表单的默认值，可被单个渠道覆盖。范围 15 – 3600 秒。',
         },
         availableChannels: {
-          title: '可用渠道',
-          description: '向已登录用户展示他们能访问的渠道、模型和定价聚合视图。默认关闭。',
+          title: '模型广场',
+          description: '向已登录用户展示当前账号可调用的模型、线路、分组和定价。默认关闭。',
           configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
-          enabled: '启用可用渠道',
-          enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
+          enabled: '启用模型广场',
+          enabledHint: '关闭后用户端模型广场入口隐藏，接口返回空数组。',
         },
         riskControl: {
           title: '风控中心',

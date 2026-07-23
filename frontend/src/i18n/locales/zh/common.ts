@@ -166,6 +166,7 @@ export default {
     users: '用户管理',
     groups: '分组管理',
     channels: '渠道管理',
+    modelSquare: '模型广场',
     availableChannels: '可用渠道',
     subscriptions: '订阅管理',
     accounts: '账号管理',

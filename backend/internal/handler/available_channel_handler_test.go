@@ -49,7 +49,7 @@ func TestToUserSupportedModels_FiltersByAllowedPlatforms(t *testing.T) {
 		{Name: "gpt-4o", Platform: "openai", Pricing: nil},
 	}
 	allowed := map[string]struct{}{"anthropic": {}}
-	out := toUserSupportedModels(src, allowed)
+	out := toUserSupportedModels(src, allowed, nil, nil)
 	require.Len(t, out, 1)
 	require.Equal(t, "claude-sonnet-4-6", out[0].Name)
 }
@@ -60,7 +60,7 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 		{Name: "a", Platform: "anthropic"},
 		{Name: "b", Platform: "openai"},
 	}
-	require.Len(t, toUserSupportedModels(src, nil), 2)
+	require.Len(t, toUserSupportedModels(src, nil, nil, nil), 2)
 }
 
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
@@ -154,4 +154,27 @@ func TestBuildPlatformSections_GroupsByPlatform(t *testing.T) {
 	require.Equal(t, int64(2), sections[0].Groups[0].ID)
 	require.Len(t, sections[0].SupportedModels, 1)
 	require.Equal(t, "claude-sonnet-4-6", sections[0].SupportedModels[0].Name)
+}
+
+func TestToUserAvailableGroup_MapsCatalogFields(t *testing.T) {
+	group := &service.Group{
+		ID:                 42,
+		Name:               "OpenAI Pool",
+		Platform:           service.PlatformOpenAI,
+		SubscriptionType:   service.SubscriptionTypeStandard,
+		RateMultiplier:     1.25,
+		PeakRateEnabled:    true,
+		PeakStart:          "08:00",
+		PeakEnd:            "10:00",
+		PeakRateMultiplier: 1.5,
+		IsExclusive:        true,
+	}
+
+	got := toUserAvailableGroup(group)
+	require.Equal(t, group.ID, got.ID)
+	require.Equal(t, group.Name, got.Name)
+	require.Equal(t, group.Platform, got.Platform)
+	require.Equal(t, group.RateMultiplier, got.RateMultiplier)
+	require.Equal(t, group.PeakRateMultiplier, got.PeakRateMultiplier)
+	require.True(t, got.IsExclusive)
 }

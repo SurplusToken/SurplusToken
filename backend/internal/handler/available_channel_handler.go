@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"fmt"
+	"log/slog"
+	"math"
 	"sort"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -22,20 +26,26 @@ import (
 //     / 内部 ID / Status 等管理字段）。
 type AvailableChannelHandler struct {
 	channelService *service.ChannelService
+	gatewayService *service.GatewayService
 	apiKeyService  *service.APIKeyService
 	settingService *service.SettingService
+	opsService     *service.OpsService
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
 func NewAvailableChannelHandler(
 	channelService *service.ChannelService,
+	gatewayService *service.GatewayService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	opsService *service.OpsService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
 		channelService: channelService,
+		gatewayService: gatewayService,
 		apiKeyService:  apiKeyService,
 		settingService: settingService,
+		opsService:     opsService,
 	}
 }
 
@@ -92,9 +102,42 @@ type userPricingIntervalDTO struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name     string                     `json:"name"`
-	Platform string                     `json:"platform"`
-	Pricing  *userSupportedModelPricing `json:"pricing"`
+	Name                    string                       `json:"name"`
+	Platform                string                       `json:"platform"`
+	Pricing                 *userSupportedModelPricing   `json:"pricing"`
+	AccountPricingOverrides []userAccountPricingOverride `json:"account_pricing_overrides,omitempty"`
+	Performance             *userModelPerformance        `json:"performance,omitempty"`
+}
+
+type userAccountPricingOverride struct {
+	GroupID     int64                      `json:"group_id"`
+	AccountName string                     `json:"account_name"`
+	Pricing     *userSupportedModelPricing `json:"pricing"`
+}
+
+type userModelPerformance struct {
+	WindowHours        int                         `json:"window_hours"`
+	SuccessRate        float64                     `json:"success_rate"`
+	SuccessCount       int64                       `json:"success_count"`
+	FailureCount       int64                       `json:"failure_count"`
+	SampleCount        int64                       `json:"sample_count"`
+	LatencySampleCount int64                       `json:"latency_sample_count"`
+	TTFTSampleCount    int64                       `json:"ttft_sample_count"`
+	AvgLatencyMs       *int                        `json:"avg_latency_ms"`
+	AvgTTFTMs          *int                        `json:"avg_ttft_ms"`
+	GroupBreakdown     []userModelGroupPerformance `json:"groups"`
+}
+
+type userModelGroupPerformance struct {
+	GroupID            int64   `json:"group_id"`
+	SuccessRate        float64 `json:"success_rate"`
+	SuccessCount       int64   `json:"success_count"`
+	FailureCount       int64   `json:"failure_count"`
+	SampleCount        int64   `json:"sample_count"`
+	LatencySampleCount int64   `json:"latency_sample_count"`
+	TTFTSampleCount    int64   `json:"ttft_sample_count"`
+	AvgLatencyMs       *int    `json:"avg_latency_ms"`
+	AvgTTFTMs          *int    `json:"avg_ttft_ms"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -167,8 +210,179 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			Platforms:   sections,
 		})
 	}
+	if len(out) == 0 {
+		out = h.buildGroupModelFallback(c, userGroups)
+	}
+	h.attachModelPerformance(c, out, userGroups)
 
 	response.Success(c, out)
+}
+
+func (h *AvailableChannelHandler) attachModelPerformance(
+	c *gin.Context,
+	channels []userAvailableChannel,
+	groups []service.Group,
+) {
+	if h.opsService == nil || len(channels) == 0 || len(groups) == 0 {
+		return
+	}
+	groupIDs := make([]int64, 0, len(groups))
+	for i := range groups {
+		if groups[i].ID > 0 {
+			groupIDs = append(groupIDs, groups[i].ID)
+		}
+	}
+	stats, err := h.opsService.GetModelPerformance(c.Request.Context(), groupIDs)
+	if err != nil {
+		slog.WarnContext(c.Request.Context(), "model square performance query failed", "error", err)
+		return
+	}
+	attachModelPerformanceStats(channels, stats)
+}
+
+func attachModelPerformanceStats(channels []userAvailableChannel, stats []service.ModelPerformanceStat) {
+	byModelGroup := make(map[string]service.ModelPerformanceStat, len(stats))
+	for _, stat := range stats {
+		key := modelPerformanceKey(stat.Model, stat.GroupID)
+		if key != "" {
+			byModelGroup[key] = stat
+		}
+	}
+
+	for channelIndex := range channels {
+		for sectionIndex := range channels[channelIndex].Platforms {
+			section := &channels[channelIndex].Platforms[sectionIndex]
+			for modelIndex := range section.SupportedModels {
+				model := &section.SupportedModels[modelIndex]
+				matched := make([]service.ModelPerformanceStat, 0, len(section.Groups))
+				for _, group := range section.Groups {
+					if stat, ok := byModelGroup[modelPerformanceKey(model.Name, group.ID)]; ok {
+						matched = append(matched, stat)
+					}
+				}
+				model.Performance = buildUserModelPerformance(matched)
+			}
+		}
+	}
+}
+
+func modelPerformanceKey(model string, groupID int64) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" || groupID <= 0 {
+		return ""
+	}
+	return model + "\x00" + fmt.Sprint(groupID)
+}
+
+func buildUserModelPerformance(stats []service.ModelPerformanceStat) *userModelPerformance {
+	if len(stats) == 0 {
+		return nil
+	}
+	result := &userModelPerformance{
+		WindowHours:    service.ModelPerformanceWindowHours,
+		GroupBreakdown: make([]userModelGroupPerformance, 0, len(stats)),
+	}
+	var latencyWeightedTotal int64
+	var latencySamples int64
+	var ttftWeightedTotal int64
+	var ttftSamples int64
+	for _, stat := range stats {
+		sampleCount := stat.SuccessCount + stat.FailureCount
+		if sampleCount <= 0 {
+			continue
+		}
+		result.SuccessCount += stat.SuccessCount
+		result.FailureCount += stat.FailureCount
+		result.GroupBreakdown = append(result.GroupBreakdown, userModelGroupPerformance{
+			GroupID:            stat.GroupID,
+			SuccessRate:        modelSuccessRate(stat.SuccessCount, sampleCount),
+			SuccessCount:       stat.SuccessCount,
+			FailureCount:       stat.FailureCount,
+			SampleCount:        sampleCount,
+			LatencySampleCount: stat.LatencySampleCount,
+			TTFTSampleCount:    stat.TTFTSampleCount,
+			AvgLatencyMs:       stat.AvgLatencyMs,
+			AvgTTFTMs:          stat.AvgTTFTMs,
+		})
+		if stat.AvgLatencyMs != nil && stat.LatencySampleCount > 0 {
+			latencyWeightedTotal += int64(*stat.AvgLatencyMs) * stat.LatencySampleCount
+			latencySamples += stat.LatencySampleCount
+		}
+		if stat.AvgTTFTMs != nil && stat.TTFTSampleCount > 0 {
+			ttftWeightedTotal += int64(*stat.AvgTTFTMs) * stat.TTFTSampleCount
+			ttftSamples += stat.TTFTSampleCount
+		}
+	}
+	result.SampleCount = result.SuccessCount + result.FailureCount
+	result.LatencySampleCount = latencySamples
+	result.TTFTSampleCount = ttftSamples
+	if result.SampleCount <= 0 {
+		return nil
+	}
+	result.SuccessRate = modelSuccessRate(result.SuccessCount, result.SampleCount)
+	if latencySamples > 0 {
+		value := int(math.Round(float64(latencyWeightedTotal) / float64(latencySamples)))
+		result.AvgLatencyMs = &value
+	}
+	if ttftSamples > 0 {
+		value := int(math.Round(float64(ttftWeightedTotal) / float64(ttftSamples)))
+		result.AvgTTFTMs = &value
+	}
+	sort.Slice(result.GroupBreakdown, func(i, j int) bool {
+		return result.GroupBreakdown[i].GroupID < result.GroupBreakdown[j].GroupID
+	})
+	return result
+}
+
+func modelSuccessRate(successCount, sampleCount int64) float64 {
+	if sampleCount <= 0 {
+		return 0
+	}
+	return math.Round(float64(successCount)/float64(sampleCount)*10000) / 100
+}
+
+// buildGroupModelFallback keeps the model catalog useful on installations that
+// have schedulable account groups but have not configured billing channels yet.
+// Each synthetic row represents exactly one group so model visibility is not
+// accidentally broadened across groups on the same platform.
+func (h *AvailableChannelHandler) buildGroupModelFallback(c *gin.Context, groups []service.Group) []userAvailableChannel {
+	out := make([]userAvailableChannel, 0, len(groups))
+	for i := range groups {
+		group := &groups[i]
+		if group.ActiveAccountCount <= 0 || strings.TrimSpace(group.Platform) == "" {
+			continue
+		}
+		modelIDs := h.gatewayService.GetAdvertisedModelsForGroup(c.Request.Context(), group)
+		models := h.channelService.BuildSupportedModelsForDisplay(group.Platform, modelIDs)
+		if len(models) == 0 {
+			continue
+		}
+		out = append(out, userAvailableChannel{
+			Name:        group.Name,
+			Description: group.Description,
+			Platforms: []userChannelPlatformSection{{
+				Platform:        group.Platform,
+				Groups:          []userAvailableGroup{toUserAvailableGroup(group)},
+				SupportedModels: toUserSupportedModels(models, nil, nil, nil),
+			}},
+		})
+	}
+	return out
+}
+
+func toUserAvailableGroup(group *service.Group) userAvailableGroup {
+	return userAvailableGroup{
+		ID:                 group.ID,
+		Name:               group.Name,
+		Platform:           group.Platform,
+		SubscriptionType:   group.SubscriptionType,
+		RateMultiplier:     group.RateMultiplier,
+		PeakRateEnabled:    group.PeakRateEnabled,
+		PeakStart:          group.PeakStart,
+		PeakEnd:            group.PeakEnd,
+		PeakRateMultiplier: group.PeakRateMultiplier,
+		IsExclusive:        group.IsExclusive,
+	}
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：
@@ -198,10 +412,14 @@ func buildPlatformSections(
 	sections := make([]userChannelPlatformSection, 0, len(platforms))
 	for _, platform := range platforms {
 		platformSet := map[string]struct{}{platform: {}}
+		visibleGroupIDs := make(map[int64]struct{}, len(groupsByPlatform[platform]))
+		for _, group := range groupsByPlatform[platform] {
+			visibleGroupIDs[group.ID] = struct{}{}
+		}
 		sections = append(sections, userChannelPlatformSection{
 			Platform:        platform,
 			Groups:          groupsByPlatform[platform],
-			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet),
+			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet, visibleGroupIDs, ch.AccountPricingOverrides),
 		})
 	}
 	return sections
@@ -239,6 +457,8 @@ func filterUserVisibleGroups(
 func toUserSupportedModels(
 	src []service.SupportedModel,
 	allowedPlatforms map[string]struct{},
+	allowedGroupIDs map[int64]struct{},
+	overrides []service.AccountModelPricingOverride,
 ) []userSupportedModel {
 	out := make([]userSupportedModel, 0, len(src))
 	for i := range src {
@@ -249,12 +469,46 @@ func toUserSupportedModels(
 			}
 		}
 		out = append(out, userSupportedModel{
-			Name:     m.Name,
-			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing),
+			Name:                    m.Name,
+			Platform:                m.Platform,
+			Pricing:                 toUserPricing(m.Pricing),
+			AccountPricingOverrides: toUserAccountPricingOverrides(m, allowedGroupIDs, overrides),
 		})
 	}
 	return out
+}
+
+func toUserAccountPricingOverrides(
+	model service.SupportedModel,
+	allowedGroupIDs map[int64]struct{},
+	overrides []service.AccountModelPricingOverride,
+) []userAccountPricingOverride {
+	result := make([]userAccountPricingOverride, 0)
+	for _, override := range overrides {
+		if allowedGroupIDs != nil {
+			if _, ok := allowedGroupIDs[override.GroupID]; !ok {
+				continue
+			}
+		}
+		if override.Platform != model.Platform || !pricingIncludesExactModel(override.Pricing, model.Name) {
+			continue
+		}
+		result = append(result, userAccountPricingOverride{
+			GroupID:     override.GroupID,
+			AccountName: override.AccountName,
+			Pricing:     toUserPricing(&override.Pricing),
+		})
+	}
+	return result
+}
+
+func pricingIncludesExactModel(pricing service.ChannelModelPricing, model string) bool {
+	for _, candidate := range pricing.Models {
+		if strings.EqualFold(strings.TrimSpace(candidate), strings.TrimSpace(model)) {
+			return true
+		}
+	}
+	return false
 }
 
 // toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回 nil。

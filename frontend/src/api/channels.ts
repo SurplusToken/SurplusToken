@@ -45,10 +45,43 @@ export interface UserSupportedModelPricing {
   intervals: UserPricingInterval[]
 }
 
+export interface UserModelGroupPerformance {
+  group_id: number
+  success_rate: number
+  success_count: number
+  failure_count: number
+  sample_count: number
+  latency_sample_count: number
+  ttft_sample_count: number
+  avg_latency_ms: number | null
+  avg_ttft_ms: number | null
+}
+
+export interface UserModelPerformance {
+  window_hours: number
+  success_rate: number
+  success_count: number
+  failure_count: number
+  sample_count: number
+  latency_sample_count: number
+  ttft_sample_count: number
+  avg_latency_ms: number | null
+  avg_ttft_ms: number | null
+  groups: UserModelGroupPerformance[]
+}
+
 export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  account_pricing_overrides?: UserAccountPricingOverride[]
+  performance?: UserModelPerformance
+}
+
+export interface UserAccountPricingOverride {
+  group_id: number
+  account_name: string
+  pricing: UserSupportedModelPricing
 }
 
 /**
