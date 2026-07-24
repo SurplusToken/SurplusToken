@@ -116,6 +116,7 @@ func provideCleanup(
 	remoteSession *service.RemoteSessionService,
 	chatDB *repository.ChatDB,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
+	ollamaCloudUsage *service.OllamaCloudUsageService,
 	auditLog *service.AuditLogService,
 	promptAudit *securityaudit.PromptService,
 ) func() {
@@ -333,6 +334,12 @@ func provideCleanup(
 			{"RemoteSessionService", func() error {
 				if remoteSession != nil {
 					remoteSession.Stop()
+				}
+				return nil
+			}},
+			{"OllamaCloudUsageService", func() error {
+				if ollamaCloudUsage != nil {
+					ollamaCloudUsage.Stop()
 				}
 				return nil
 			}},

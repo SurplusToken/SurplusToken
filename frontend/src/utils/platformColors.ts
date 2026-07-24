@@ -5,7 +5,7 @@
  * instead of defining their own color mappings.
  */
 
-export type Platform = 'anthropic' | 'openai' | 'antigravity' | 'gemini' | 'grok' | 'kimi' | 'zhipu'
+export type Platform = 'anthropic' | 'openai' | 'antigravity' | 'gemini' | 'grok' | 'kimi' | 'zhipu' | 'composite'
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
 const BADGE: Record<Platform, string> = {
@@ -16,6 +16,7 @@ const BADGE: Record<Platform, string> = {
   grok: 'bg-zinc-800/10 text-zinc-800 border-zinc-800/30 dark:bg-zinc-500/10 dark:text-zinc-200 dark:border-zinc-500/30',
   kimi: 'bg-sky-500/10 text-sky-700 border-sky-500/30 dark:text-sky-300',
   zhipu: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
+  composite: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
 }
 const BADGE_DEFAULT = 'bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-400'
 
@@ -28,6 +29,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   grok: 'bg-zinc-800/10 text-zinc-800 dark:bg-zinc-500/10 dark:text-zinc-200',
   kimi: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
   zhipu: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
+  composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
 }
 
 // ── Border ──────────────────────────────────────────────────────────
@@ -39,6 +41,7 @@ const BORDER: Record<Platform, string> = {
   grok: 'border-zinc-800/20 dark:border-zinc-500/20',
   kimi: 'border-sky-500/20 dark:border-sky-400/20',
   zhipu: 'border-cyan-500/20 dark:border-cyan-400/20',
+  composite: 'border-cyan-500/20 dark:border-cyan-500/20',
 }
 const BORDER_DEFAULT = 'border-gray-200 dark:border-dark-700'
 
@@ -51,6 +54,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   grok: 'bg-gradient-to-r from-zinc-700 to-zinc-900',
   kimi: 'bg-gradient-to-r from-sky-500 to-cyan-600',
   zhipu: 'bg-gradient-to-r from-cyan-500 to-teal-600',
+  composite: 'bg-gradient-to-r from-slate-500 to-cyan-500',
 }
 const ACCENT_BAR_DEFAULT = 'bg-gradient-to-r from-primary-400 to-primary-500'
 
@@ -63,6 +67,7 @@ const TEXT: Record<Platform, string> = {
   grok: 'text-zinc-800 dark:text-zinc-200',
   kimi: 'text-sky-700 dark:text-sky-300',
   zhipu: 'text-cyan-700 dark:text-cyan-300',
+  composite: 'text-cyan-700 dark:text-cyan-300',
 }
 const TEXT_DEFAULT = 'text-primary-600 dark:text-primary-400'
 
@@ -75,6 +80,7 @@ const ICON: Record<Platform, string> = {
   grok: 'text-zinc-800 dark:text-zinc-200',
   kimi: 'text-sky-600 dark:text-sky-300',
   zhipu: 'text-cyan-600 dark:text-cyan-300',
+  composite: 'text-cyan-600 dark:text-cyan-300',
 }
 const ICON_DEFAULT = 'text-primary-500 dark:text-primary-400'
 
@@ -87,6 +93,7 @@ const BUTTON: Record<Platform, string> = {
   grok: 'bg-zinc-800 text-white hover:bg-zinc-900 active:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600',
   kimi: 'bg-sky-600 text-white hover:bg-sky-700 active:bg-sky-800 dark:bg-sky-600 dark:hover:bg-sky-500',
   zhipu: 'bg-cyan-600 text-white hover:bg-cyan-700 active:bg-cyan-800 dark:bg-cyan-600 dark:hover:bg-cyan-500',
+  composite: 'bg-cyan-700 text-white hover:bg-cyan-800 active:bg-cyan-900 dark:bg-cyan-600 dark:hover:bg-cyan-500',
 }
 const BUTTON_DEFAULT = 'bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500'
 
@@ -99,6 +106,7 @@ const DISCOUNT: Record<Platform, string> = {
   grok: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
   kimi: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200',
   zhipu: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200',
+  composite: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
 }
 const DISCOUNT_DEFAULT = 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
 
@@ -111,6 +119,7 @@ const GRADIENT: Record<Platform, string> = {
   grok: 'from-zinc-700 to-zinc-900',
   kimi: 'from-sky-500 to-cyan-600',
   zhipu: 'from-cyan-500 to-teal-600',
+  composite: 'from-slate-600 to-cyan-600',
 }
 const GRADIENT_DEFAULT = 'from-primary-500 to-primary-600'
 
@@ -123,6 +132,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   grok: 'text-zinc-100',
   kimi: 'text-sky-50',
   zhipu: 'text-cyan-50',
+  composite: 'text-cyan-100',
 }
 const GRADIENT_TEXT_DEFAULT = 'text-primary-100'
 
@@ -134,13 +144,14 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   grok: 'text-zinc-300',
   kimi: 'text-sky-100',
   zhipu: 'text-cyan-100',
+  composite: 'text-cyan-200',
 }
 const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 
 // ── Public API ──────────────────────────────────────────────────────
 
 function isPlatform(p: string): p is Platform {
-  return p === 'anthropic' || p === 'openai' || p === 'antigravity' || p === 'gemini' || p === 'grok' || p === 'kimi' || p === 'zhipu'
+  return p === 'anthropic' || p === 'openai' || p === 'antigravity' || p === 'gemini' || p === 'grok' || p === 'kimi' || p === 'zhipu' || p === 'composite'
 }
 
 export function platformBadgeClass(p: string): string {
@@ -196,6 +207,7 @@ export function platformLabel(p: string): string {
     case 'grok': return 'Grok'
     case 'kimi': return 'Kimi'
     case 'zhipu': return '智谱 GLM'
+    case 'composite': return 'Composite'
     default: return p || 'API'
   }
 }
