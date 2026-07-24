@@ -69,6 +69,12 @@ func (UserSubscription) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),
 
+		// 订阅级周限额覆盖（拼车额度预约制）：NULL 时回退到 group.weekly_limit_usd。
+		field.Float("weekly_limit_usd").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+
 		field.Int64("assigned_by").
 			Optional().
 			Nillable(),

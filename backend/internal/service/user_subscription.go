@@ -21,6 +21,10 @@ type UserSubscription struct {
 	WeeklyUsageUSD  float64
 	MonthlyUsageUSD float64
 
+	// WeeklyLimitUSD 是订阅级周限额覆盖（拼车额度预约制）。
+	// nil 表示未设置，限额检查回退到分组级 group.WeeklyLimitUSD。
+	WeeklyLimitUSD *float64
+
 	AssignedBy *int64
 	AssignedAt time.Time
 	Notes      string
@@ -134,10 +138,23 @@ func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64)
 }
 
 func (s *UserSubscription) CheckWeeklyLimit(group *Group, additionalCost float64) bool {
-	if !group.HasWeeklyLimit() {
+	limit := s.EffectiveWeeklyLimit(group)
+	if limit == nil {
 		return true
 	}
-	return s.WeeklyUsageUSD+additionalCost <= *group.WeeklyLimitUSD
+	return s.WeeklyUsageUSD+additionalCost <= *limit
+}
+
+// EffectiveWeeklyLimit 返回生效的周限额：订阅级覆盖优先，否则回退分组级限额。
+// 两者都未设置时返回 nil（不限量）。
+func (s *UserSubscription) EffectiveWeeklyLimit(group *Group) *float64 {
+	if s.WeeklyLimitUSD != nil {
+		return s.WeeklyLimitUSD
+	}
+	if group != nil && group.HasWeeklyLimit() {
+		return group.WeeklyLimitUSD
+	}
+	return nil
 }
 
 func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float64) bool {

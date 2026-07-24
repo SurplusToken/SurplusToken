@@ -125,6 +125,11 @@ func MonthlyUsageUsd(v float64) predicate.UserSubscription {
 	return predicate.UserSubscription(sql.FieldEQ(FieldMonthlyUsageUsd, v))
 }
 
+// WeeklyLimitUsd applies equality check predicate on the "weekly_limit_usd" field. It's identical to WeeklyLimitUsdEQ.
+func WeeklyLimitUsd(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldEQ(FieldWeeklyLimitUsd, v))
+}
+
 // AssignedBy applies equality check predicate on the "assigned_by" field. It's identical to AssignedByEQ.
 func AssignedBy(v int64) predicate.UserSubscription {
 	return predicate.UserSubscription(sql.FieldEQ(FieldAssignedBy, v))
@@ -723,6 +728,56 @@ func MonthlyUsageUsdLT(v float64) predicate.UserSubscription {
 // MonthlyUsageUsdLTE applies the LTE predicate on the "monthly_usage_usd" field.
 func MonthlyUsageUsdLTE(v float64) predicate.UserSubscription {
 	return predicate.UserSubscription(sql.FieldLTE(FieldMonthlyUsageUsd, v))
+}
+
+// WeeklyLimitUsdEQ applies the EQ predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdEQ(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldEQ(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdNEQ applies the NEQ predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdNEQ(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldNEQ(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdIn applies the In predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdIn(vs ...float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldIn(FieldWeeklyLimitUsd, vs...))
+}
+
+// WeeklyLimitUsdNotIn applies the NotIn predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdNotIn(vs ...float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldNotIn(FieldWeeklyLimitUsd, vs...))
+}
+
+// WeeklyLimitUsdGT applies the GT predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdGT(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldGT(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdGTE applies the GTE predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdGTE(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldGTE(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdLT applies the LT predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdLT(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldLT(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdLTE applies the LTE predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdLTE(v float64) predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldLTE(FieldWeeklyLimitUsd, v))
+}
+
+// WeeklyLimitUsdIsNil applies the IsNil predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdIsNil() predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldIsNull(FieldWeeklyLimitUsd))
+}
+
+// WeeklyLimitUsdNotNil applies the NotNil predicate on the "weekly_limit_usd" field.
+func WeeklyLimitUsdNotNil() predicate.UserSubscription {
+	return predicate.UserSubscription(sql.FieldNotNull(FieldWeeklyLimitUsd))
 }
 
 // AssignedByEQ applies the EQ predicate on the "assigned_by" field.

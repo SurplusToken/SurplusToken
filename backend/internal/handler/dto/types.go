@@ -652,6 +652,9 @@ type UserSubscription struct {
 	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
 	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
 
+	// WeeklyLimitUSD 订阅级周限额覆盖（拼车）；为 NULL 时省略，回退分组级限额。
+	WeeklyLimitUSD *float64 `json:"weekly_limit_usd,omitempty"`
+
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`

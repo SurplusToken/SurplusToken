@@ -83,30 +83,30 @@ SELECT EXISTS(SELECT 1 FROM groups WHERE name = $1 AND deleted_at IS NULL)
 		return nil, service.ErrCarpoolNameConflict
 	}
 
-	seatsPerAccount := 5
-	baseFee := 130.0
-	if input.CarType == service.CarpoolTypeLarge {
-		seatsPerAccount = 10
-		baseFee = 65
-	}
-	capacity := input.Level * seatsPerAccount
-
 	var carpoolID int64
 	err = tx.QueryRowContext(ctx, `
 INSERT INTO carpools (
     name, description, owner_user_id, platform, plan_type, car_type, level,
-    capacity, base_fee_cny, usage_pool_cny_per_account, visibility,
-    scheduled_start_at
-) VALUES ($1, $2, $3, 'openai', 'openai_pro', $4, $5, $6, $7, 750, $8, $9)
+    visibility, scheduled_start_at,
+    weekly_limit_usd, seat_fee_cny, usage_pool_cny, reserve_ratio,
+    launch_min_ratio, launch_max_ratio
+) VALUES ($1, $2, $3, 'openai', 'openai_pro', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id`, input.Name, input.Description, ownerUserID, input.CarType, input.Level,
-		capacity, baseFee, input.Visibility, input.ScheduledStartAt).Scan(&carpoolID)
+		input.Visibility, input.ScheduledStartAt, input.WeeklyLimitUSD, input.SeatFeeCNY,
+		input.UsagePoolCNY, input.ReserveRatio, input.LaunchMinRatio, input.LaunchMaxRatio).Scan(&carpoolID)
 	if err != nil {
 		return nil, translateCarpoolWriteError(err)
 	}
 
+	// owner 申报（可选）：>0 时写入 owner 成员记录并按 1 人记账预付（设计文档 §4.1/§4.4）。
+	var ownerPrepaid *float64
+	if input.DeclaredWeeklyQuotaUSD > 0 {
+		prepaid := service.CarpoolPrepaidCNY(input.SeatFeeCNY, input.UsagePoolCNY, input.WeeklyLimitUSD, input.DeclaredWeeklyQuotaUSD, 1)
+		ownerPrepaid = &prepaid
+	}
 	if _, err := tx.ExecContext(ctx, `
-INSERT INTO carpool_members (carpool_id, user_id, role, status)
-VALUES ($1, $2, 'owner', 'joined')`, carpoolID, ownerUserID); err != nil {
+INSERT INTO carpool_members (carpool_id, user_id, role, status, declared_weekly_quota_usd, prepaid_amount_cny)
+VALUES ($1, $2, 'owner', 'joined', $3, $4)`, carpoolID, ownerUserID, input.DeclaredWeeklyQuotaUSD, ownerPrepaid); err != nil {
 		return nil, fmt.Errorf("create carpool owner membership: %w", err)
 	}
 	if err := insertCarpoolInvite(ctx, tx, carpoolID, ownerUserID, inviteHash, inviteHint); err != nil {
@@ -162,7 +162,7 @@ FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status, 
 	return nil
 }
 
-func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, inviteHash *string) (*service.CarpoolMutationResult, error) {
+func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, inviteHash *string) (*service.CarpoolMutationResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool join: %w", err)
@@ -190,11 +190,13 @@ FOR UPDATE`, *inviteHash).Scan(&resolvedInviteID, &carpoolID)
 	}
 
 	var status, visibility string
-	var capacity int
 	var locked bool
+	var weeklyLimitUSD, launchMaxRatio, seatFeeCNY, usagePoolCNY float64
 	err = tx.QueryRowContext(ctx, `
-SELECT status, visibility, capacity, join_locked_at IS NOT NULL
-FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &capacity, &locked)
+SELECT status, visibility, join_locked_at IS NOT NULL,
+    weekly_limit_usd, launch_max_ratio, seat_fee_cny, usage_pool_cny
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &locked,
+		&weeklyLimitUSD, &launchMaxRatio, &seatFeeCNY, &usagePoolCNY)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrCarpoolNotFound
 	}
@@ -214,23 +216,31 @@ FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &
 		return nil, fmt.Errorf("check existing carpool member: %w", err)
 	}
 
+	var declaredTotal float64
 	var memberCount int
 	if err := tx.QueryRowContext(ctx, `
-SELECT COUNT(*) FROM carpool_members
-WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&memberCount); err != nil {
-		return nil, fmt.Errorf("count carpool members: %w", err)
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_members
+WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&declaredTotal, &memberCount); err != nil {
+		return nil, fmt.Errorf("sum carpool declared quota: %w", err)
 	}
-	if memberCount >= capacity {
-		return nil, service.ErrCarpoolUnavailable
+	// 上车硬上限（设计文档 §4.1）：Σ申报 + 新申报 > 105%×周限额 时拒绝上车。
+	if declaredTotal+declaredWeeklyQuotaUSD > launchMaxRatio*weeklyLimitUSD {
+		return nil, service.ErrCarpoolQuotaExceeded
 	}
 
+	// 上车即记账（设计文档 §4.4）：预付 = 席位费/人数 + 变动池×(申报/周限额)。
+	prepaidAmountCNY := service.CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, weeklyLimitUSD, declaredWeeklyQuotaUSD, memberCount+1)
+
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO carpool_members (carpool_id, user_id, role, status, joined_via_invite_id, joined_at, updated_at)
-VALUES ($1, $2, 'member', 'joined', $3, NOW(), NOW())
+INSERT INTO carpool_members (carpool_id, user_id, role, status, joined_via_invite_id,
+    declared_weekly_quota_usd, prepaid_amount_cny, joined_at, updated_at)
+VALUES ($1, $2, 'member', 'joined', $3, $4, $5, NOW(), NOW())
 ON CONFLICT (carpool_id, user_id) DO UPDATE SET
     status = 'joined', joined_via_invite_id = EXCLUDED.joined_via_invite_id,
+    declared_weekly_quota_usd = EXCLUDED.declared_weekly_quota_usd,
+    prepaid_amount_cny = EXCLUDED.prepaid_amount_cny,
     joined_at = NOW(), left_at = NULL, removed_by_user_id = NULL,
-    removal_reason = NULL, updated_at = NOW()`, carpoolID, userID, inviteID)
+    removal_reason = NULL, updated_at = NOW()`, carpoolID, userID, inviteID, declaredWeeklyQuotaUSD, prepaidAmountCNY)
 	if err != nil {
 		return nil, fmt.Errorf("join carpool: %w", err)
 	}
@@ -243,15 +253,9 @@ ON CONFLICT (carpool_id, user_id) DO UPDATE SET
 		return nil, err
 	}
 
-	result := &service.CarpoolMutationResult{}
-	memberCount++
-	if memberCount == capacity {
-		groupID, userIDs, err := launchCarpool(ctx, tx, carpoolID)
-		if err != nil {
-			return nil, err
-		}
-		result.ActivatedGroupID = groupID
-		result.ActivatedUserIDs = userIDs
+	result := &service.CarpoolMutationResult{
+		DeclaredWeeklyQuotaUSD: declaredWeeklyQuotaUSD,
+		PrepaidAmountCNY:       prepaidAmountCNY,
 	}
 	result.Carpool, err = getCarpoolByID(ctx, tx, carpoolID, userID)
 	if err != nil {
@@ -259,6 +263,70 @@ ON CONFLICT (carpool_id, user_id) DO UPDATE SET
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit carpool join: %w", err)
+	}
+	return result, nil
+}
+
+// Launch 手动发车（设计文档 §4.3）：仅 recruiting 状态可发车，Σ申报须进入
+// [launch_min, launch_max]×周限额 区间；force=true 时下限放宽到 80%（降档发车）。
+func (r *carpoolRepository) Launch(ctx context.Context, carpoolID, actorUserID int64, isAdmin, force bool) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool launch: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	var params carpoolLaunchParams
+	var launchMinRatio, launchMaxRatio float64
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,
+    reserve_ratio, launch_min_ratio, launch_max_ratio
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status,
+		&params.weeklyLimitUSD, &params.seatFeeCNY, &params.usagePoolCNY,
+		&params.reserveRatio, &launchMinRatio, &launchMaxRatio)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for launch: %w", err)
+	}
+	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
+		return nil, service.ErrCarpoolForbidden
+	}
+	if status != "recruiting" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+
+	var declaredTotal float64
+	var memberCount int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_members
+WHERE carpool_id = $1 AND status = 'joined'`, carpoolID).Scan(&declaredTotal, &memberCount); err != nil {
+		return nil, fmt.Errorf("sum carpool declared quota for launch: %w", err)
+	}
+
+	minTotal := launchMinRatio * params.weeklyLimitUSD
+	if force {
+		minTotal = service.CarpoolForceLaunchMinRatio * params.weeklyLimitUSD
+	}
+	maxTotal := launchMaxRatio * params.weeklyLimitUSD
+	if memberCount == 0 || declaredTotal < minTotal || declaredTotal > maxTotal {
+		return nil, service.ErrCarpoolLaunchNotReady
+	}
+
+	groupID, userIDs, err := launchCarpool(ctx, tx, carpoolID, params)
+	if err != nil {
+		return nil, err
+	}
+	result := &service.CarpoolMutationResult{ActivatedGroupID: groupID, ActivatedUserIDs: userIDs}
+	result.Carpool, err = getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool launch: %w", err)
 	}
 	return result, nil
 }
@@ -327,8 +395,59 @@ func (r *carpoolRepository) SetJoinLocked(ctx context.Context, carpoolID, actorU
 	return nil
 }
 
-func (r *carpoolRepository) getByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
+func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
 	return getCarpoolByID(ctx, r.db, carpoolID, userID)
+}
+
+func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT m.user_id, m.role, m.declared_weekly_quota_usd, COALESCE(m.prepaid_amount_cny, 0),
+    COALESCE(s.monthly_usage_usd, 0), s.starts_at, s.expires_at
+FROM carpool_members m
+LEFT JOIN user_subscriptions s ON s.id = m.subscription_id
+WHERE m.carpool_id = $1 AND m.status IN ('joined', 'active')
+ORDER BY m.id`, carpoolID)
+	if err != nil {
+		return nil, fmt.Errorf("list carpool settlement members: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]service.CarpoolSettlementMemberRow, 0)
+	for rows.Next() {
+		var item service.CarpoolSettlementMemberRow
+		var startsAt, expiresAt sql.NullTime
+		if err := rows.Scan(&item.UserID, &item.Role, &item.DeclaredWeeklyQuotaUSD,
+			&item.PrepaidAmountCNY, &item.ActualUsageUSD, &startsAt, &expiresAt); err != nil {
+			return nil, fmt.Errorf("scan carpool settlement member: %w", err)
+		}
+		if startsAt.Valid {
+			item.PeriodStart = &startsAt.Time
+		}
+		if expiresAt.Valid {
+			item.PeriodEnd = &expiresAt.Time
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate carpool settlement members: %w", err)
+	}
+	return items, nil
+}
+
+// GetRecentWeeklyUsageStats 聚合本人最近 7 天的用量（USD）与有记录的天数，
+// 供申报推荐（设计文档 §4.1）使用。
+func (r *carpoolRepository) GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (float64, int, error) {
+	var totalUSD float64
+	var days int
+	err := r.db.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(actual_cost), 0),
+    COUNT(DISTINCT (created_at AT TIME ZONE 'UTC')::date)
+FROM usage_logs
+WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`, userID).Scan(&totalUSD, &days)
+	if err != nil {
+		return 0, 0, fmt.Errorf("aggregate recent weekly usage: %w", err)
+	}
+	return totalUSD, days, nil
 }
 
 type carpoolQueryRower interface {
@@ -346,7 +465,17 @@ func getCarpoolByID(ctx context.Context, queryer carpoolQueryRower, carpoolID, u
 	return item, nil
 }
 
-func launchCarpool(ctx context.Context, tx *sql.Tx, carpoolID int64) (int64, []int64, error) {
+// carpoolLaunchParams 是发车时锁定到 group/订阅上的额度池参数。
+type carpoolLaunchParams struct {
+	weeklyLimitUSD float64
+	seatFeeCNY     float64
+	usagePoolCNY   float64
+	reserveRatio   float64
+}
+
+// launchCarpool 在事务内完成发车：创建带周限额安全帽的订阅分组，为每位成员
+// 创建写入订阅级周限额（reserve×申报 + 公共池 C）的订阅，并按发车人数锁定预付。
+func launchCarpool(ctx context.Context, tx *sql.Tx, carpoolID int64, params carpoolLaunchParams) (int64, []int64, error) {
 	var name, description string
 	var ownerUserID sql.NullInt64
 	err := tx.QueryRowContext(ctx, `SELECT name, description, owner_user_id FROM carpools WHERE id = $1`, carpoolID).Scan(&name, &description, &ownerUserID)
@@ -360,8 +489,8 @@ INSERT INTO groups (
     name, description, platform, rate_multiplier, is_exclusive, status,
     subscription_type, daily_limit_usd, weekly_limit_usd, monthly_limit_usd,
     default_validity_days, require_oauth_only, supported_model_scopes
-) VALUES ($1, $2, 'openai', 1, TRUE, 'active', 'subscription', NULL, NULL, NULL, 30, TRUE, '[]'::jsonb)
-RETURNING id`, name, "Carpool subscription: "+description).Scan(&groupID)
+) VALUES ($1, $2, 'openai', 1, TRUE, 'active', 'subscription', NULL, $3, NULL, 30, TRUE, '[]'::jsonb)
+RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD).Scan(&groupID)
 	if err != nil {
 		return 0, nil, translateCarpoolWriteError(err)
 	}
@@ -369,18 +498,23 @@ RETURNING id`, name, "Carpool subscription: "+description).Scan(&groupID)
 		return 0, nil, fmt.Errorf("enqueue launched carpool group: %w", err)
 	}
 
-	rows, err := tx.QueryContext(ctx, `SELECT id, user_id FROM carpool_members WHERE carpool_id = $1 AND status = 'joined' ORDER BY id`, carpoolID)
+	rows, err := tx.QueryContext(ctx, `SELECT id, user_id, declared_weekly_quota_usd FROM carpool_members WHERE carpool_id = $1 AND status = 'joined' ORDER BY id`, carpoolID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list launching carpool members: %w", err)
 	}
-	type member struct{ id, userID int64 }
+	type member struct {
+		id, userID int64
+		declared   float64
+	}
 	members := make([]member, 0)
+	declaredTotal := 0.0
 	for rows.Next() {
 		var m member
-		if err := rows.Scan(&m.id, &m.userID); err != nil {
+		if err := rows.Scan(&m.id, &m.userID, &m.declared); err != nil {
 			rows.Close()
 			return 0, nil, fmt.Errorf("scan launching carpool member: %w", err)
 		}
+		declaredTotal += m.declared
 		members = append(members, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -395,18 +529,22 @@ RETURNING id`, name, "Carpool subscription: "+description).Scan(&groupID)
 	expiresAt := now.AddDate(0, 1, 0)
 	userIDs := make([]int64, 0, len(members))
 	for _, member := range members {
+		// 订阅级周限额 = reserve×申报 + 公共池 C（设计文档 §4.2）。
+		weeklyLimitUSD := service.CarpoolMemberWeeklyLimitUSD(params.weeklyLimitUSD, params.reserveRatio, member.declared, declaredTotal)
 		var subscriptionID int64
 		err := tx.QueryRowContext(ctx, `
 INSERT INTO user_subscriptions (
-    user_id, group_id, starts_at, expires_at, status, assigned_by, assigned_at, notes
-) VALUES ($1, $2, $3, $4, 'active', $5, $3, $6)
-RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatically assigned when carpool became full").Scan(&subscriptionID)
+    user_id, group_id, starts_at, expires_at, status, assigned_by, assigned_at, notes, weekly_limit_usd
+) VALUES ($1, $2, $3, $4, 'active', $5, $3, $6, $7)
+RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatically assigned when carpool launched", weeklyLimitUSD).Scan(&subscriptionID)
 		if err != nil {
 			return 0, nil, fmt.Errorf("assign carpool subscription to user %d: %w", member.userID, err)
 		}
+		// 预付按发车时人数锁定（设计文档 §4.4）。
+		prepaidAmountCNY := service.CarpoolPrepaidCNY(params.seatFeeCNY, params.usagePoolCNY, params.weeklyLimitUSD, member.declared, len(members))
 		if _, err := tx.ExecContext(ctx, `
 UPDATE carpool_members SET status = 'active', subscription_id = $2,
-    activated_at = $3, updated_at = $3 WHERE id = $1`, member.id, subscriptionID, now); err != nil {
+    prepaid_amount_cny = $3, activated_at = $4, updated_at = $4 WHERE id = $1`, member.id, subscriptionID, prepaidAmountCNY, now); err != nil {
 			return 0, nil, fmt.Errorf("activate carpool member %d: %w", member.userID, err)
 		}
 		userIDs = append(userIDs, member.userID)
@@ -465,7 +603,12 @@ SELECT
     (SELECT current_member.role FROM carpool_members current_member
      WHERE current_member.carpool_id = c.id AND current_member.user_id = $1
      LIMIT 1),
-    c.created_at
+    c.created_at,
+    c.weekly_limit_usd, c.seat_fee_cny, c.usage_pool_cny, c.reserve_ratio,
+    c.launch_min_ratio, c.launch_max_ratio,
+    (SELECT COALESCE(SUM(declared_member.declared_weekly_quota_usd), 0)
+     FROM carpool_members declared_member
+     WHERE declared_member.carpool_id = c.id AND declared_member.status IN ('joined', 'active'))
 FROM carpools c
 LEFT JOIN users u ON u.id = c.owner_user_id
 LEFT JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL`
@@ -477,20 +620,26 @@ type carpoolScanner interface {
 func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	var item service.Carpool
 	var ownerUserID, groupID sql.NullInt64
+	var capacity sql.NullInt64
 	var groupName, memberRole sql.NullString
 	var scheduledStartAt, launchedAt sql.NullTime
 	err := scanner.Scan(
 		&item.ID, &item.Name, &item.Description, &item.Organizer,
 		&ownerUserID, &item.Platform, &item.PlanType, &item.CarType, &item.Level,
-		&item.Capacity, &item.MemberCount, &item.BaseFeeCNY, &item.UsagePoolPerAccountCNY,
+		&capacity, &item.MemberCount, &item.BaseFeeCNY, &item.UsagePoolPerAccountCNY,
 		&item.Visibility, &item.Status, &item.JoinLocked, &scheduledStartAt, &launchedAt,
 		&groupID, &groupName, &memberRole, &item.CreatedAt,
+		&item.WeeklyLimitUSD, &item.SeatFeeCNY, &item.UsagePoolCNY, &item.ReserveRatio,
+		&item.LaunchMinRatio, &item.LaunchMaxRatio, &item.DeclaredTotalUSD,
 	)
 	if err != nil {
 		return nil, err
 	}
 	if ownerUserID.Valid {
 		item.OwnerUserID = &ownerUserID.Int64
+	}
+	if capacity.Valid {
+		item.Capacity = int(capacity.Int64)
 	}
 	if groupID.Valid {
 		item.GroupID = &groupID.Int64

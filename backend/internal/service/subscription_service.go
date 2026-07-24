@@ -1137,9 +1137,9 @@ func (s *SubscriptionService) calculateProgress(sub *UserSubscription, group *Gr
 		}
 	}
 
-	// 周进度
-	if group.HasWeeklyLimit() && sub.WeeklyWindowStart != nil {
-		limit := *group.WeeklyLimitUSD
+	// 周进度（订阅级限额覆盖优先于分组级限额）
+	if weeklyLimit := sub.EffectiveWeeklyLimit(group); weeklyLimit != nil && *weeklyLimit > 0 && sub.WeeklyWindowStart != nil {
+		limit := *weeklyLimit
 		resetsAt := sub.WeeklyWindowStart.Add(7 * 24 * time.Hour)
 		progress.Weekly = &UsageWindowProgress{
 			LimitUSD:        limit,

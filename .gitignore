@@ -144,3 +144,4 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+.tools/

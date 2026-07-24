@@ -238,10 +238,13 @@ func RegisterUserRoutes(
 		{
 			carpools.GET("", h.Carpool.List)
 			carpools.POST("", h.Carpool.Create)
+			carpools.GET("/declaration-recommendation", h.Carpool.DeclarationRecommendation)
 			carpools.GET("/invites/:token", h.Carpool.ResolveInvite)
 			carpools.POST("/join-by-invite", h.Carpool.JoinByInvite)
 			carpools.POST("/:id/invites", h.Carpool.CreateInvite)
 			carpools.POST("/:id/join", h.Carpool.Join)
+			carpools.POST("/:id/launch", h.Carpool.Launch)
+			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/cancel", h.Carpool.Cancel)
 			carpools.PATCH("/:id/join-lock", h.Carpool.SetJoinLocked)
 		}
