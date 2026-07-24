@@ -27,42 +27,22 @@
             <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.title') }}</h2>
           </div>
           <span class="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
-            <Icon name="lock" size="xs" />
-            {{ t('carpool.rules.monthlyLock') }}
+            <Icon name="refresh" size="xs" />
+            {{ t('carpool.rules.weeklyBadge') }}
           </span>
         </div>
 
-        <div class="grid lg:grid-cols-2 lg:divide-x lg:divide-amber-200 dark:lg:divide-amber-900/70">
-          <div class="px-4 py-3">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.small.title') }}</h3>
-              <span class="text-xs font-medium text-gray-600 dark:text-dark-200">{{ t('carpool.rules.small.capacity') }}</span>
-            </div>
-            <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ t('carpool.rules.small.upgrade') }}</p>
-            <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-dark-100">
-              <span>{{ t('carpool.rules.accountCost') }}</span>
-              <span>{{ t('carpool.rules.small.baseFee') }}</span>
-              <strong class="font-mono font-semibold text-amber-800 dark:text-amber-300">{{ t('carpool.rules.small.usageFee') }}</strong>
-            </div>
-          </div>
-
-          <div class="border-t border-amber-200 px-4 py-3 dark:border-amber-900/70 lg:border-t-0">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.large.title') }}</h3>
-              <span class="text-xs font-medium text-gray-600 dark:text-dark-200">{{ t('carpool.rules.large.capacity') }}</span>
-            </div>
-            <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ t('carpool.rules.large.upgrade') }}</p>
-            <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700 dark:text-dark-100">
-              <span>{{ t('carpool.rules.accountCost') }}</span>
-              <span>{{ t('carpool.rules.large.baseFee') }}</span>
-              <strong class="font-mono font-semibold text-amber-800 dark:text-amber-300">{{ t('carpool.rules.large.usageFee') }}</strong>
-            </div>
+        <div class="grid gap-x-6 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div v-for="item in ruleItems" :key="item.label" class="py-1.5">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ item.label }}</h3>
+            <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ item.text }}</p>
           </div>
         </div>
 
-        <p class="border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
-          {{ t('carpool.rules.lockNotice') }}
-        </p>
+        <div class="space-y-1 border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
+          <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
+          <p>{{ t('carpool.notices.consumeOrder') }}</p>
+        </div>
       </section>
 
       <section class="grid grid-cols-2 border-y border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 sm:grid-cols-4">
@@ -121,25 +101,55 @@
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
               <span class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200">
-                GPT · {{ carTypeLabel(carpool.carType) }} · {{ t('carpool.level', { level: carpool.level }) }}
+                {{ t('carpool.fields.weeklyLimitBadge', { limit: formatUsd(carpool.weeklyLimitUsd) }) }}
               </span>
             </div>
 
             <div class="mt-4">
               <div class="mb-2 flex items-center justify-between text-xs">
-                <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.members') }} {{ carpool.memberCount }} / {{ carpool.capacity }}</span>
-                <span class="text-gray-500 dark:text-dark-300">{{ t('carpool.fields.seatsRemaining', { count: remainingSeats(carpool) }) }}</span>
+                <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.quotaProgress') }}</span>
+                <span class="text-gray-500 dark:text-dark-300">
+                  {{ t('carpool.fields.declaredOf', { declared: formatUsd(carpool.declaredTotalUsd), limit: formatUsd(carpool.weeklyLimitUsd) }) }}
+                </span>
               </div>
-              <div class="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
+              <div class="relative h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
                 <div
                   class="h-full rounded-full transition-all"
-                  :class="seatProgressClass(carpool)"
-                  :style="{ width: `${seatProgress(carpool)}%` }"
+                  :class="quotaProgressClass(carpool)"
+                  :style="{ width: `${quotaProgress(carpool)}%` }"
                 />
+              </div>
+              <div class="relative h-3">
+                <span
+                  class="absolute top-0 h-2 w-px bg-amber-500"
+                  :style="{ left: `${launchLinePercent(carpool)}%` }"
+                  :title="t('carpool.fields.launchLine', { ratio: launchRatioPercent(carpool.launchMinRatio) })"
+                />
+                <span
+                  class="absolute top-2 -translate-x-1/2 whitespace-nowrap text-[10px] leading-3 text-amber-600 dark:text-amber-400"
+                  :style="{ left: `${launchLinePercent(carpool)}%` }"
+                >
+                  {{ t('carpool.fields.launchLine', { ratio: launchRatioPercent(carpool.launchMinRatio) }) }}
+                </span>
               </div>
             </div>
 
-            <dl class="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            <dl class="mt-4 grid grid-cols-3 gap-x-4 gap-y-3 text-sm">
+              <div>
+                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
+                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.plusEquivalents') }}</dt>
+                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDecimal(carpool.plusEquivalents) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPrice') }}</dt>
+                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
+                  {{ formatCny(carpool.avgPriceCny) }}
+                  <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPriceUnit') }}</span>
+                </dd>
+              </div>
               <div>
                 <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.organizer') }}</dt>
                 <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.organizer }}</dd>
@@ -149,17 +159,13 @@
                 <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDate(carpool.scheduledStartAt) }}</dd>
               </div>
               <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.visibility') }}</dt>
-                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ visibilityLabel(carpool.visibility) }}</dd>
-              </div>
-              <div>
                 <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
                 <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
               </div>
             </dl>
 
             <div class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-4 dark:border-dark-700">
-              <div class="flex flex-wrap gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="btn btn-secondary h-9 px-3 py-2" @click="openDetails(carpool)">
                   <Icon name="eye" size="sm" />
                   <span>{{ t('carpool.actions.details') }}</span>
@@ -172,6 +178,29 @@
                 >
                   <Icon name="link" size="sm" />
                   <span>{{ t('carpool.actions.invite') }}</span>
+                </button>
+                <button
+                  v-if="canLaunch(carpool)"
+                  type="button"
+                  :data-testid="`launch-${carpool.id}`"
+                  class="h-9 px-3 py-2"
+                  :class="launchReady(carpool) ? 'btn btn-primary' : 'btn btn-secondary'"
+                  :disabled="!launchReady(carpool) && !forceLaunchReady(carpool)"
+                  :title="launchHint(carpool)"
+                  @click="requestLaunch(carpool)"
+                >
+                  <Icon name="play" size="sm" />
+                  <span>{{ forceLaunchReady(carpool) && !launchReady(carpool) ? t('carpool.actions.forceLaunch') : t('carpool.actions.launch') }}</span>
+                </button>
+                <span v-if="canLaunch(carpool) && !launchReady(carpool)" class="text-xs text-gray-500 dark:text-dark-300">{{ launchHint(carpool) }}</span>
+                <button
+                  v-if="canViewSettlement(carpool)"
+                  type="button"
+                  class="btn btn-secondary h-9 px-3 py-2"
+                  @click="openSettlement(carpool)"
+                >
+                  <Icon name="document" size="sm" />
+                  <span>{{ t('carpool.actions.settlement') }}</span>
                 </button>
                 <button
                   v-if="authStore.isAdmin && carpool.status === 'recruiting'"
@@ -197,7 +226,7 @@
                 v-else-if="!carpool.memberRole && carpool.visibility === 'public' && canJoin(carpool)"
                 type="button"
                 class="btn btn-primary h-9 px-4 py-2"
-                @click="requestJoin(carpool)"
+                @click="openJoin(carpool)"
               >
                 <Icon name="userPlus" size="sm" />
                 <span>{{ t('carpool.actions.join') }}</span>
@@ -228,44 +257,15 @@
           <label class="input-label" for="carpool-description">{{ t('carpool.fields.description') }}</label>
           <textarea id="carpool-description" v-model.trim="createForm.description" class="input min-h-20 resize-y" maxlength="300" :placeholder="t('carpool.fields.descriptionPlaceholder')" />
         </div>
-        <fieldset>
-          <legend class="input-label">{{ t('carpool.fields.carType') }}</legend>
-          <div class="grid grid-cols-2 gap-2">
-            <button
-              v-for="option in carTypeOptions"
-              :key="option.value"
-              type="button"
-              class="flex min-h-12 flex-col items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
-              :class="createForm.carType === option.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
-              @click="createForm.carType = option.value"
-            >
-              <span>{{ option.label }}</span>
-              <span class="mt-0.5 text-xs font-normal opacity-75">{{ option.hint }}</span>
-            </button>
-          </div>
-        </fieldset>
         <div class="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="input-label" for="carpool-level">{{ t('carpool.fields.level') }}</label>
-            <input id="carpool-level" v-model.number="createForm.level" type="number" min="1" max="10" step="1" class="input" required />
-          </div>
           <div>
             <label class="input-label" for="carpool-start">{{ t('carpool.fields.scheduledStart') }}</label>
             <input id="carpool-start" v-model="createForm.scheduledStartAt" type="date" class="input" required />
           </div>
-        </div>
-        <div class="grid grid-cols-3 divide-x divide-gray-200 border-y border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
           <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.fields.accounts') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ createForm.level }}</div>
-          </div>
-          <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.fields.capacity') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ createCapacity }}</div>
-          </div>
-          <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.fields.totalCost') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ createTotalCost }}</div>
+            <label class="input-label" for="carpool-owner-quota">{{ t('carpool.createDialog.ownerQuota') }}</label>
+            <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" step="1" class="input" />
+            <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.ownerQuotaHint') }}</p>
           </div>
         </div>
         <fieldset>
@@ -284,6 +284,41 @@
             </button>
           </div>
         </fieldset>
+        <div class="rounded-lg border border-gray-200 dark:border-dark-600">
+          <button type="button" class="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-dark-100" @click="advancedOpen = !advancedOpen">
+            <span>{{ t('carpool.createDialog.advanced') }}</span>
+            <Icon name="chevronDown" size="sm" class="transition-transform" :class="{ 'rotate-180': advancedOpen }" />
+          </button>
+          <div v-if="advancedOpen" class="space-y-3 border-t border-gray-200 px-3 py-3 dark:border-dark-600">
+            <p class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.advancedHint') }}</p>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="input-label" for="carpool-weekly-limit">{{ t('carpool.createDialog.weeklyLimit') }}</label>
+                <input id="carpool-weekly-limit" v-model.number="createForm.weeklyLimitUsd" type="number" min="1" step="1" class="input" />
+              </div>
+              <div>
+                <label class="input-label" for="carpool-seat-fee">{{ t('carpool.createDialog.seatFee') }}</label>
+                <input id="carpool-seat-fee" v-model.number="createForm.seatFeeCny" type="number" min="0" step="1" class="input" />
+              </div>
+              <div>
+                <label class="input-label" for="carpool-usage-pool">{{ t('carpool.createDialog.usagePool') }}</label>
+                <input id="carpool-usage-pool" v-model.number="createForm.usagePoolCny" type="number" min="0" step="1" class="input" />
+              </div>
+              <div>
+                <label class="input-label" for="carpool-reserve-ratio">{{ t('carpool.createDialog.reserveRatio') }}</label>
+                <input id="carpool-reserve-ratio" v-model.number="createForm.reserveRatio" type="number" min="0.01" max="1" step="0.05" class="input" />
+              </div>
+              <div>
+                <label class="input-label" for="carpool-launch-min">{{ t('carpool.createDialog.launchMinRatio') }}</label>
+                <input id="carpool-launch-min" v-model.number="createForm.launchMinRatio" type="number" min="0.01" step="0.01" class="input" />
+              </div>
+              <div>
+                <label class="input-label" for="carpool-launch-max">{{ t('carpool.createDialog.launchMaxRatio') }}</label>
+                <input id="carpool-launch-max" v-model.number="createForm.launchMaxRatio" type="number" min="0.01" step="0.01" class="input" />
+              </div>
+            </div>
+          </div>
+        </div>
       </form>
       <template #footer>
         <div class="flex justify-end gap-3">
@@ -296,12 +331,68 @@
       </template>
     </BaseDialog>
 
+    <BaseDialog :show="joinDialogOpen" :title="t('carpool.joinDialog.title')" width="normal" @close="joinDialogOpen = false">
+      <div v-if="joinTarget" class="space-y-4">
+        <div class="flex items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
+          <div>
+            <div class="font-semibold text-gray-900 dark:text-white">{{ joinTarget.name }}</div>
+            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.fields.members', { count: joinTarget.memberCount }) }}</div>
+          </div>
+          <span :class="['badge', statusBadgeClass(joinTarget)]">{{ statusLabel(joinTarget) }}</span>
+        </div>
+
+        <div>
+          <label class="input-label" for="carpool-join-quota">{{ t('carpool.joinDialog.quotaLabel') }}</label>
+          <input id="carpool-join-quota" v-model.number="joinForm.declaredQuota" type="number" min="1" step="1" class="input" required />
+          <p v-if="recommendationLoading" class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
+          <p v-else-if="recommendation" class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ recommendation.message }}</p>
+          <p v-else-if="recommendationFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.recommendationFailed') }}</p>
+        </div>
+
+        <p v-if="joinExceedsRemaining" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ t('carpool.joinDialog.exceedsRemaining', { amount: formatUsd(joinTarget.remainingJoinableUsd) }) }}
+        </p>
+
+        <div class="grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewFloor') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatUsd(joinFloorQuota) }} {{ t('carpool.joinDialog.floorUnit') }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinPrepaid) }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewAvgPrice') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinTarget.avgPriceCny) }}</div>
+          </div>
+        </div>
+
+        <p class="rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          {{ t('carpool.joinDialog.floorNotice') }}
+        </p>
+        <div class="space-y-1 text-xs leading-5 text-gray-500 dark:text-dark-300">
+          <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
+          <p>{{ t('carpool.notices.consumeOrder') }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="joinDialogOpen = false">{{ t('common.cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="!joinFormValid || actionPending" @click="submitJoin">
+            <Icon name="userPlus" size="sm" />
+            {{ t('carpool.joinDialog.confirm') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <BaseDialog :show="inviteDialogOpen" :title="t('carpool.inviteDialog.title')" width="normal" @close="inviteDialogOpen = false">
       <div v-if="selectedCarpool" class="space-y-4">
         <div class="flex items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
           <div>
             <div class="font-semibold text-gray-900 dark:text-white">{{ selectedCarpool.name }}</div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.inviteDialog.uses', { used: selectedCarpool.memberCount, max: selectedCarpool.capacity }) }}</div>
+            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.inviteDialog.uses', { count: selectedCarpool.memberCount }) }}</div>
           </div>
           <span :class="['badge', statusBadgeClass(selectedCarpool)]">{{ statusLabel(selectedCarpool) }}</span>
         </div>
@@ -329,14 +420,24 @@
         </div>
         <div>
           <div class="mb-2 flex justify-between text-sm text-gray-600 dark:text-dark-200">
-            <span>{{ t('carpool.detailDialog.progress') }}</span>
-            <span class="font-medium">{{ selectedCarpool.memberCount }} / {{ selectedCarpool.capacity }}</span>
+            <span>{{ t('carpool.fields.quotaProgress') }}</span>
+            <span class="font-medium">
+              {{ t('carpool.fields.declaredOf', { declared: formatUsd(selectedCarpool.declaredTotalUsd), limit: formatUsd(selectedCarpool.weeklyLimitUsd) }) }}
+            </span>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
-            <div class="h-full rounded-full" :class="seatProgressClass(selectedCarpool)" :style="{ width: `${seatProgress(selectedCarpool)}%` }" />
+            <div class="h-full rounded-full" :class="quotaProgressClass(selectedCarpool)" :style="{ width: `${quotaProgress(selectedCarpool)}%` }" />
           </div>
         </div>
         <dl class="grid grid-cols-2 gap-4 border-y border-gray-100 py-4 text-sm dark:border-dark-700">
+          <div>
+            <dt class="text-xs text-gray-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
+            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ formatUsd(selectedCarpool.remainingJoinableUsd) }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-gray-400">{{ t('carpool.fields.avgPrice') }}</dt>
+            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ formatCny(selectedCarpool.avgPriceCny) }} {{ t('carpool.fields.avgPriceUnit') }}</dd>
+          </div>
           <div>
             <dt class="text-xs text-gray-400">{{ t('carpool.fields.organizer') }}</dt>
             <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ selectedCarpool.organizer }}</dd>
@@ -357,11 +458,65 @@
       </div>
     </BaseDialog>
 
+    <BaseDialog :show="settlementDialogOpen" :title="t('carpool.settlement.title')" width="wide" @close="settlementDialogOpen = false">
+      <div class="space-y-4">
+        <div v-if="settlementLoading" class="flex min-h-32 items-center justify-center">
+          <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+        </div>
+        <template v-else-if="settlementData">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-dark-300">
+            <span>
+              {{ t('carpool.settlement.period') }}:
+              {{ settlementData.periodStart ? `${formatDateTime(settlementData.periodStart)} – ${formatDateTime(settlementData.periodEnd || '')}` : '-' }}
+            </span>
+            <span class="font-medium">
+              {{ settlementData.fullView ? t('carpool.settlement.fullView', { count: settlementData.memberCount }) : t('carpool.settlement.selfOnly') }}
+            </span>
+          </div>
+          <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-600">
+            <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
+              <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700 dark:text-dark-300">
+                <tr>
+                  <th class="px-3 py-2 text-left font-medium">{{ t('carpool.settlement.member') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.declared') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.actual') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.billable') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.prepaid') }}</th>
+                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.delta') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+                <tr v-for="member in settlementData.members" :key="member.userId">
+                  <td class="px-3 py-2">
+                    <span class="font-medium text-gray-800 dark:text-dark-100">#{{ member.userId }}</span>
+                    <span class="ml-1.5 text-xs text-gray-400">{{ t(`carpool.roles.${member.role}`) }}</span>
+                  </td>
+                  <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.declaredWeeklyQuotaUsd) }}</td>
+                  <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.actualUsageUsd) }}</td>
+                  <td class="px-3 py-2 text-right font-mono">
+                    {{ formatDecimal(member.billableUsageUsd) }}
+                    <span v-if="member.floorTriggered" class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                      {{ t('carpool.settlement.floorBadge') }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-right font-mono">{{ formatCny(member.prepaidAmountCny) }}</td>
+                  <td class="px-3 py-2 text-right font-mono font-semibold" :class="deltaClass(member.totalDeltaCny)">
+                    {{ deltaLabel(member.totalDeltaCny) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.settlement.deltaNote') }}</p>
+        </template>
+      </div>
+    </BaseDialog>
+
     <ConfirmDialog
       :show="confirmAction !== null"
-      :title="confirmAction?.type === 'join' ? t('carpool.joinDialog.title') : t('carpool.cancelDialog.title')"
+      :title="confirmTitle"
       :message="confirmMessage"
-      :confirm-text="confirmAction?.type === 'join' ? t('carpool.joinDialog.confirm') : t('carpool.cancelDialog.confirm')"
+      :confirm-text="confirmText"
       :danger="confirmAction?.type === 'cancel'"
       @confirm="runConfirmedAction"
       @cancel="confirmAction = null"
@@ -377,24 +532,37 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import carpoolAPI, { type Carpool, type CarpoolType, type CarpoolVisibility } from '@/api/carpools'
+import carpoolAPI, {
+  type Carpool,
+  type CarpoolSettlement,
+  type CarpoolVisibility,
+  type CreateCarpoolRequest,
+  type DeclarationRecommendation,
+} from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { extractApiErrorMessage } from '@/utils/apiError'
 
+// 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
+const FORCE_LAUNCH_MIN_RATIO = 0.8
+
 interface CreateForm {
   name: string
   description: string
-  carType: CarpoolType
-  level: number
   visibility: CarpoolVisibility
   scheduledStartAt: string
+  ownerQuota: number | null
+  weeklyLimitUsd: number
+  seatFeeCny: number
+  usagePoolCny: number
+  reserveRatio: number
+  launchMinRatio: number
+  launchMaxRatio: number
 }
 
 interface ConfirmAction {
-  type: 'join' | 'cancel'
+  type: 'cancel' | 'launch' | 'forceLaunch'
   carpool: Carpool
-  inviteToken?: string
 }
 
 const { t, locale } = useI18n()
@@ -409,10 +577,21 @@ const statusFilter = ref('')
 const loading = ref(true)
 const actionPending = ref(false)
 const createDialogOpen = ref(false)
+const advancedOpen = ref(false)
+const joinDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
+const settlementDialogOpen = ref(false)
+const settlementLoading = ref(false)
+const settlementData = ref<CarpoolSettlement | null>(null)
 const selectedCarpool = ref<Carpool | null>(null)
 const selectedInviteToken = ref('')
+const joinTarget = ref<Carpool | null>(null)
+const joinInviteToken = ref('')
+const joinForm = reactive({ declaredQuota: null as number | null })
+const recommendation = ref<DeclarationRecommendation | null>(null)
+const recommendationLoading = ref(false)
+const recommendationFailed = ref(false)
 const confirmAction = ref<ConfirmAction | null>(null)
 const carpools = ref<Carpool[]>([])
 
@@ -424,10 +603,15 @@ const isoDateAfterDays = (days: number): string => {
 const newCreateForm = (): CreateForm => ({
   name: '',
   description: '',
-  carType: 'small',
-  level: 1,
   visibility: 'public',
-  scheduledStartAt: isoDateAfterDays(7)
+  scheduledStartAt: isoDateAfterDays(7),
+  ownerQuota: null,
+  weeklyLimitUsd: 2400,
+  seatFeeCny: 400,
+  usagePoolCny: 1000,
+  reserveRatio: 0.8,
+  launchMinRatio: 0.95,
+  launchMaxRatio: 1.05,
 })
 
 const createForm = reactive<CreateForm>(newCreateForm())
@@ -439,15 +623,15 @@ const visibilityOptions = computed(() => [
   { value: 'public' as const, label: t('carpool.visibility.public') },
   { value: 'invite_only' as const, label: t('carpool.visibility.inviteOnly') }
 ])
-const carTypeOptions = computed(() => [
-  { value: 'small' as const, label: t('carpool.types.small'), hint: t('carpool.types.smallHint') },
-  { value: 'large' as const, label: t('carpool.types.large'), hint: t('carpool.types.largeHint') }
+const ruleItems = computed(() => [
+  { label: t('carpool.rules.declare.label'), text: t('carpool.rules.declare.text') },
+  { label: t('carpool.rules.reserve.label'), text: t('carpool.rules.reserve.text') },
+  { label: t('carpool.rules.pricing.label'), text: t('carpool.rules.pricing.text') },
+  { label: t('carpool.rules.floor.label'), text: t('carpool.rules.floor.text') },
 ])
-const createCapacity = computed(() => createForm.level * (createForm.carType === 'small' ? 5 : 10))
-const createTotalCost = computed(() => createForm.level * 1400)
 const stats = computed(() => [
   { label: t('carpool.stats.recruiting'), value: carpools.value.filter((item) => item.status === 'recruiting' && !item.joinLocked).length },
-  { label: t('carpool.stats.seats'), value: carpools.value.reduce((sum, item) => sum + (canJoin(item) ? remainingSeats(item) : 0), 0) },
+  { label: t('carpool.stats.joinableQuota'), value: formatUsd(carpools.value.reduce((sum, item) => sum + (canJoin(item) ? item.remainingJoinableUsd : 0), 0)) },
   { label: t('carpool.stats.joined'), value: carpools.value.filter((item) => item.memberRole !== null && item.status !== 'cancelled').length },
   { label: t('carpool.stats.launched'), value: carpools.value.filter((item) => item.status === 'active').length }
 ])
@@ -460,16 +644,54 @@ const filteredCarpools = computed(() => {
 })
 const createFormValid = computed(() => (
   createForm.name.length > 0
-  && Number.isInteger(createForm.level)
-  && createForm.level >= 1
-  && createForm.level <= 10
   && createForm.scheduledStartAt.length > 0
+  && (createForm.ownerQuota === null || createForm.ownerQuota >= 0)
+  && createForm.weeklyLimitUsd > 0
+  && createForm.seatFeeCny > 0
+  && createForm.usagePoolCny > 0
+  && createForm.reserveRatio > 0
+  && createForm.reserveRatio <= 1
+  && createForm.launchMinRatio > 0
+  && createForm.launchMinRatio <= createForm.launchMaxRatio
 ))
+const joinFloorQuota = computed(() => {
+  if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
+  return joinTarget.value.reserveRatio * joinForm.declaredQuota
+})
+const joinPrepaid = computed(() => {
+  if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
+  const car = joinTarget.value
+  const seatShare = car.seatFeeCny / Math.max(1, car.memberCount + 1)
+  return seatShare + (car.weeklyLimitUsd > 0 ? car.usagePoolCny * joinForm.declaredQuota / car.weeklyLimitUsd : 0)
+})
+const joinExceedsRemaining = computed(() => (
+  !!joinTarget.value && !!joinForm.declaredQuota && joinForm.declaredQuota > joinTarget.value.remainingJoinableUsd + 1e-9
+))
+const joinFormValid = computed(() => (
+  !!joinForm.declaredQuota && joinForm.declaredQuota > 0 && !joinExceedsRemaining.value
+))
+const confirmTitle = computed(() => {
+  if (!confirmAction.value) return ''
+  if (confirmAction.value.type === 'cancel') return t('carpool.cancelDialog.title')
+  return confirmAction.value.type === 'forceLaunch' ? t('carpool.launchDialog.forceTitle') : t('carpool.launchDialog.confirmTitle')
+})
+const confirmText = computed(() => {
+  if (!confirmAction.value) return ''
+  if (confirmAction.value.type === 'cancel') return t('carpool.cancelDialog.confirm')
+  return t('carpool.launchDialog.confirm')
+})
 const confirmMessage = computed(() => {
   if (!confirmAction.value) return ''
-  return confirmAction.value.type === 'join'
-    ? t('carpool.joinDialog.message', { name: confirmAction.value.carpool.name })
-    : t('carpool.cancelDialog.message', { name: confirmAction.value.carpool.name })
+  const action = confirmAction.value
+  if (action.type === 'cancel') return t('carpool.cancelDialog.message', { name: action.carpool.name })
+  const params = {
+    name: action.carpool.name,
+    total: formatUsd(action.carpool.declaredTotalUsd),
+    ratio: launchRatioPercent(declaredRatio(action.carpool)),
+  }
+  return action.type === 'forceLaunch'
+    ? t('carpool.launchDialog.forceMessage', params)
+    : t('carpool.launchDialog.confirmMessage', params)
 })
 
 async function loadCarpools(): Promise<void> {
@@ -482,16 +704,24 @@ async function loadCarpools(): Promise<void> {
   }
 }
 
-function remainingSeats(carpool: Carpool): number {
-  return Math.max(0, carpool.capacity - carpool.memberCount)
+function declaredRatio(carpool: Carpool): number {
+  return carpool.weeklyLimitUsd > 0 ? carpool.declaredTotalUsd / carpool.weeklyLimitUsd : 0
 }
 
-function seatProgress(carpool: Carpool): number {
-  return Math.min(100, Math.round((carpool.memberCount / carpool.capacity) * 100))
+function quotaProgress(carpool: Carpool): number {
+  return Math.min(100, Math.round(declaredRatio(carpool) * 100))
+}
+
+function launchLinePercent(carpool: Carpool): number {
+  return Math.min(100, Math.round(carpool.launchMinRatio * 100))
+}
+
+function launchRatioPercent(ratio: number): number {
+  return Math.round(ratio * 100)
 }
 
 function canJoin(carpool: Carpool): boolean {
-  return carpool.status === 'recruiting' && !carpool.joinLocked && remainingSeats(carpool) > 0
+  return carpool.status === 'recruiting' && !carpool.joinLocked && carpool.remainingJoinableUsd > 0
 }
 
 function canInvite(carpool: Carpool): boolean {
@@ -502,31 +732,64 @@ function canCancel(carpool: Carpool): boolean {
   return carpool.memberRole === 'owner' && (carpool.status === 'recruiting' || carpool.status === 'starting')
 }
 
+function canLaunch(carpool: Carpool): boolean {
+  return carpool.status === 'recruiting' && (carpool.memberRole === 'owner' || authStore.isAdmin)
+}
+
+function launchReady(carpool: Carpool): boolean {
+  const ratio = declaredRatio(carpool)
+  return ratio >= carpool.launchMinRatio && ratio <= carpool.launchMaxRatio
+}
+
+function forceLaunchReady(carpool: Carpool): boolean {
+  const ratio = declaredRatio(carpool)
+  return ratio >= FORCE_LAUNCH_MIN_RATIO && ratio < carpool.launchMinRatio
+}
+
+function launchHint(carpool: Carpool): string {
+  if (launchReady(carpool)) return ''
+  if (forceLaunchReady(carpool)) return t('carpool.launchDialog.forceReady')
+  const missing = Math.max(0, carpool.launchMinRatio * carpool.weeklyLimitUsd - carpool.declaredTotalUsd)
+  return t('carpool.launchDialog.notReady', {
+    ratio: launchRatioPercent(carpool.launchMinRatio),
+    amount: formatUsd(missing),
+  })
+}
+
+function canViewSettlement(carpool: Carpool): boolean {
+  return carpool.status === 'active' && (carpool.memberRole !== null || authStore.isAdmin)
+}
+
 function statusLabel(carpool: Carpool): string {
   if (carpool.status === 'recruiting' && carpool.joinLocked) return t('carpool.status.locked')
-  if (carpool.status === 'recruiting' && remainingSeats(carpool) === 0) return t('carpool.status.full')
+  if (carpool.status === 'recruiting' && carpool.remainingJoinableUsd <= 0) return t('carpool.status.full')
   return t(`carpool.status.${carpool.status}`)
 }
 
 function statusBadgeClass(carpool: Carpool): string {
   if (carpool.status === 'cancelled' || carpool.status === 'ended') return 'badge-gray'
   if (carpool.status === 'active') return 'badge-success'
-  if (carpool.joinLocked || remainingSeats(carpool) === 0) return 'badge-warning'
+  if (carpool.joinLocked || carpool.remainingJoinableUsd <= 0) return 'badge-warning'
   return 'badge-primary'
 }
 
-function seatProgressClass(carpool: Carpool): string {
+function quotaProgressClass(carpool: Carpool): string {
   if (carpool.status === 'active') return 'bg-emerald-500'
-  if (carpool.joinLocked || remainingSeats(carpool) === 0) return 'bg-amber-500'
+  if (carpool.joinLocked || carpool.remainingJoinableUsd <= 0) return 'bg-amber-500'
+  if (launchReady(carpool)) return 'bg-emerald-500'
   return 'bg-primary-500'
 }
 
-function visibilityLabel(visibility: CarpoolVisibility): string {
-  return visibility === 'public' ? t('carpool.visibility.public') : t('carpool.visibility.inviteOnly')
+function formatUsd(value: number): string {
+  return `$${new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 0 }).format(value)}`
 }
 
-function carTypeLabel(carType: CarpoolType): string {
-  return t(`carpool.types.${carType}`)
+function formatCny(value: number): string {
+  return `¥${new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 }).format(value)}`
+}
+
+function formatDecimal(value: number): string {
+  return new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 1 }).format(value)
 }
 
 function formatDate(value: string): string {
@@ -536,8 +799,28 @@ function formatDate(value: string): string {
   }).format(new Date(`${value}T12:00:00`))
 }
 
+function formatDateTime(value: string): string {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'short', day: 'numeric', year: 'numeric'
+  }).format(new Date(value))
+}
+
+function deltaClass(delta: number): string {
+  if (delta > 0.004) return 'text-emerald-600 dark:text-emerald-400'
+  if (delta < -0.004) return 'text-red-600 dark:text-red-400'
+  return 'text-gray-500 dark:text-dark-300'
+}
+
+function deltaLabel(delta: number): string {
+  if (delta > 0.004) return t('carpool.settlement.deltaRefund', { amount: Math.abs(delta).toFixed(1) })
+  if (delta < -0.004) return t('carpool.settlement.deltaTopUp', { amount: Math.abs(delta).toFixed(1) })
+  return t('carpool.settlement.deltaEven')
+}
+
 function openCreateDialog(): void {
   Object.assign(createForm, newCreateForm())
+  advancedOpen.value = false
   createDialogOpen.value = true
 }
 
@@ -545,14 +828,24 @@ async function createCarpool(): Promise<void> {
   if (!createFormValid.value || actionPending.value) return
   actionPending.value = true
   try {
-    const result = await carpoolAPI.create({
+    const payload: CreateCarpoolRequest = {
       name: createForm.name,
       description: createForm.description,
-      car_type: createForm.carType,
-      level: createForm.level,
       visibility: createForm.visibility,
-      scheduled_start_at: createForm.scheduledStartAt
-    })
+      scheduled_start_at: createForm.scheduledStartAt,
+    }
+    if (createForm.ownerQuota && createForm.ownerQuota > 0) {
+      payload.declared_weekly_quota_usd = createForm.ownerQuota
+    }
+    if (advancedOpen.value) {
+      payload.weekly_limit_usd = createForm.weeklyLimitUsd
+      payload.seat_fee_cny = createForm.seatFeeCny
+      payload.usage_pool_cny = createForm.usagePoolCny
+      payload.reserve_ratio = createForm.reserveRatio
+      payload.launch_min_ratio = createForm.launchMinRatio
+      payload.launch_max_ratio = createForm.launchMaxRatio
+    }
+    const result = await carpoolAPI.create(payload)
     createDialogOpen.value = false
     activeTab.value = 'mine'
     await loadCarpools()
@@ -599,12 +892,62 @@ async function toggleJoinLock(carpool: Carpool): Promise<void> {
   }
 }
 
-function requestJoin(carpool: Carpool, inviteToken = ''): void {
+function openJoin(carpool: Carpool, inviteToken = ''): void {
   if (!canJoin(carpool) || carpool.memberRole) {
     appStore.showWarning(t('carpool.unavailable'))
     return
   }
-  confirmAction.value = { type: 'join', carpool, inviteToken }
+  joinTarget.value = carpool
+  joinInviteToken.value = inviteToken
+  joinForm.declaredQuota = null
+  recommendation.value = null
+  recommendationFailed.value = false
+  recommendationLoading.value = true
+  joinDialogOpen.value = true
+  carpoolAPI.declarationRecommendation()
+    .then((rec) => {
+      recommendation.value = rec
+      if (rec.recommendedWeeklyQuotaUsd > 0) {
+        joinForm.declaredQuota = Math.round(rec.recommendedWeeklyQuotaUsd * 10) / 10
+      }
+    })
+    .catch(() => {
+      recommendationFailed.value = true
+    })
+    .finally(() => {
+      recommendationLoading.value = false
+    })
+}
+
+async function submitJoin(): Promise<void> {
+  if (!joinTarget.value || !joinFormValid.value || actionPending.value) return
+  actionPending.value = true
+  const declared = joinForm.declaredQuota as number
+  try {
+    const result = joinInviteToken.value
+      ? await carpoolAPI.joinByInvite(joinInviteToken.value, declared)
+      : await carpoolAPI.join(joinTarget.value.id, declared)
+    joinDialogOpen.value = false
+    activeTab.value = 'mine'
+    appStore.showSuccess(
+      result.prepaidAmountCny > 0
+        ? t('carpool.joinDialog.success', { amount: result.prepaidAmountCny.toFixed(1) })
+        : t('carpool.joinDialog.successNoPrepaid')
+    )
+    await loadCarpools()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  } finally {
+    actionPending.value = false
+  }
+}
+
+function requestLaunch(carpool: Carpool): void {
+  if (launchReady(carpool)) {
+    confirmAction.value = { type: 'launch', carpool }
+  } else if (forceLaunchReady(carpool)) {
+    confirmAction.value = { type: 'forceLaunch', carpool }
+  }
 }
 
 function requestCancel(carpool: Carpool): void {
@@ -617,14 +960,12 @@ async function runConfirmedAction(): Promise<void> {
   confirmAction.value = null
   actionPending.value = true
   try {
-    if (action.type === 'join') {
-      if (action.inviteToken) await carpoolAPI.joinByInvite(action.inviteToken)
-      else await carpoolAPI.join(action.carpool.id)
-      activeTab.value = 'mine'
-      appStore.showSuccess(t('carpool.joinDialog.success'))
-    } else {
+    if (action.type === 'cancel') {
       await carpoolAPI.cancel(action.carpool.id)
       appStore.showSuccess(t('carpool.cancelDialog.success'))
+    } else {
+      await carpoolAPI.launch(action.carpool.id, action.type === 'forceLaunch')
+      appStore.showSuccess(t('carpool.launchDialog.success'))
     }
     await loadCarpools()
   } catch (error) {
@@ -634,13 +975,27 @@ async function runConfirmedAction(): Promise<void> {
   }
 }
 
+async function openSettlement(carpool: Carpool): Promise<void> {
+  settlementDialogOpen.value = true
+  settlementLoading.value = true
+  settlementData.value = null
+  try {
+    settlementData.value = await carpoolAPI.settlement(carpool.id)
+  } catch (error) {
+    settlementDialogOpen.value = false
+    appStore.showError(extractApiErrorMessage(error, t('carpool.settlement.loadFailed')))
+  } finally {
+    settlementLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await loadCarpools()
   const inviteToken = typeof route.params.token === 'string' ? route.params.token : ''
   if (!inviteToken) return
   try {
     const carpool = await carpoolAPI.resolveInvite(inviteToken)
-    requestJoin(carpool, inviteToken)
+    openJoin(carpool, inviteToken)
   } catch {
     appStore.showWarning(t('carpool.inviteNotFound'))
   } finally {

@@ -3,32 +3,29 @@ export default {
     title: '拼车',
     description: '发现正在招募的拼车，或发起一辆新车',
     create: '发起拼车',
-    level: '{level} 级',
-    types: {
-      small: '小车',
-      large: '大车',
-      smallHint: '每级 1 个号、5 个席位',
-      largeHint: '每级 1 个号、10 个席位'
-    },
     rules: {
-      title: 'GPT 拼车规则',
-      monthlyLock: '开车时定级，本月锁定',
-      accountCost: '每个号：1400',
-      small: {
-        title: '5 人精品小车（适合量大用户）',
-        capacity: '每级 1 个号 · 5 人',
-        upgrade: '1 级为 1 个号、5 人；2 级为 2 个号、10 人，之后每升 1 级增加 1 个号和 5 个席位。',
-        baseFee: '基础费用：130 / 人',
-        usageFee: '剩余费用：750 元 / 号，按成员的相对用量比例分摊'
+      title: 'GPT 拼车规则：额度预约制',
+      weeklyBadge: '锁定额度按周刷新',
+      declare: {
+        label: '申报制',
+        text: '上车前申报一周预期额度（USD），并按申报预付第一笔账；总申报进入整车周限额的 95%–105% 即可发车。'
       },
-      large: {
-        title: '10 人拼好车（适合中等用量用户，人均 2x Plus 用量）',
-        capacity: '每级 1 个号 · 10 人',
-        upgrade: '1 级为 1 个号、10 人；之后每升 1 级增加 1 个号和 10 个席位。',
-        baseFee: '基础费用：65 / 人',
-        usageFee: '剩余费用：750 元 / 号，按成员的相对用量比例分摊'
+      reserve: {
+        label: '80% 保底 + 20% 公共池',
+        text: '申报的 80% 定向锁定给你，任何人抢不走；其余进入机动公共池，全员先到先得。'
       },
-      lockNotice: '开车前需同时确定车型和等级（账号数），确认后当月不再升降级。满员后自动创建同名 OpenAI 订阅分组，并为每位成员开通一个月订阅；倍率 1，不限制用量。'
+      pricing: {
+        label: '¥400 + ¥1000 两部制',
+        text: '每车每月 ¥400 席位费按人头均摊（人越多越便宜），¥1000 用量池按计费用量占比分摊。'
+      },
+      floor: {
+        label: '80% 地板结算',
+        text: '月末按 max（实际用量，80% × 申报）计费，多退少补——报多少保底多少，保底多少至少付多少。'
+      }
+    },
+    notices: {
+      weeklyRefresh: '锁定额度按周计算，每周自动刷新，未用完不结转。',
+      consumeOrder: '用量优先消耗你的锁定额度，用完后才使用公共池；公共池全员共享、先到先得，不保证可用。'
     },
     plaza: '拼车广场',
     mine: '我的拼车',
@@ -36,7 +33,7 @@ export default {
     allStatuses: '全部状态',
     stats: {
       recruiting: '正在招募',
-      seats: '剩余座位',
+      joinableQuota: '可预约额度',
       joined: '我已上车',
       launched: '已经开车'
     },
@@ -47,7 +44,7 @@ export default {
       cancelled: '已取消',
       ended: '已结束',
       locked: '已封车',
-      full: '已满员'
+      full: '额度已满'
     },
     visibility: {
       public: '公开上车',
@@ -58,18 +55,18 @@ export default {
       namePlaceholder: '例如：周末 Codex Pro 拼车',
       description: '备注',
       descriptionPlaceholder: '可选，补充开车时间或使用安排',
-      platform: '平台',
-      plan: '套餐',
-      carType: '车型',
-      level: '等级（账号数）',
-      accounts: '账号数',
-      capacity: '座位数',
-      totalCost: '每月总成本',
       visibility: '加入方式',
       scheduledStart: '预计开车',
       organizer: '发起人',
-      members: '已上车',
-      seatsRemaining: '剩余 {count} 个座位'
+      weeklyLimitBadge: 'GPT · {limit} USD/周',
+      quotaProgress: '额度池预约进度',
+      declaredOf: '已预约 {declared} / {limit} USD',
+      launchLine: '{ratio}% 发车线',
+      remainingJoinable: '剩余可预约',
+      plusEquivalents: 'Plus 等价',
+      avgPrice: '均价',
+      avgPriceUnit: '¥ / Plus等价 / 月',
+      members: '已上车 {count} 人'
     },
     roles: {
       owner: '我发起的',
@@ -80,6 +77,9 @@ export default {
       joined: '已上车',
       invite: '邀请成员',
       details: '查看详情',
+      launch: '发车',
+      forceLaunch: '降档发车',
+      settlement: '结算单',
       lock: '停止上人',
       unlock: '重新开放',
       cancel: '取消拼车',
@@ -89,32 +89,80 @@ export default {
     createDialog: {
       title: '发起新拼车',
       submit: '创建并生成邀请链接',
-      success: '拼车已创建'
+      success: '拼车已创建',
+      ownerQuota: '我的申报额度（可选，USD/周）',
+      ownerQuotaHint: '留空表示仅发起拼车、不占用额度；填写则按 1 人记账预付。',
+      advanced: '高级设置（额度池参数）',
+      advancedHint: '默认值适用于绝大多数场景，一键创建无需修改。',
+      weeklyLimit: '整车周限额（USD）',
+      seatFee: '席位费（CNY/月）',
+      usagePool: '用量池（CNY/月）',
+      reserveRatio: '保底比例（0–1）',
+      launchMinRatio: '发车下限比例',
+      launchMaxRatio: '发车/上车上限比例'
     },
     joinDialog: {
       title: '确认上车',
-      message: '确认加入“{name}”吗？开车后会由管理员绑定对应订阅。',
+      quotaLabel: '申报额度（USD/周）',
+      recommendationLoading: '正在获取申报推荐…',
+      recommendationFailed: '申报推荐获取失败，请按自身用量估计',
+      previewFloor: '保底额度',
+      floorUnit: 'USD/周',
+      previewPrepaid: '预计预付',
+      previewAvgPrice: '该车当前均价',
+      floorNotice: '即使未用满，也至少按申报的 80% 计费。',
+      exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
       confirm: '确认上车',
-      success: '已加入拼车'
+      success: '已加入拼车，预付 ¥{amount}',
+      successNoPrepaid: '已加入拼车'
+    },
+    launchDialog: {
+      confirmTitle: '确认发车',
+      confirmMessage: '确认发车“{name}”？当前总申报 {total} USD（占周限额 {ratio}%）。发车后按 80% 保底 + 公共池配置限额，本月锁定。',
+      forceTitle: '降档发车',
+      forceMessage: '当前总申报 {total} USD（占周限额 {ratio}%），未达 95% 标准线。确认降档发车“{name}”？公共池将变大，每位成员的保底不变。',
+      confirm: '确认发车',
+      notReady: '距 {ratio}% 发车线还差 {amount} USD',
+      forceReady: '已满 80%，可降档发车',
+      success: '已发车'
     },
     cancelDialog: {
       title: '取消拼车',
-      message: '取消“{name}”后，已有邀请链接将失效，当前座位也会被释放。',
+      message: '取消“{name}”后，已有邀请链接将失效，已预约的额度也会被释放。',
       confirm: '确认取消',
       success: '拼车已取消'
     },
     inviteDialog: {
       title: '邀请成员',
       label: '邀请链接',
-      uses: '当前 {used} / {max} 个座位',
+      uses: '当前已上车 {count} 人',
       unavailable: '当前拼车不能继续邀请成员'
     },
     detailDialog: {
       title: '拼车详情',
-      progress: '座位进度',
       runtime: '开车状态',
       linkedGroup: '关联分组',
       pendingGroup: '等待管理员开车时绑定'
+    },
+    settlement: {
+      title: '月度结算单',
+      period: '结算周期',
+      member: '成员',
+      declared: '申报 (USD/周)',
+      actual: '实际用量 (USD)',
+      billable: '计费用量 (USD)',
+      floorBadge: '80% 地板',
+      prepaid: '预付 (¥)',
+      delta: '退/补 (¥)',
+      deltaRefund: '退 ¥{amount}',
+      deltaTopUp: '补 ¥{amount}',
+      deltaEven: '¥0',
+      deltaNote: '正数为退款，负数为补款',
+      selfOnly: '仅展示你自己的结算行',
+      fullView: '全车 {count} 名成员',
+      usageDelta: '用量退/补',
+      seatFeeDelta: '席位费退/补',
+      loadFailed: '加载结算单失败'
     },
     admin: {
       locked: '已停止新成员上车',

@@ -4,6 +4,7 @@ export type CarpoolStatus = 'recruiting' | 'starting' | 'active' | 'cancelled' |
 export type CarpoolVisibility = 'public' | 'invite_only'
 export type CarpoolRole = 'owner' | 'member'
 export type CarpoolType = 'small' | 'large'
+export type CarpoolRecommendationBasis = 'usage_history' | 'anchor'
 
 interface CarpoolResponse {
   id: number
@@ -28,6 +29,18 @@ interface CarpoolResponse {
   group_name?: string
   member_role: CarpoolRole | null
   created_at: string
+  // 额度预约制参数（设计文档 §3）
+  weekly_limit_usd: number
+  seat_fee_cny: number
+  usage_pool_cny: number
+  reserve_ratio: number
+  launch_min_ratio: number
+  launch_max_ratio: number
+  // 车外展示指标（设计文档 §4.6）
+  declared_total_usd: number
+  remaining_joinable_usd: number
+  plus_equivalents: number
+  avg_price_cny: number
 }
 
 export interface Carpool {
@@ -53,20 +66,126 @@ export interface Carpool {
   groupName: string | null
   memberRole: CarpoolRole | null
   createdAt: string
+  weeklyLimitUsd: number
+  seatFeeCny: number
+  usagePoolCny: number
+  reserveRatio: number
+  launchMinRatio: number
+  launchMaxRatio: number
+  declaredTotalUsd: number
+  remainingJoinableUsd: number
+  plusEquivalents: number
+  avgPriceCny: number
 }
 
 export interface CreateCarpoolRequest {
   name: string
   description: string
-  car_type: CarpoolType
-  level: number
   visibility: CarpoolVisibility
   scheduled_start_at: string
+  // 以下为可选额度池/价格参数，缺省时后端使用默认值（2400/400/1000/0.8/0.95/1.05）
+  weekly_limit_usd?: number
+  seat_fee_cny?: number
+  usage_pool_cny?: number
+  reserve_ratio?: number
+  launch_min_ratio?: number
+  launch_max_ratio?: number
+  // owner 本人的申报（可选，0 = 仅发起不占额度）
+  declared_weekly_quota_usd?: number
+}
+
+export interface JoinCarpoolResult {
+  carpool: Carpool
+  prepaidAmountCny: number
+}
+
+export interface DeclarationRecommendation {
+  recommendedWeeklyQuotaUsd: number
+  rawWeeklyUsageUsd: number
+  bufferRatio: number
+  daysWithRecords: number
+  basis: CarpoolRecommendationBasis
+  message: string
+}
+
+export interface SettlementMember {
+  userId: number
+  role: CarpoolRole
+  declaredWeeklyQuotaUsd: number
+  floorUsageUsd: number
+  actualUsageUsd: number
+  billableUsageUsd: number
+  floorTriggered: boolean
+  prepaidAmountCny: number
+  usagePrepaidCny: number
+  usageFinalShareCny: number
+  usageDeltaCny: number
+  seatFeePrepaidCny: number
+  seatFeeFinalCny: number
+  seatFeeDeltaCny: number
+  totalDeltaCny: number
+}
+
+export interface CarpoolSettlement {
+  carpoolId: number
+  status: CarpoolStatus
+  weeklyLimitUsd: number
+  seatFeeCny: number
+  usagePoolCny: number
+  reserveRatio: number
+  memberCount: number
+  fullView: boolean
+  periodStart?: string
+  periodEnd?: string
+  members: SettlementMember[]
 }
 
 interface CarpoolMutationResponse {
   carpool: CarpoolResponse
   invite_token?: string
+  declared_weekly_quota_usd?: number
+  prepaid_amount_cny?: number
+}
+
+interface DeclarationRecommendationResponse {
+  recommended_weekly_quota_usd: number
+  raw_weekly_usage_usd: number
+  buffer_ratio: number
+  days_with_records: number
+  basis: CarpoolRecommendationBasis
+  message: string
+}
+
+interface SettlementMemberResponse {
+  user_id: number
+  role: CarpoolRole
+  declared_weekly_quota_usd: number
+  floor_usage_usd: number
+  actual_usage_usd: number
+  billable_usage_usd: number
+  floor_triggered: boolean
+  prepaid_amount_cny: number
+  usage_prepaid_cny: number
+  usage_final_share_cny: number
+  usage_delta_cny: number
+  seat_fee_prepaid_cny: number
+  seat_fee_final_cny: number
+  seat_fee_delta_cny: number
+  total_delta_cny: number
+}
+
+interface CarpoolSettlementResponse {
+  carpool_id: number
+  status: CarpoolStatus
+  weekly_limit_usd: number
+  seat_fee_cny: number
+  usage_pool_cny: number
+  reserve_ratio: number
+  member_count: number
+  full_view: boolean
+  period_start?: string
+  period_end?: string
+  members: SettlementMemberResponse[]
 }
 
 function mapCarpool(item: CarpoolResponse): Carpool {
@@ -93,6 +212,48 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     groupName: item.group_name || null,
     memberRole: item.member_role,
     createdAt: item.created_at,
+    weeklyLimitUsd: item.weekly_limit_usd,
+    seatFeeCny: item.seat_fee_cny,
+    usagePoolCny: item.usage_pool_cny,
+    reserveRatio: item.reserve_ratio,
+    launchMinRatio: item.launch_min_ratio,
+    launchMaxRatio: item.launch_max_ratio,
+    declaredTotalUsd: item.declared_total_usd,
+    remainingJoinableUsd: item.remaining_joinable_usd,
+    plusEquivalents: item.plus_equivalents,
+    avgPriceCny: item.avg_price_cny,
+  }
+}
+
+function mapSettlement(data: CarpoolSettlementResponse): CarpoolSettlement {
+  return {
+    carpoolId: data.carpool_id,
+    status: data.status,
+    weeklyLimitUsd: data.weekly_limit_usd,
+    seatFeeCny: data.seat_fee_cny,
+    usagePoolCny: data.usage_pool_cny,
+    reserveRatio: data.reserve_ratio,
+    memberCount: data.member_count,
+    fullView: data.full_view,
+    periodStart: data.period_start,
+    periodEnd: data.period_end,
+    members: (data.members || []).map((member) => ({
+      userId: member.user_id,
+      role: member.role,
+      declaredWeeklyQuotaUsd: member.declared_weekly_quota_usd,
+      floorUsageUsd: member.floor_usage_usd,
+      actualUsageUsd: member.actual_usage_usd,
+      billableUsageUsd: member.billable_usage_usd,
+      floorTriggered: member.floor_triggered,
+      prepaidAmountCny: member.prepaid_amount_cny,
+      usagePrepaidCny: member.usage_prepaid_cny,
+      usageFinalShareCny: member.usage_final_share_cny,
+      usageDeltaCny: member.usage_delta_cny,
+      seatFeePrepaidCny: member.seat_fee_prepaid_cny,
+      seatFeeFinalCny: member.seat_fee_final_cny,
+      seatFeeDeltaCny: member.seat_fee_delta_cny,
+      totalDeltaCny: member.total_delta_cny,
+    })),
   }
 }
 
@@ -116,14 +277,41 @@ export async function createInvite(id: number): Promise<string> {
   return data.token
 }
 
-export async function join(id: number): Promise<Carpool> {
-  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/join`)
+export async function join(id: number, declaredWeeklyQuotaUsd: number): Promise<JoinCarpoolResult> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/join`, {
+    declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
+  })
+  return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
+}
+
+export async function joinByInvite(token: string, declaredWeeklyQuotaUsd: number): Promise<JoinCarpoolResult> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>('/carpools/join-by-invite', {
+    token,
+    declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
+  })
+  return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
+}
+
+export async function launch(id: number, force = false): Promise<Carpool> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/launch`, { force })
   return mapCarpool(data.carpool)
 }
 
-export async function joinByInvite(token: string): Promise<Carpool> {
-  const { data } = await apiClient.post<CarpoolMutationResponse>('/carpools/join-by-invite', { token })
-  return mapCarpool(data.carpool)
+export async function declarationRecommendation(): Promise<DeclarationRecommendation> {
+  const { data } = await apiClient.get<DeclarationRecommendationResponse>('/carpools/declaration-recommendation')
+  return {
+    recommendedWeeklyQuotaUsd: data.recommended_weekly_quota_usd,
+    rawWeeklyUsageUsd: data.raw_weekly_usage_usd,
+    bufferRatio: data.buffer_ratio,
+    daysWithRecords: data.days_with_records,
+    basis: data.basis,
+    message: data.message,
+  }
+}
+
+export async function settlement(id: number): Promise<CarpoolSettlement> {
+  const { data } = await apiClient.get<CarpoolSettlementResponse>(`/carpools/${id}/settlement`)
+  return mapSettlement(data)
 }
 
 export async function cancel(id: number): Promise<void> {
@@ -134,4 +322,16 @@ export async function setJoinLocked(id: number, locked: boolean): Promise<void> 
   await apiClient.patch(`/carpools/${id}/join-lock`, { locked })
 }
 
-export default { list, create, resolveInvite, createInvite, join, joinByInvite, cancel, setJoinLocked }
+export default {
+  list,
+  create,
+  resolveInvite,
+  createInvite,
+  join,
+  joinByInvite,
+  launch,
+  declarationRecommendation,
+  settlement,
+  cancel,
+  setJoinLocked,
+}
