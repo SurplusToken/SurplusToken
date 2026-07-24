@@ -1360,7 +1360,7 @@ func (s *AccountService) validateUserAccountProxy(ctx context.Context, proxyID *
 
 func isUserOAuthPlatformAllowed(platform string) bool {
 	switch platform {
-	case PlatformOpenAI, PlatformKimi:
+	case PlatformOpenAI, PlatformAntigravity, PlatformKimi:
 		return true
 	default:
 		return false
@@ -1369,7 +1369,7 @@ func isUserOAuthPlatformAllowed(platform string) bool {
 
 func isUserAccountPoolPlatformVisible(platform string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformKimi:
+	case PlatformAnthropic, PlatformOpenAI, PlatformAntigravity, PlatformKimi:
 		return true
 	default:
 		return false

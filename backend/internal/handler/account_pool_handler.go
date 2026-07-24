@@ -668,6 +668,13 @@ func (h *AccountPoolHandler) GenerateOAuthAuthURL(c *gin.Context) {
 			return
 		}
 		response.Success(c, result)
+	case service.PlatformAntigravity:
+		result, err := h.antigravityOAuthService.GenerateAuthURL(c.Request.Context(), payload.ProxyID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		response.Success(c, result)
 	default:
 		response.BadRequest(c, "unsupported OAuth account platform")
 	}
@@ -699,6 +706,22 @@ func (h *AccountPoolHandler) ExchangeOAuthCode(c *gin.Context) {
 		})
 		if err != nil {
 			response.ErrorFrom(c, err)
+			return
+		}
+		response.Success(c, tokenInfo)
+	case service.PlatformAntigravity:
+		if strings.TrimSpace(payload.State) == "" {
+			response.BadRequest(c, "state is required")
+			return
+		}
+		tokenInfo, err := h.antigravityOAuthService.ExchangeCode(c.Request.Context(), &service.AntigravityExchangeCodeInput{
+			SessionID: payload.SessionID,
+			State:     payload.State,
+			Code:      payload.Code,
+			ProxyID:   payload.ProxyID,
+		})
+		if err != nil {
+			response.BadRequest(c, "Token exchange failed: "+err.Error())
 			return
 		}
 		response.Success(c, tokenInfo)

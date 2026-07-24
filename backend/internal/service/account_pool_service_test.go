@@ -239,7 +239,24 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOAuthType(t *testing.T) {
 	require.Nil(t, repo.created)
 }
 
-func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing.T) {
+func TestAccountServiceCreateUserOAuthAccountAllowsAntigravity(t *testing.T) {
+	repo := &accountPoolRepoStub{}
+	svc := &AccountService{accountRepo: repo}
+
+	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
+		Name:        "antigravity",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "secret"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	require.Equal(t, PlatformAntigravity, repo.created.Platform)
+	require.Equal(t, int64(42), *repo.created.OwnerUserID)
+}
+
+func TestAccountServiceCreateUserOAuthAccountRejectsUnsupportedPlatform(t *testing.T) {
 	repo := &accountPoolRepoStub{}
 	svc := &AccountService{accountRepo: repo}
 
@@ -685,10 +702,11 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 	items, _, err := svc.ListUserAccountPool(context.Background(), ownerID, pagination.PaginationParams{Page: 1, PageSize: 20}, UserAccountPoolListFilters{})
 
 	require.NoError(t, err)
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
 	require.True(t, items[0].IsMine)
 	require.False(t, items[1].IsMine)
-	require.Equal(t, PlatformAnthropic, items[1].Platform)
+	require.Equal(t, PlatformAntigravity, items[1].Platform)
+	require.Equal(t, PlatformAnthropic, items[2].Platform)
 	require.Equal(t, "plus", items[0].PlanType)
 	require.Equal(t, "training_off", items[0].PrivacyMode)
 	require.Equal(t, "2026-06-01T00:00:00Z", items[0].SubscriptionExpiresAt)
@@ -699,7 +717,7 @@ func TestAccountServiceListUserAccountPoolSafeDTO(t *testing.T) {
 	require.NotContains(t, string(payload), "private")
 }
 
-func TestAccountServiceListUserAccountPoolRejectsHiddenPlatformFilter(t *testing.T) {
+func TestAccountServiceListUserAccountPoolRejectsUnsupportedPlatformFilter(t *testing.T) {
 	repo := &accountPoolRepoStub{accounts: []Account{
 		{ID: 1, Name: "openai", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive},
 	}}

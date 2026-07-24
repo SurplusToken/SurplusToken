@@ -1146,7 +1146,12 @@ func (r *accountRepository) ListUserAccountPoolWithFilters(ctx context.Context, 
 					dbaccount.OwnerUserIDNotNil(),
 				),
 			),
-			dbaccount.PlatformIn(service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformKimi),
+			dbaccount.PlatformIn(
+				service.PlatformAnthropic,
+				service.PlatformOpenAI,
+				service.PlatformAntigravity,
+				service.PlatformKimi,
+			),
 		)
 
 	if platform != "" {

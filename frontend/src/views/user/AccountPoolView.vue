@@ -744,7 +744,7 @@
 
         <div>
           <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-          <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+          <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
             <button
               type="button"
               @click="selectCreatePlatform('openai')"
@@ -752,6 +752,14 @@
             >
               <Icon name="key" size="sm" />
               OpenAI
+            </button>
+            <button
+              type="button"
+              @click="selectCreatePlatform('antigravity')"
+              :class="platformButtonClass('antigravity', 'purple')"
+            >
+              <Icon name="cloud" size="sm" />
+              Antigravity
             </button>
             <button
               type="button"
@@ -1831,7 +1839,7 @@ const sharingRateCooldownMinutes = computed(() => {
 const sharingRateClock = ref(Date.now())
 let sharingRateClockTimer: number | null = null
 
-const platforms: AccountPlatform[] = ['anthropic', 'openai', 'kimi']
+const platforms: AccountPlatform[] = ['anthropic', 'openai', 'antigravity', 'kimi']
 const accounts = ref<UserAccountPoolItem[]>([])
 const dynamicPools = ref<UserDynamicPoolSummary[]>([])
 const dynamicPoolsLoading = ref(false)
@@ -2767,7 +2775,7 @@ function platformButtonClass(platform: 'openai' | 'kimi' | 'gemini' | 'antigravi
     purple: 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400',
   }[color]
   return [
-    'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+    'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
     active ? activeClass : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
   ]
 }

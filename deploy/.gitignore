@@ -6,6 +6,7 @@
 data/
 postgres_data/
 redis_data/
+chat_postgres_data/
 
 # Environment configuration (contains sensitive information)
 .env
