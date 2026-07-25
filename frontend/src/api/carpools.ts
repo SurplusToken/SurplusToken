@@ -344,6 +344,11 @@ export async function declarationRecommendation(): Promise<DeclarationRecommenda
   }
 }
 
+// 自定义规则咨询入口：通知全部 admin（邮件），不创建车辆；后端在邮件不可用时优雅降级。
+export async function notifyCustomRuleInterest(note?: string): Promise<void> {
+  await apiClient.post('/carpools/custom-rule-interest', note ? { note } : {})
+}
+
 export async function settlement(id: number): Promise<CarpoolSettlement> {
   const { data } = await apiClient.get<CarpoolSettlementResponse>(`/carpools/${id}/settlement`)
   return mapSettlement(data)
@@ -369,6 +374,7 @@ export default {
   groupQrCode,
   launch,
   declarationRecommendation,
+  notifyCustomRuleInterest,
   settlement,
   cancel,
   setJoinLocked,

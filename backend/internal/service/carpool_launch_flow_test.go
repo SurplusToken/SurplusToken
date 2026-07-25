@@ -75,11 +75,13 @@ type recordingSender struct {
 	fail    bool
 	subject []string
 	to      []string
+	body    []string
 }
 
 func (s *recordingSender) SendEmail(ctx context.Context, to, subject, body string) error {
 	s.to = append(s.to, to)
 	s.subject = append(s.subject, subject)
+	s.body = append(s.body, body)
 	if s.fail {
 		return errors.New("smtp not configured")
 	}

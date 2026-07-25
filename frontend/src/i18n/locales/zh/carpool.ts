@@ -25,7 +25,8 @@ export default {
     },
     notices: {
       weeklyRefresh: '锁定额度按周计算，每周自动刷新，未用完不结转。',
-      consumeOrder: '用量优先消耗你的锁定额度，用完后才使用公共池；公共池全员共享、先到先得，不保证可用。'
+      consumeOrder: '用量优先消耗你的锁定额度，用完后才使用公共池；公共池全员共享、先到先得，不保证可用。',
+      customRule: '支持自定义规则：如需不同的额度池、价格或保底比例，可联系管理员协商。'
     },
     plaza: '拼车广场',
     mine: '我的拼车',
@@ -98,6 +99,15 @@ export default {
       title: '发起新拼车',
       submit: '创建并生成邀请链接',
       success: '拼车已创建',
+      ruleMode: '拼车规则',
+      ruleModeDefault: '默认规则',
+      ruleModeCustom: '自定义规则',
+      customRule: {
+        title: '自定义规则需联系管理员协商（额度池 / 价格 / 保底比例等）',
+        description: '此模式下无需填写下方表单。点击“通知管理员”告知你的需求，管理员会通过邮件或微信与你联系；协商确认后由管理员为你创建并调整车辆。',
+        notify: '通知管理员',
+        notifySuccess: '已通知管理员，请添加微信 {wechat} 继续协商'
+      },
       ownerQuota: '我的申报额度（可选，USD/周）',
       ownerQuotaHint: '留空表示仅发起拼车、不占用额度；填写则按 1 人记账预付。',
       contactTitle: '联系方式与群二维码（必填）',

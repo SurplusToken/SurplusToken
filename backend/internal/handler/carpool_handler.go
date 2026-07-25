@@ -62,6 +62,28 @@ type carpoolJoinLockRequest struct {
 	Locked *bool `json:"locked" binding:"required"`
 }
 
+type carpoolCustomRuleInterestRequest struct {
+	// Note 是可选的用户备注，随通知邮件一并发给 admin。
+	Note string `json:"note"`
+}
+
+// CustomRuleInterest 自定义规则咨询入口：登录用户点击后给全部 admin 发提示邮件；
+// SMTP 未配置或发送失败优雅降级，接口照常返回成功。
+func (h *CarpoolHandler) CustomRuleInterest(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	var req carpoolCustomRuleInterestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 允许空 body（note 可选）。
+		req = carpoolCustomRuleInterestRequest{}
+	}
+	h.service.NotifyCustomRuleInterest(c.Request.Context(), subject.UserID, req.Note)
+	response.Success(c, gin.H{"message": "ok"})
+}
+
 func (h *CarpoolHandler) List(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {

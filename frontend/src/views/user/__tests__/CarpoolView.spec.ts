@@ -6,6 +6,7 @@ import CarpoolView from '../CarpoolView.vue'
 
 const {
   replace,
+  showSuccess,
   showWarning,
   listCarpools,
   createCarpoolMock,
@@ -16,9 +17,11 @@ const {
   confirmMock,
   groupQrCodeMock,
   recommendationMock,
+  notifyCustomRuleInterestMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
+  showSuccess: vi.fn(),
   showWarning: vi.fn(),
   listCarpools: vi.fn(),
   createCarpoolMock: vi.fn(),
@@ -29,6 +32,7 @@ const {
   confirmMock: vi.fn(),
   groupQrCodeMock: vi.fn(),
   recommendationMock: vi.fn(),
+  notifyCustomRuleInterestMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -45,6 +49,7 @@ vi.mock('@/api/carpools', () => ({
     groupQrCode: groupQrCodeMock,
     launch: launchMock,
     declarationRecommendation: recommendationMock,
+    notifyCustomRuleInterest: notifyCustomRuleInterestMock,
     settlement: vi.fn(),
     cancel: vi.fn(),
     setJoinLocked: vi.fn(),
@@ -69,7 +74,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showSuccess: vi.fn(),
+    showSuccess,
     showError: vi.fn(),
     showWarning,
   }),
@@ -157,6 +162,7 @@ describe('CarpoolView', () => {
   beforeEach(() => {
     localStorage.clear()
     replace.mockReset()
+    showSuccess.mockReset()
     showWarning.mockReset()
     listCarpools.mockReset()
     listCarpools.mockResolvedValue([])
@@ -177,6 +183,8 @@ describe('CarpoolView', () => {
       basis: 'usage_history',
       message: '',
     })
+    notifyCustomRuleInterestMock.mockReset()
+    notifyCustomRuleInterestMock.mockResolvedValue(undefined)
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -193,6 +201,7 @@ describe('CarpoolView', () => {
     expect(rules.text()).toContain('carpool.rules.floor.text')
     expect(rules.text()).toContain('carpool.notices.weeklyRefresh')
     expect(rules.text()).toContain('carpool.notices.consumeOrder')
+    expect(rules.text()).toContain('carpool.notices.customRule')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect(listCarpools).toHaveBeenCalledOnce()
   })
@@ -380,6 +389,53 @@ describe('CarpoolView', () => {
     // 高级设置已移除：池参数不再由前端提交
     expect(payload.weekly_limit_usd).toBeUndefined()
     expect(payload.seat_fee_cny).toBeUndefined()
+  })
+
+  it('custom rule mode disables the form, notifies the admin, and never creates', async () => {
+    let resolveNotify: () => void = () => {}
+    notifyCustomRuleInterestMock.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveNotify = resolve })
+    )
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'carpool.create').trigger('click')
+    // 默认规则：表单可用、提交按钮存在
+    expect(wrapper.get('[data-testid="rule-mode-default"]').attributes('class')).toContain('border-primary-500')
+    expect(wrapper.get('#carpool-name').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('button[form="carpool-create-form"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="rule-mode-custom"]').trigger('click')
+
+    // 自定义模式：表单其余项全部禁用，且不展示创建提交按钮
+    expect(wrapper.get('#carpool-name').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#carpool-description').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#carpool-start').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#carpool-owner-quota').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#carpool-added-admin').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#carpool-group-qr').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button[form="carpool-create-form"]').exists()).toBe(false)
+
+    // 指引区块 + 通知管理员按钮
+    expect(wrapper.get('[data-testid="custom-rule-panel"]').text()).toContain('carpool.createDialog.customRule.title')
+    const notifyButton = wrapper.get('[data-testid="custom-rule-notify"]')
+    await notifyButton.trigger('click')
+    // loading 期间按钮禁用
+    expect(wrapper.get('[data-testid="custom-rule-notify"]').attributes('disabled')).toBeDefined()
+    resolveNotify()
+    await flushPromises()
+
+    expect(notifyCustomRuleInterestMock).toHaveBeenCalledOnce()
+    expect(showSuccess).toHaveBeenCalledWith('carpool.createDialog.customRule.notifySuccess')
+    // 成功后展示管理员微信号与复制入口
+    const panel = wrapper.get('[data-testid="custom-rule-panel"]')
+    expect(panel.text()).toContain('Charlemartingale')
+    expect(panel.text()).toContain('common.copy')
+
+    // 此模式下即使触发表单 submit 也不调用创建接口
+    await wrapper.get('#carpool-create-form').trigger('submit')
+    await flushPromises()
+    expect(createCarpoolMock).not.toHaveBeenCalled()
   })
 
   it('rejects an oversized group qr code in the create dialog', async () => {

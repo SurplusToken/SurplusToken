@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -557,6 +558,41 @@ func (s *CarpoolService) GetSettlement(ctx context.Context, carpoolID, actorUser
 	return settlement, nil
 }
 
+// NotifyCustomRuleInterest 自定义规则咨询入口：给全部 admin 发提示邮件（正文含发起人
+// 用户 ID 与邮箱）。SMTP 未配置或发送失败仅记日志优雅降级（日志含发起人信息，便于管理员
+// 跟进），接口照常成功；无 admin 或邮件链路未注入时不报错。
+func (s *CarpoolService) NotifyCustomRuleInterest(ctx context.Context, userID int64, note string) {
+	initiatorEmail := s.userEmail(ctx, userID)
+	logAttrs := []any{"user_id", userID, "user_email", initiatorEmail}
+	if s.userDirectory == nil || s.emailSender == nil {
+		slog.Warn("carpool custom rule interest: email pipeline unavailable", logAttrs...)
+		return
+	}
+	includeSubscriptions := false
+	admins, _, err := s.userDirectory.ListWithFilters(ctx,
+		pagination.PaginationParams{Page: 1, PageSize: 100},
+		UserListFilters{Role: RoleAdmin, Status: StatusActive, IncludeSubscriptions: &includeSubscriptions})
+	if err != nil {
+		slog.Warn("carpool custom rule interest: list admins failed", append(logAttrs, "error", err)...)
+		return
+	}
+	displayEmail := initiatorEmail
+	if displayEmail == "" {
+		displayEmail = "未知"
+	}
+	subject := "有用户咨询自定义拼车规则"
+	body := fmt.Sprintf(
+		`<p>用户 #%d（邮箱 %s）希望协商自定义拼车规则（额度池 / 价格 / 保底比例等）。</p>`+
+			`<p>请通过邮件或微信联系该用户确认需求，协商一致后为其人工调整车辆参数。</p>`,
+		userID, html.EscapeString(displayEmail))
+	if note = strings.TrimSpace(note); note != "" {
+		body += fmt.Sprintf(`<p>用户备注：%s</p>`, html.EscapeString(note))
+	}
+	for _, admin := range admins {
+		s.sendCarpoolNotification(ctx, admin.Email, subject, body, logAttrs...)
+	}
+}
+
 func (s *CarpoolService) invalidateLaunchedSubscriptions(result *CarpoolMutationResult) {
 	if result == nil || result.ActivatedGroupID <= 0 || s.subscriptionService == nil {
 		return
@@ -567,13 +603,14 @@ func (s *CarpoolService) invalidateLaunchedSubscriptions(result *CarpoolMutation
 }
 
 // sendCarpoolNotification 发送拼车通知邮件。SMTP 未配置或发送失败时仅记日志，
-// 绝不影响主流程（优雅降级）。
-func (s *CarpoolService) sendCarpoolNotification(ctx context.Context, to, subject, body string) {
+// 绝不影响主流程（优雅降级）。attrs 为失败日志追加的上下文字段（如发起人信息）。
+func (s *CarpoolService) sendCarpoolNotification(ctx context.Context, to, subject, body string, attrs ...any) {
 	if s.emailSender == nil || strings.TrimSpace(to) == "" {
 		return
 	}
 	if err := s.emailSender.SendEmail(ctx, to, subject, body); err != nil {
-		slog.Warn("carpool notification email failed", "subject", subject, "error", err)
+		args := append([]any{"subject", subject, "error", err}, attrs...)
+		slog.Warn("carpool notification email failed", args...)
 	}
 }
 

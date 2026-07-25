@@ -25,7 +25,8 @@ export default {
     },
     notices: {
       weeklyRefresh: 'Locked quota is weekly: it refreshes automatically every week and unused quota does not roll over.',
-      consumeOrder: 'Usage drains your locked quota first, then the shared pool. The shared pool is first come first served and not guaranteed.'
+      consumeOrder: 'Usage drains your locked quota first, then the shared pool. The shared pool is first come first served and not guaranteed.',
+      customRule: 'Custom rules supported: if you need a different quota pool, pricing, or reserve ratio, contact the admin to negotiate.'
     },
     plaza: 'Carpool plaza',
     mine: 'My carpools',
@@ -98,6 +99,15 @@ export default {
       title: 'Start a new carpool',
       submit: 'Create and generate invite',
       success: 'Carpool created',
+      ruleMode: 'Carpool rules',
+      ruleModeDefault: 'Default rules',
+      ruleModeCustom: 'Custom rules',
+      customRule: {
+        title: 'Custom rules must be negotiated with the admin (quota pool, pricing, reserve ratio, etc.)',
+        description: 'No need to fill in the form below. Click "Notify admin" to send your request; the admin will reach out by email or WeChat, then create and tune the car for you once agreed.',
+        notify: 'Notify admin',
+        notifySuccess: 'Admin notified. Please add WeChat {wechat} to continue the negotiation.'
+      },
       ownerQuota: 'My declared quota (optional, USD/week)',
       ownerQuotaHint: 'Leave empty to organize without reserving quota; a value prepays as one member.',
       contactTitle: 'Contact & group QR code (required)',

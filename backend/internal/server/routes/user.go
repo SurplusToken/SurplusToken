@@ -241,6 +241,7 @@ func RegisterUserRoutes(
 			carpools.GET("/declaration-recommendation", h.Carpool.DeclarationRecommendation)
 			carpools.GET("/invites/:token", h.Carpool.ResolveInvite)
 			carpools.POST("/join-by-invite", h.Carpool.JoinByInvite)
+			carpools.POST("/custom-rule-interest", h.Carpool.CustomRuleInterest)
 			carpools.POST("/:id/invites", h.Carpool.CreateInvite)
 			carpools.POST("/:id/join", h.Carpool.Join)
 			carpools.POST("/:id/leave", h.Carpool.Leave)

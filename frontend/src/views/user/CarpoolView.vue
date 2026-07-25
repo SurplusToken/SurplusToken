@@ -42,6 +42,7 @@
         <div class="space-y-1 border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
           <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
           <p>{{ t('carpool.notices.consumeOrder') }}</p>
+          <p>{{ t('carpool.notices.customRule') }}</p>
         </div>
       </section>
 
@@ -305,22 +306,73 @@
 
     <BaseDialog :show="createDialogOpen" :title="t('carpool.createDialog.title')" width="normal" @close="createDialogOpen = false">
       <form id="carpool-create-form" class="space-y-4" @submit.prevent="createCarpool">
+        <fieldset>
+          <legend class="input-label">{{ t('carpool.createDialog.ruleMode') }}</legend>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              v-for="mode in ruleModeOptions"
+              :key="mode.value"
+              type="button"
+              :data-testid="`rule-mode-${mode.value}`"
+              class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
+              :class="createRuleMode === mode.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
+              @click="createRuleMode = mode.value"
+            >
+              <Icon :name="mode.value === 'default' ? 'checkCircle' : 'users'" size="sm" />
+              {{ mode.label }}
+            </button>
+          </div>
+        </fieldset>
+
+        <div
+          v-if="createRuleMode === 'custom'"
+          data-testid="custom-rule-panel"
+          class="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/70 dark:bg-amber-950/20"
+        >
+          <div class="text-xs font-medium text-amber-800 dark:text-amber-300">{{ t('carpool.createDialog.customRule.title') }}</div>
+          <p class="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">{{ t('carpool.createDialog.customRule.description') }}</p>
+          <div class="mt-3">
+            <button
+              type="button"
+              data-testid="custom-rule-notify"
+              class="btn btn-primary h-9 px-3 py-2"
+              :disabled="customRuleNotifyPending"
+              @click="notifyCustomRule"
+            >
+              <Icon name="bell" size="sm" />
+              <span>{{ t('carpool.createDialog.customRule.notify') }}</span>
+            </button>
+          </div>
+          <div
+            v-if="customRuleNotified"
+            class="mt-3 flex items-center justify-between gap-2 rounded-md bg-white/70 px-2.5 py-2 dark:bg-dark-700/40"
+          >
+            <span class="text-sm text-gray-700 dark:text-dark-100">
+              {{ t('carpool.wechat.adminLabel') }}: <span class="font-mono font-medium">{{ ADMIN_WECHAT }}</span>
+            </span>
+            <button type="button" class="btn btn-secondary h-7 px-2 py-1 text-xs" @click="copyAdminWechat(ADMIN_WECHAT)">
+              <Icon name="copy" size="xs" />
+              <span>{{ t('common.copy') }}</span>
+            </button>
+          </div>
+        </div>
+
         <div>
           <label class="input-label" for="carpool-name">{{ t('carpool.fields.name') }}</label>
-          <input id="carpool-name" v-model.trim="createForm.name" class="input" maxlength="100" required :placeholder="t('carpool.fields.namePlaceholder')" />
+          <input id="carpool-name" v-model.trim="createForm.name" class="input" maxlength="100" required :placeholder="t('carpool.fields.namePlaceholder')" :disabled="createFieldsDisabled" />
         </div>
         <div>
           <label class="input-label" for="carpool-description">{{ t('carpool.fields.description') }}</label>
-          <textarea id="carpool-description" v-model.trim="createForm.description" class="input min-h-20 resize-y" maxlength="300" :placeholder="t('carpool.fields.descriptionPlaceholder')" />
+          <textarea id="carpool-description" v-model.trim="createForm.description" class="input min-h-20 resize-y" maxlength="300" :placeholder="t('carpool.fields.descriptionPlaceholder')" :disabled="createFieldsDisabled" />
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="input-label" for="carpool-start">{{ t('carpool.fields.scheduledStart') }}</label>
-            <input id="carpool-start" v-model="createForm.scheduledStartAt" type="date" class="input" required />
+            <input id="carpool-start" v-model="createForm.scheduledStartAt" type="date" class="input" required :disabled="createFieldsDisabled" />
           </div>
           <div>
             <label class="input-label" for="carpool-owner-quota">{{ t('carpool.createDialog.ownerQuota') }}</label>
-            <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" step="1" class="input" />
+            <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" step="1" class="input" :disabled="createFieldsDisabled" />
             <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.ownerQuotaHint') }}</p>
           </div>
         </div>
@@ -333,6 +385,7 @@
               type="button"
               class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
               :class="createForm.visibility === visibility.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
+              :disabled="createFieldsDisabled"
               @click="createForm.visibility = visibility.value"
             >
               <Icon :name="visibility.value === 'public' ? 'globe' : 'lock'" size="sm" />
@@ -358,6 +411,7 @@
               v-model="createForm.addedAdminWechat"
               type="checkbox"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              :disabled="createFieldsDisabled"
             />
             <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
           </label>
@@ -370,6 +424,7 @@
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:text-dark-300 dark:file:bg-primary-900/20 dark:file:text-primary-300"
+                  :disabled="createFieldsDisabled"
                   @change="handleQrFileChange"
                 />
                 <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.qrHint') }}</p>
@@ -388,7 +443,7 @@
       <template #footer>
         <div class="flex justify-end gap-3">
           <button type="button" class="btn btn-secondary" @click="createDialogOpen = false">{{ t('common.cancel') }}</button>
-          <button type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid || actionPending">
+          <button v-if="createRuleMode === 'default'" type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid || actionPending">
             <Icon name="plus" size="sm" />
             {{ t('carpool.createDialog.submit') }}
           </button>
@@ -684,6 +739,9 @@ interface CreateForm {
   groupQrCode: string
 }
 
+// 创建对话框的规则模式：default 走现有创建流程；custom 仅通知管理员协商，不调用创建接口。
+type CreateRuleMode = 'default' | 'custom'
+
 interface ConfirmAction {
   type: 'cancel' | 'launch' | 'forceLaunch' | 'confirm' | 'leave'
   carpool: Carpool
@@ -702,6 +760,9 @@ const loading = ref(true)
 const actionPending = ref(false)
 const createDialogOpen = ref(false)
 const createQrError = ref('')
+const createRuleMode = ref<CreateRuleMode>('default')
+const customRuleNotifyPending = ref(false)
+const customRuleNotified = ref(false)
 const joinDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
@@ -745,6 +806,12 @@ const visibilityOptions = computed(() => [
   { value: 'public' as const, label: t('carpool.visibility.public') },
   { value: 'invite_only' as const, label: t('carpool.visibility.inviteOnly') }
 ])
+const ruleModeOptions = computed(() => [
+  { value: 'default' as const, label: t('carpool.createDialog.ruleModeDefault') },
+  { value: 'custom' as const, label: t('carpool.createDialog.ruleModeCustom') }
+])
+// 自定义规则模式下表单其余项全部禁用。
+const createFieldsDisabled = computed(() => createRuleMode.value === 'custom')
 const ruleItems = computed(() => [
   { label: t('carpool.rules.declare.label'), text: t('carpool.rules.declare.text') },
   { label: t('carpool.rules.reserve.label'), text: t('carpool.rules.reserve.text') },
@@ -976,6 +1043,9 @@ function deltaLabel(delta: number): string {
 function openCreateDialog(): void {
   Object.assign(createForm, newCreateForm())
   createQrError.value = ''
+  createRuleMode.value = 'default'
+  customRuleNotifyPending.value = false
+  customRuleNotified.value = false
   createDialogOpen.value = true
 }
 
@@ -1007,8 +1077,23 @@ async function copyAdminWechat(wechat: string): Promise<void> {
   appStore.showSuccess(t('carpool.wechat.copied'))
 }
 
+// 自定义规则模式：不创建车辆，仅通知管理员协商；成功后展示管理员微信供添加。
+async function notifyCustomRule(): Promise<void> {
+  if (customRuleNotifyPending.value) return
+  customRuleNotifyPending.value = true
+  try {
+    await carpoolAPI.notifyCustomRuleInterest()
+    customRuleNotified.value = true
+    appStore.showSuccess(t('carpool.createDialog.customRule.notifySuccess', { wechat: ADMIN_WECHAT }))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+  } finally {
+    customRuleNotifyPending.value = false
+  }
+}
+
 async function createCarpool(): Promise<void> {
-  if (!createFormValid.value || actionPending.value) return
+  if (createRuleMode.value !== 'default' || !createFormValid.value || actionPending.value) return
   actionPending.value = true
   try {
     const payload: CreateCarpoolRequest = {
