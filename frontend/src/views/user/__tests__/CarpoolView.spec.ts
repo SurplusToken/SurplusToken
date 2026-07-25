@@ -18,6 +18,9 @@ const {
   groupQrCodeMock,
   recommendationMock,
   notifyCustomRuleInterestMock,
+  unconfirmMock,
+  pendingLaunchMock,
+  createInviteMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -33,6 +36,9 @@ const {
   groupQrCodeMock: vi.fn(),
   recommendationMock: vi.fn(),
   notifyCustomRuleInterestMock: vi.fn(),
+  unconfirmMock: vi.fn(),
+  pendingLaunchMock: vi.fn(),
+  createInviteMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -41,11 +47,13 @@ vi.mock('@/api/carpools', () => ({
     list: listCarpools,
     create: createCarpoolMock,
     resolveInvite: vi.fn(),
-    createInvite: vi.fn(),
+    createInvite: createInviteMock,
     join: joinMock,
     joinByInvite: joinByInviteMock,
     leave: leaveMock,
     confirm: confirmMock,
+    unconfirm: unconfirmMock,
+    pendingLaunch: pendingLaunchMock,
     groupQrCode: groupQrCodeMock,
     launch: launchMock,
     declarationRecommendation: recommendationMock,
@@ -185,6 +193,10 @@ describe('CarpoolView', () => {
     })
     notifyCustomRuleInterestMock.mockReset()
     notifyCustomRuleInterestMock.mockResolvedValue(undefined)
+    unconfirmMock.mockReset()
+    pendingLaunchMock.mockReset()
+    pendingLaunchMock.mockResolvedValue([])
+    createInviteMock.mockReset()
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -479,5 +491,162 @@ describe('CarpoolView', () => {
     await confirmButton().trigger('click')
     await flushPromises()
     expect(joinMock).toHaveBeenCalledWith(10, 100)
+  })
+
+  // 申报推荐是异步回填金额输入框的。迟到的响应绝不能覆盖用户已经改过的数字——
+  // 否则用户会按一个自己没同意的额度上车，而这个额度直接决定保底和扣款。
+  it('never overwrites a quota the user already typed with a late recommendation', async () => {
+    let resolveRecommendation: (value: unknown) => void = () => {}
+    recommendationMock.mockReturnValue(new Promise((resolve) => { resolveRecommendation = resolve }))
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10 })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    // 用户在推荐回来之前先自己填了金额
+    await wrapper.get('#carpool-join-quota').setValue(250)
+
+    resolveRecommendation({
+      recommendedWeeklyQuotaUsd: 500,
+      rawWeeklyUsageUsd: 450,
+      bufferRatio: 1.1,
+      daysWithRecords: 7,
+      basis: 'usage_history',
+      message: '',
+    })
+    await flushPromises()
+
+    expect((wrapper.get('#carpool-join-quota').element as HTMLInputElement).value).toBe('250')
+  })
+
+  // 申报下限：低于下限时禁止提交并给出提示（后端也会拒，这里是即时反馈）。
+  it('blocks joining with a declaration below the floor', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10 })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#carpool-join-quota').setValue(5)
+    await wrapper.get('#carpool-join-group').setValue(true)
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.belowFloor')
+    expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-join-quota').setValue(20)
+    expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeUndefined()
+  })
+
+  // 加入对话框展示"你的折算单价"而不是全车均价：席位费按人头均摊，
+  // 申报越小单价越高，均价对轻度用户是系统性低估。
+  it('previews the joiner own unit price instead of the car average', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberCount: 3, avgPriceCny: 90 })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.previewYourPrice')
+    expect(wrapper.text()).not.toContain('carpool.joinDialog.previewAvgPrice')
+
+    // 申报 $60（0.5 个 Plus 等价）：预付 = 400/4 + 1000×60/2400 = 125，
+    // 折算单价 = 125 / 0.5 = ¥250，远高于全车均价 ¥90 → 触发偏离提示。
+    await wrapper.get('#carpool-join-quota').setValue(60)
+    expect(wrapper.text()).toContain('carpool.joinDialog.priceAboveAverage')
+  })
+
+  // confirmed 的车原来在前端是死胡同：车主没有任何入口，只能等 admin。
+  it('lets the owner withdraw a confirmation on a confirmed carpool', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, status: 'confirmed', memberRole: 'owner', joinLocked: true }),
+    ])
+    unconfirmMock.mockResolvedValue(makeCarpool({ id: 10, status: 'recruiting', memberRole: 'owner' }))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'carpool.actions.unconfirm').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-dialog-ok"]').trigger('click')
+    await flushPromises()
+
+    expect(unconfirmMock).toHaveBeenCalledWith(10)
+    expect(showSuccess).toHaveBeenCalledWith('carpool.unconfirmDialog.success')
+  })
+
+  // admin 待启动列表：确认通知只有一封邮件，邮件丢了车就无限挂起。
+  it('shows the admin pending-launch banner with overdue marking', async () => {
+    authState.isAdmin = true
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, status: 'confirmed', joinLocked: true })])
+    pendingLaunchMock.mockResolvedValue([{
+      carpoolId: 10,
+      name: 'stuck-car',
+      ownerUserId: 3,
+      ownerEmail: 'owner@example.com',
+      memberCount: 8,
+      declaredTotalUsd: 2400,
+      weeklyLimitUsd: 2400,
+      confirmedAt: '2026-07-20T00:00:00Z',
+      pendingHours: 51.5,
+      overdue: true,
+    }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const banner = wrapper.get('[data-testid="carpool-pending-launch"]')
+    expect(banner.text()).toContain('stuck-car')
+    expect(banner.text()).toContain('owner@example.com')
+    expect(banner.text()).toContain('carpool.pendingLaunch.overdue')
+  })
+
+  it('hides the pending-launch banner from non-admins', async () => {
+    authState.isAdmin = false
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, status: 'confirmed' })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-pending-launch"]').exists()).toBe(false)
+    expect(pendingLaunchMock).not.toHaveBeenCalled()
+  })
+
+  // 连点两辆车的"邀请"：先发的请求后回来时不能覆盖对话框，
+  // 否则会显示 B 车、链接却是 A 车的邀请码，分享出去就是错的车。
+  it('discards a stale invite response when another carpool is clicked', async () => {
+    authState.isAdmin = true
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'car-a' }),
+      makeCarpool({ id: 11, name: 'car-b' }),
+    ])
+
+    let resolveA: (value: string) => void = () => {}
+    let resolveB: (value: string) => void = () => {}
+    createInviteMock
+      .mockReturnValueOnce(new Promise<string>((resolve) => { resolveA = resolve }))
+      .mockReturnValueOnce(new Promise<string>((resolve) => { resolveB = resolve }))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const inviteButtons = wrapper.findAll('button').filter((item) => item.text().includes('carpool.actions.invite'))
+    expect(inviteButtons.length).toBe(2)
+    await inviteButtons[0].trigger('click')
+    await inviteButtons[1].trigger('click')
+
+    // B 先回，A 后回（乱序）
+    resolveB('token-b')
+    await flushPromises()
+    resolveA('token-a')
+    await flushPromises()
+
+    const link = (wrapper.get('#carpool-invite-link').element as HTMLInputElement).value
+    expect(link).toContain('token-b')
+    expect(link).not.toContain('token-a')
+    expect(wrapper.text()).toContain('car-b')
   })
 })

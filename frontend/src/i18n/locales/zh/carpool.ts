@@ -87,8 +87,32 @@ export default {
       lock: '停止上人',
       unlock: '重新开放',
       cancel: '取消拼车',
+      unconfirm: '撤回确认',
       copyLink: '复制链接',
       copied: '邀请链接已复制'
+    },
+    // 后端错误码 → 中文提示。超额度、车满这类是核心拒绝路径，
+    // 必须告诉用户下一步能做什么，而不是把英文原文抛出来。
+    errors: {
+      quotaExceeded: '申报额度超过这辆车的剩余可预约额度，请调低申报或等下一辆车',
+      full: '这辆车人数已满，请等下一辆车',
+      unavailable: '这辆车当前不能上车（可能已停止上人或已确认发车），请等下一辆车',
+      alreadyJoined: '你已经在这辆车上了',
+      forbidden: '你没有权限执行这个操作',
+      notFound: '拼车不存在或已被取消',
+      inviteInvalid: '邀请链接无效或已过期，请向车主索取新链接',
+      nameConflict: '已有同名的车在招募或运行中，请换一个名字',
+      launchNotReady: '总申报额度不在发车区间内，暂时不能发车',
+      notConfirmed: '车主尚未确认发车',
+      declarationTooSmall: '申报额度不能低于 {min} USD/周',
+      interestTooFrequent: '刚刚已经通知过管理员了，请稍后再试',
+      customParamsForbidden: '自定义额度池 / 价格参数需要管理员协助，请在创建对话框里选择"自定义规则"联系管理员',
+      groupJoinRequired: '请先确认已加入微信群',
+      contactConfirmRequired: '请先确认已添加管理员微信',
+      qrCodeRequired: '请上传微信群二维码',
+      qrCodeInvalid: '群二维码需为 png / jpeg / webp 且不超过 2MB',
+      ownerCannotLeave: '车主不能下车，只能取消整辆车',
+      notMember: '你不在这辆车上'
     },
     wechat: {
       adminLabel: '管理员微信',
@@ -127,8 +151,12 @@ export default {
       floorUnit: 'USD/周',
       previewPrepaid: '预计预付',
       previewAvgPrice: '该车当前均价',
+      previewYourPrice: '你的折算单价',
+      yourPriceUnit: '¥ / Plus等价 / 月',
+      priceAboveAverage: '按你的申报折算，你的单价是 {yours}，约为全车均价（{average}）的 {times} 倍——席位费按人头均摊，申报越少单价越高。',
       floorNotice: '即使未用满，也至少按申报的 80% 计费。',
       exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
+      belowFloor: '申报额度不能低于 {min} USD/周',
       groupSection: '上车前先加入微信群',
       joinedGroup: '我已加入群聊',
       confirm: '确认上车',
@@ -142,6 +170,19 @@ export default {
       notReady: '距 {ratio}% 发车线还差 {amount} USD',
       aboveMax: '已超出发车上限 {ratio}%，需有成员下车后才能确认',
       success: '已确认，等待管理员发车'
+    },
+    pendingLaunch: {
+      title: '待启动（{count} 辆）',
+      overdue: '已超 24 小时',
+      overdueBadge: '{count} 辆超时',
+      summary: '{members} 人 · 总申报 {total} · 已等待 {hours} 小时',
+      notLoaded: '这辆车不在当前列表里，请刷新页面后重试'
+    },
+    unconfirmDialog: {
+      title: '撤回确认',
+      message: '把"{name}"退回招募状态？成员和申报额度都会保留，重新开放上车；管理员启动前随时可以再次确认。',
+      confirm: '确认撤回',
+      success: '已撤回确认，拼车回到招募中'
     },
     leaveDialog: {
       title: '下车',

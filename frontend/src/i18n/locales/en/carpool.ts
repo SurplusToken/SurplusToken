@@ -87,8 +87,32 @@ export default {
       lock: 'Close joining',
       unlock: 'Reopen',
       cancel: 'Cancel carpool',
+      unconfirm: 'Withdraw confirmation',
       copyLink: 'Copy link',
       copied: 'Invite link copied'
+    },
+    // Backend error code -> user-facing message. Quota/full rejections are core
+    // paths; users need to know what to do next, not the raw English error.
+    errors: {
+      quotaExceeded: 'Your declaration exceeds this car\'s remaining joinable quota. Lower it or wait for the next car.',
+      full: 'This car is full. Please wait for the next one.',
+      unavailable: 'This car is not accepting members right now (joining may be closed or the launch already confirmed). Please wait for the next car.',
+      alreadyJoined: 'You are already on this car.',
+      forbidden: 'You are not allowed to perform this action.',
+      notFound: 'This carpool no longer exists or was cancelled.',
+      inviteInvalid: 'This invite link is invalid or expired. Ask the owner for a new one.',
+      nameConflict: 'A carpool with this name is already recruiting or running. Pick another name.',
+      launchNotReady: 'Total declared quota is outside the launchable band; the car cannot launch yet.',
+      notConfirmed: 'The owner has not confirmed the launch yet.',
+      declarationTooSmall: 'Declared quota must be at least {min} USD/week.',
+      interestTooFrequent: 'An enquiry was just sent to the admins. Please try again later.',
+      customParamsForbidden: 'Custom quota/pricing parameters need an administrator. Pick "Custom rules" in the create dialog to reach out.',
+      groupJoinRequired: 'Please confirm you have joined the WeChat group first.',
+      contactConfirmRequired: 'Please confirm you have added the admin on WeChat first.',
+      qrCodeRequired: 'A WeChat group QR code is required.',
+      qrCodeInvalid: 'The QR code must be a png / jpeg / webp image under 2MB.',
+      ownerCannotLeave: 'Owners cannot leave; cancel the whole carpool instead.',
+      notMember: 'You are not a member of this carpool.'
     },
     wechat: {
       adminLabel: 'Admin WeChat',
@@ -127,8 +151,12 @@ export default {
       floorUnit: 'USD/week',
       previewPrepaid: 'Estimated prepay',
       previewAvgPrice: 'Current avg price',
+      previewYourPrice: 'Your unit price',
+      yourPriceUnit: '¥ / Plus-equivalent / month',
+      priceAboveAverage: 'At your declaration your unit price is {yours}, about {times}x the car average ({average}). The seat fee splits per head, so a smaller declaration means a higher unit price.',
       floorNotice: 'Even if you use less, you are billed for at least 80% of your declaration.',
       exceedsRemaining: 'Declaration exceeds this car\'s remaining joinable quota ({amount} USD); lower it or wait for the next car',
+      belowFloor: 'Declared quota must be at least {min} USD/week',
       groupSection: 'Join the WeChat group before boarding',
       joinedGroup: 'I have joined the group',
       confirm: 'Confirm join',
@@ -142,6 +170,19 @@ export default {
       notReady: '{amount} USD short of the {ratio}% launch line',
       aboveMax: 'Above the {ratio}% launch cap; a member has to leave before confirming',
       success: 'Confirmed. Waiting for the admin to launch.'
+    },
+    pendingLaunch: {
+      title: 'Waiting to launch ({count})',
+      overdue: 'Over 24h',
+      overdueBadge: '{count} overdue',
+      summary: '{members} members · {total} declared · waiting {hours}h',
+      notLoaded: 'That carpool is not in the current list; refresh and try again'
+    },
+    unconfirmDialog: {
+      title: 'Withdraw confirmation',
+      message: 'Send “{name}” back to recruiting? Members and declarations are kept and joining reopens; you can confirm again any time before an admin launches it.',
+      confirm: 'Withdraw',
+      success: 'Confirmation withdrawn; the carpool is recruiting again'
     },
     leaveDialog: {
       title: 'Leave carpool',

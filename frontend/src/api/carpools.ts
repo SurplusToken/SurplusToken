@@ -95,7 +95,8 @@ export interface CreateCarpoolRequest {
   // 两项强制确认：已添加管理员微信（必须为 true）+ 群二维码（base64/data URL，≤2MB png/jpeg/webp）
   added_admin_wechat: boolean
   group_qr_code: string
-  // 以下为可选额度池/价格参数，缺省时后端使用默认值（2400/400/1000/0.8/0.95/1.05）
+  // 以下额度池/价格参数仅 admin 可传，普通用户传任何一个都会被后端 403
+  // （CARPOOL_CUSTOM_PARAMS_FORBIDDEN）；缺省时使用默认值 2400/400/1000/0.8/0.95/1.05。
   weekly_limit_usd?: number
   seat_fee_cny?: number
   usage_pool_cny?: number
@@ -122,6 +123,9 @@ export interface DeclarationRecommendation {
 
 export interface SettlementMember {
   userId: number
+  // 仅 owner/admin 的全量视图会带上，用于把结算行对应到微信群里的真人收款
+  email?: string
+  username?: string
   role: CarpoolRole
   declaredWeeklyQuotaUsd: number
   floorUsageUsd: number
@@ -129,6 +133,7 @@ export interface SettlementMember {
   billableUsageUsd: number
   floorTriggered: boolean
   prepaidAmountCny: number
+  quotedPrepaidCny: number
   usagePrepaidCny: number
   usageFinalShareCny: number
   usageDeltaCny: number
@@ -170,6 +175,8 @@ interface DeclarationRecommendationResponse {
 
 interface SettlementMemberResponse {
   user_id: number
+  email?: string
+  username?: string
   role: CarpoolRole
   declared_weekly_quota_usd: number
   floor_usage_usd: number
@@ -177,6 +184,7 @@ interface SettlementMemberResponse {
   billable_usage_usd: number
   floor_triggered: boolean
   prepaid_amount_cny: number
+  quoted_prepaid_cny: number
   usage_prepaid_cny: number
   usage_final_share_cny: number
   usage_delta_cny: number
@@ -255,6 +263,8 @@ function mapSettlement(data: CarpoolSettlementResponse): CarpoolSettlement {
     periodEnd: data.period_end,
     members: (data.members || []).map((member) => ({
       userId: member.user_id,
+      email: member.email,
+      username: member.username,
       role: member.role,
       declaredWeeklyQuotaUsd: member.declared_weekly_quota_usd,
       floorUsageUsd: member.floor_usage_usd,
@@ -262,6 +272,7 @@ function mapSettlement(data: CarpoolSettlementResponse): CarpoolSettlement {
       billableUsageUsd: member.billable_usage_usd,
       floorTriggered: member.floor_triggered,
       prepaidAmountCny: member.prepaid_amount_cny,
+      quotedPrepaidCny: member.quoted_prepaid_cny ?? member.prepaid_amount_cny,
       usagePrepaidCny: member.usage_prepaid_cny,
       usageFinalShareCny: member.usage_final_share_cny,
       usageDeltaCny: member.usage_delta_cny,
@@ -320,11 +331,63 @@ export async function confirm(id: number): Promise<Carpool> {
   return mapCarpool(data.carpool)
 }
 
-export async function groupQrCode(id: number): Promise<Blob> {
+// 群二维码。invite_only 的车在上车前必须带上邀请 token，否则后端 403
+// （二维码 = 入场券，不能对任意登录用户开放）。
+export async function groupQrCode(id: number, inviteToken?: string): Promise<Blob> {
   const { data } = await apiClient.get<Blob>(`/carpools/${id}/qr-code`, {
     responseType: 'blob',
+    params: inviteToken ? { token: inviteToken } : undefined,
   })
   return data
+}
+
+// 撤回确认（confirmed → recruiting）：车主或 admin，给"等管理员启动"这段状态一个出口。
+export async function unconfirm(id: number): Promise<Carpool> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/unconfirm`)
+  return mapCarpool(data.carpool)
+}
+
+export interface PendingLaunchCarpool {
+  carpoolId: number
+  name: string
+  ownerUserId?: number
+  ownerEmail: string
+  memberCount: number
+  declaredTotalUsd: number
+  weeklyLimitUsd: number
+  confirmedAt: string
+  pendingHours: number
+  overdue: boolean
+}
+
+interface PendingLaunchResponse {
+  carpool_id: number
+  name: string
+  owner_user_id?: number
+  owner_email?: string
+  member_count: number
+  declared_total_usd: number
+  weekly_limit_usd: number
+  confirmed_at: string
+  pending_hours: number
+  overdue: boolean
+}
+
+// 待启动列表（仅 admin）：车主已确认、等管理员启动的车，含等待时长与超时标记。
+export async function pendingLaunch(): Promise<PendingLaunchCarpool[]> {
+  const { data } = await apiClient.get<PendingLaunchResponse[]>('/carpools/pending-launch')
+  return (data || []).map((item) => ({
+    carpoolId: item.carpool_id,
+    name: item.name,
+    ownerUserId: item.owner_user_id,
+    ownerEmail: item.owner_email || '',
+    memberCount: item.member_count,
+    declaredTotalUsd: item.declared_total_usd,
+    weeklyLimitUsd: item.weekly_limit_usd,
+    confirmedAt: item.confirmed_at,
+    pendingHours: item.pending_hours,
+    overdue: item.overdue,
+  }))
 }
 
 export async function launch(id: number, force = false): Promise<Carpool> {
@@ -371,6 +434,8 @@ export default {
   joinByInvite,
   leave,
   confirm,
+  unconfirm,
+  pendingLaunch,
   groupQrCode,
   launch,
   declarationRecommendation,

@@ -46,6 +46,62 @@
         </div>
       </section>
 
+      <!--
+        管理员待启动列表。确认发车的通知过去只有一封邮件，邮件一丢车就连人带钱
+        无限期挂起，后台连个"等我启动"的清单都没有。这里把 confirmed 的车全部
+        列出来，并标出超过 24 小时承诺的。
+      -->
+      <section
+        v-if="authStore.isAdmin && pendingLaunches.length > 0"
+        data-testid="carpool-pending-launch"
+        class="overflow-hidden rounded-lg border border-blue-200 bg-blue-50/70 dark:border-blue-900/70 dark:bg-blue-950/20"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200 px-4 py-3 dark:border-blue-900/70">
+          <div class="flex items-center gap-2">
+            <Icon name="clock" size="sm" class="text-blue-700 dark:text-blue-400" />
+            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('carpool.pendingLaunch.title', { count: pendingLaunches.length }) }}
+            </h2>
+          </div>
+          <span v-if="overduePendingCount > 0" class="badge badge-warning">
+            {{ t('carpool.pendingLaunch.overdueBadge', { count: overduePendingCount }) }}
+          </span>
+        </div>
+        <ul class="divide-y divide-blue-200 dark:divide-blue-900/70">
+          <li
+            v-for="item in pendingLaunches"
+            :key="item.carpoolId"
+            class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+          >
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ item.name }}</span>
+                <span v-if="item.overdue" class="badge badge-warning shrink-0">
+                  {{ t('carpool.pendingLaunch.overdue') }}
+                </span>
+              </div>
+              <div class="mt-0.5 text-xs text-gray-500 dark:text-dark-300">
+                {{ t('carpool.pendingLaunch.summary', {
+                  members: item.memberCount,
+                  total: formatUsd(item.declaredTotalUsd),
+                  hours: formatDecimal(item.pendingHours),
+                }) }}
+                <span v-if="item.ownerEmail"> · {{ item.ownerEmail }}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary h-8 shrink-0 px-3 py-1.5"
+              :disabled="actionPending"
+              @click="requestLaunchById(item.carpoolId)"
+            >
+              <Icon name="play" size="sm" />
+              <span>{{ t('carpool.actions.launch') }}</span>
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <section class="grid grid-cols-2 border-y border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 sm:grid-cols-4">
         <div v-for="stat in stats" :key="stat.label" class="border-gray-200 px-4 py-3 odd:border-r dark:border-dark-700 sm:border-r sm:last:border-r-0">
           <div class="text-xs text-gray-500 dark:text-dark-300">{{ stat.label }}</div>
@@ -270,6 +326,16 @@
                 </button>
               </div>
 
+              <!-- 撤回确认：confirmed 的车在等 admin 启动时唯一的温和出口 -->
+              <button
+                v-if="canUnconfirm(carpool)"
+                type="button"
+                class="btn btn-ghost h-9 px-3 py-2 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                @click="requestUnconfirm(carpool)"
+              >
+                <Icon name="refresh" size="sm" />
+                <span>{{ t('carpool.actions.unconfirm') }}</span>
+              </button>
               <button
                 v-if="canCancel(carpool)"
                 type="button"
@@ -505,6 +571,9 @@
         <p v-if="joinExceedsRemaining" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
           {{ t('carpool.joinDialog.exceedsRemaining', { amount: formatUsd(joinTarget.remainingJoinableUsd) }) }}
         </p>
+        <p v-else-if="joinBelowFloor" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
+        </p>
 
         <div class="grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
           <div>
@@ -515,11 +584,28 @@
             <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
             <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinPrepaid) }}</div>
           </div>
+          <!-- 显示"你的"折算单价而非全车均价：申报越小的人单价越高，
+               拿均价当报价对轻度用户是系统性低估。 -->
           <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewAvgPrice') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinTarget.avgPriceCny) }}</div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewYourPrice') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+              {{ joinUnitPrice > 0 ? formatCny(joinUnitPrice) : '—' }}
+            </div>
+            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
+              {{ t('carpool.joinDialog.yourPriceUnit') }}
+            </div>
           </div>
         </div>
+        <p
+          v-if="joinUnitPriceRatio > 1.2"
+          class="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          {{ t('carpool.joinDialog.priceAboveAverage', {
+            yours: formatCny(joinUnitPrice),
+            average: formatCny(joinTarget.avgPriceCny),
+            times: formatDecimal(joinUnitPriceRatio),
+          }) }}
+        </p>
 
         <p class="rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
           {{ t('carpool.joinDialog.floorNotice') }}
@@ -663,9 +749,18 @@
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
                 <tr v-for="member in settlementData.members" :key="member.userId">
+                  <!-- 带上邮箱/用户名：只有 #id 的话车主没法对应到微信群里的真人收款 -->
                   <td class="px-3 py-2">
-                    <span class="font-medium text-gray-800 dark:text-dark-100">#{{ member.userId }}</span>
-                    <span class="ml-1.5 text-xs text-gray-400">{{ t(`carpool.roles.${member.role}`) }}</span>
+                    <div class="flex items-baseline gap-1.5">
+                      <span class="font-medium text-gray-800 dark:text-dark-100">
+                        {{ member.username || member.email || `#${member.userId}` }}
+                      </span>
+                      <span class="text-xs text-gray-400">{{ t(`carpool.roles.${member.role}`) }}</span>
+                    </div>
+                    <div v-if="member.email && member.username" class="text-[11px] text-gray-400 dark:text-dark-400">
+                      {{ member.email }}
+                    </div>
+                    <div class="text-[11px] text-gray-400 dark:text-dark-400">#{{ member.userId }}</div>
                   </td>
                   <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.declaredWeeklyQuotaUsd) }}</td>
                   <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.actualUsageUsd) }}</td>
@@ -714,6 +809,7 @@ import carpoolAPI, {
   type CarpoolVisibility,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
+  type PendingLaunchCarpool,
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -721,6 +817,11 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
 const FORCE_LAUNCH_MIN_RATIO = 0.8
+
+// 与后端 CarpoolMinDeclaredWeeklyQuotaUSD 对齐：申报下限（美元/周）。
+const MIN_DECLARED_USD = 20
+// 与后端 CarpoolPlusAccountsPerCar 对齐：整车周限额等于多少个 Plus。
+const PLUS_ACCOUNTS_PER_CAR = 20
 
 // 与后端 CarpoolAdminWechatID 对齐：创建/上车前必须添加的管理员微信号。
 const ADMIN_WECHAT = 'Charlemartingale'
@@ -743,7 +844,7 @@ interface CreateForm {
 type CreateRuleMode = 'default' | 'custom'
 
 interface ConfirmAction {
-  type: 'cancel' | 'launch' | 'forceLaunch' | 'confirm' | 'leave'
+  type: 'cancel' | 'launch' | 'forceLaunch' | 'confirm' | 'unconfirm' | 'leave'
   carpool: Carpool
 }
 
@@ -781,6 +882,42 @@ const recommendationLoading = ref(false)
 const recommendationFailed = ref(false)
 const confirmAction = ref<ConfirmAction | null>(null)
 const carpools = ref<Carpool[]>([])
+const pendingLaunches = ref<PendingLaunchCarpool[]>([])
+const overduePendingCount = computed(() => pendingLaunches.value.filter((item) => item.overdue).length)
+// 申报推荐是异步回填金额输入框的，用序号丢弃过期响应（见 openJoin）。
+let recommendationSeq = 0
+
+// carpoolErrorMessages 把后端错误码映射成中文提示。
+// 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
+// 既看不懂、也没告诉他下一步该干什么（设计文档要求提示"等下一辆车"）。
+function carpoolErrorMessages(): Record<string, string> {
+  return {
+    CARPOOL_QUOTA_EXCEEDED: t('carpool.errors.quotaExceeded'),
+    CARPOOL_FULL: t('carpool.errors.full'),
+    CARPOOL_UNAVAILABLE: t('carpool.errors.unavailable'),
+    CARPOOL_ALREADY_JOINED: t('carpool.errors.alreadyJoined'),
+    CARPOOL_FORBIDDEN: t('carpool.errors.forbidden'),
+    CARPOOL_NOT_FOUND: t('carpool.errors.notFound'),
+    CARPOOL_INVITE_INVALID: t('carpool.errors.inviteInvalid'),
+    CARPOOL_NAME_CONFLICT: t('carpool.errors.nameConflict'),
+    CARPOOL_LAUNCH_NOT_READY: t('carpool.errors.launchNotReady'),
+    CARPOOL_NOT_CONFIRMED: t('carpool.errors.notConfirmed'),
+    CARPOOL_DECLARATION_TOO_SMALL: t('carpool.errors.declarationTooSmall', { min: MIN_DECLARED_USD }),
+    CARPOOL_INTEREST_TOO_FREQUENT: t('carpool.errors.interestTooFrequent'),
+    CARPOOL_CUSTOM_PARAMS_FORBIDDEN: t('carpool.errors.customParamsForbidden'),
+    CARPOOL_GROUP_JOIN_REQUIRED: t('carpool.errors.groupJoinRequired'),
+    CARPOOL_CONTACT_CONFIRM_REQUIRED: t('carpool.errors.contactConfirmRequired'),
+    CARPOOL_GROUP_QR_CODE_REQUIRED: t('carpool.errors.qrCodeRequired'),
+    CARPOOL_GROUP_QR_CODE_INVALID: t('carpool.errors.qrCodeInvalid'),
+    CARPOOL_OWNER_CANNOT_LEAVE: t('carpool.errors.ownerCannotLeave'),
+    CARPOOL_NOT_MEMBER: t('carpool.errors.notMember'),
+  }
+}
+
+// carpoolError 统一的错误提示：优先按错误码取中文文案，取不到再回落。
+function carpoolError(error: unknown, fallbackKey = 'carpool.actionFailed'): string {
+  return extractApiErrorMessage(error, t(fallbackKey), carpoolErrorMessages())
+}
 
 const isoDateAfterDays = (days: number): string => {
   const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
@@ -852,8 +989,29 @@ const joinPrepaid = computed(() => {
 const joinExceedsRemaining = computed(() => (
   !!joinTarget.value && !!joinForm.declaredQuota && joinForm.declaredQuota > joinTarget.value.remainingJoinableUsd + 1e-9
 ))
+const joinBelowFloor = computed(() => (
+  joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinForm.declaredQuota < MIN_DECLARED_USD
+))
+// 你的折算单价：这一位成员自己付的钱 ÷ 他自己折算的 Plus 数。
+// 全车"均价"对轻度用户是误导——席位费按人头均摊、变动池按申报分摊，
+// 申报越小的人单价越高（设计文档自己举过"实际单价可能是均价两倍"的例子）。
+const joinUnitPrice = computed(() => {
+  const car = joinTarget.value
+  const declared = joinForm.declaredQuota
+  if (!car || !declared || declared <= 0 || car.weeklyLimitUsd <= 0) return 0
+  const plusEquivalent = declared / (car.weeklyLimitUsd / PLUS_ACCOUNTS_PER_CAR)
+  if (plusEquivalent <= 0) return 0
+  return joinPrepaid.value / plusEquivalent
+})
+// 与全车均价的偏离倍数，> 1 说明这位用户比平均更贵。
+const joinUnitPriceRatio = computed(() => {
+  const avg = joinTarget.value?.avgPriceCny || 0
+  if (avg <= 0 || joinUnitPrice.value <= 0) return 0
+  return joinUnitPrice.value / avg
+})
 const joinFormValid = computed(() => (
-  !!joinForm.declaredQuota && joinForm.declaredQuota > 0 && !joinExceedsRemaining.value && joinForm.joinedGroup
+  !!joinForm.declaredQuota && joinForm.declaredQuota > 0
+  && !joinExceedsRemaining.value && !joinBelowFloor.value && joinForm.joinedGroup
 ))
 const confirmTitle = computed(() => {
   if (!confirmAction.value) return ''
@@ -861,6 +1019,7 @@ const confirmTitle = computed(() => {
     case 'cancel': return t('carpool.cancelDialog.title')
     case 'leave': return t('carpool.leaveDialog.title')
     case 'confirm': return t('carpool.confirmDialog.title')
+    case 'unconfirm': return t('carpool.unconfirmDialog.title')
     case 'forceLaunch': return t('carpool.launchDialog.forceTitle')
     default: return t('carpool.launchDialog.confirmTitle')
   }
@@ -870,6 +1029,7 @@ const confirmText = computed(() => {
   if (confirmAction.value.type === 'cancel') return t('carpool.cancelDialog.confirm')
   if (confirmAction.value.type === 'leave') return t('carpool.leaveDialog.confirm')
   if (confirmAction.value.type === 'confirm') return t('carpool.confirmDialog.confirm')
+  if (confirmAction.value.type === 'unconfirm') return t('carpool.unconfirmDialog.confirm')
   return t('carpool.launchDialog.confirm')
 })
 const confirmMessage = computed(() => {
@@ -877,6 +1037,7 @@ const confirmMessage = computed(() => {
   const action = confirmAction.value
   if (action.type === 'cancel') return t('carpool.cancelDialog.message', { name: action.carpool.name })
   if (action.type === 'leave') return t('carpool.leaveDialog.message', { name: action.carpool.name })
+  if (action.type === 'unconfirm') return t('carpool.unconfirmDialog.message', { name: action.carpool.name })
   const params = {
     name: action.carpool.name,
     total: formatUsd(action.carpool.declaredTotalUsd),
@@ -893,16 +1054,44 @@ async function loadCarpools(): Promise<void> {
     carpools.value = await carpoolAPI.list()
     ensureQrCodes(carpools.value)
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.loadFailed')))
+    appStore.showError(carpoolError(error, 'carpool.loadFailed'))
   } finally {
     loading.value = false
   }
+  await loadPendingLaunches()
 }
 
-// 为有群二维码的车辆预取图片（任何登录用户可读），object URL 按车辆缓存。
+// 待启动列表只对 admin 有意义，非 admin 直接跳过（后端也会 403）。
+async function loadPendingLaunches(): Promise<void> {
+  if (!authStore.isAdmin) {
+    pendingLaunches.value = []
+    return
+  }
+  try {
+    pendingLaunches.value = await carpoolAPI.pendingLaunch()
+  } catch {
+    // 列表加载失败不影响主页面
+    pendingLaunches.value = []
+  }
+}
+
+// 从待启动列表启动：复用确认对话框，需要先在已加载的车辆里找到对应项。
+function requestLaunchById(carpoolId: number): void {
+  const carpool = carpools.value.find((item) => item.id === carpoolId)
+  if (!carpool) {
+    appStore.showWarning(t('carpool.pendingLaunch.notLoaded'))
+    return
+  }
+  confirmAction.value = { type: 'launch', carpool }
+}
+
+// 为有群二维码的车辆预取图片，object URL 按车辆缓存。
+// 私密车的二维码只对成员/车主/admin 开放（非成员需要带邀请 token，见 openJoin），
+// 这里直接跳过，免得列表渲染打出一片必然 403 的请求。
 function ensureQrCodes(items: Carpool[]): void {
   for (const item of items) {
     if (!item.hasGroupQrCode || qrCodeUrls.value[item.id]) continue
+    if (item.visibility === 'invite_only' && item.memberRole === null && !authStore.isAdmin) continue
     carpoolAPI.groupQrCode(item.id)
       .then((blob) => {
         qrCodeUrls.value = { ...qrCodeUrls.value, [item.id]: URL.createObjectURL(blob) }
@@ -938,7 +1127,19 @@ function canInvite(carpool: Carpool): boolean {
 }
 
 function canCancel(carpool: Carpool): boolean {
-  return carpool.memberRole === 'owner' && (carpool.status === 'recruiting' || carpool.status === 'starting')
+  if (carpool.status === 'confirmed') {
+    // confirmed 全锁：后端只允许 admin 强制取消，前端过去完全没有入口，
+    // 车一旦确认就成了死胡同（车主只能撤回确认，见 canUnconfirm）。
+    return authStore.isAdmin
+  }
+  return (carpool.memberRole === 'owner' || authStore.isAdmin)
+    && (carpool.status === 'recruiting' || carpool.status === 'starting')
+}
+
+// 撤回确认：车主或 admin 把 confirmed 的车退回招募中，重新开放上车。
+// 这是"等管理员启动"这段状态唯一的温和出口——成员和申报都保留。
+function canUnconfirm(carpool: Carpool): boolean {
+  return carpool.status === 'confirmed' && (carpool.memberRole === 'owner' || authStore.isAdmin)
 }
 
 function canLeave(carpool: Carpool): boolean {
@@ -1086,7 +1287,7 @@ async function notifyCustomRule(): Promise<void> {
     customRuleNotified.value = true
     appStore.showSuccess(t('carpool.createDialog.customRule.notifySuccess', { wechat: ADMIN_WECHAT }))
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    appStore.showError(carpoolError(error))
   } finally {
     customRuleNotifyPending.value = false
   }
@@ -1114,19 +1315,27 @@ async function createCarpool(): Promise<void> {
     appStore.showSuccess(t('carpool.createDialog.success'))
     await openInvite(result.carpool, result.inviteToken)
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    appStore.showError(carpoolError(error))
   } finally {
     actionPending.value = false
   }
 }
 
+// 连续点两辆车的"邀请"时，先发的请求可能后回来。用序号丢弃过期响应，
+// 否则对话框会显示 B 车、链接却是 A 车的邀请码——分享出去就是错的车。
+let inviteRequestSeq = 0
+
 async function openInvite(carpool: Carpool, token = ''): Promise<void> {
+  const seq = ++inviteRequestSeq
   try {
+    const resolvedToken = token || await carpoolAPI.createInvite(carpool.id)
+    if (seq !== inviteRequestSeq) return
     selectedCarpool.value = carpool
-    selectedInviteToken.value = token || await carpoolAPI.createInvite(carpool.id)
+    selectedInviteToken.value = resolvedToken
     inviteDialogOpen.value = true
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    if (seq !== inviteRequestSeq) return
+    appStore.showError(carpoolError(error))
   }
 }
 
@@ -1150,7 +1359,7 @@ async function toggleJoinLock(carpool: Carpool): Promise<void> {
     await loadCarpools()
     appStore.showSuccess(t(!carpool.joinLocked ? 'carpool.admin.locked' : 'carpool.admin.unlocked'))
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    appStore.showError(carpoolError(error))
   }
 }
 
@@ -1165,7 +1374,8 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
   joinForm.joinedGroup = false
   joinQrUrl.value = qrCodeUrls.value[carpool.id] || ''
   if (carpool.hasGroupQrCode && !joinQrUrl.value) {
-    carpoolAPI.groupQrCode(carpool.id)
+    // 私密车走邀请链接进来时，二维码请求必须带上 token（后端据此授权）。
+    carpoolAPI.groupQrCode(carpool.id, inviteToken || undefined)
       .then((blob) => {
         const url = URL.createObjectURL(blob)
         qrCodeUrls.value = { ...qrCodeUrls.value, [carpool.id]: url }
@@ -1179,17 +1389,23 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
   recommendationFailed.value = false
   recommendationLoading.value = true
   joinDialogOpen.value = true
+  const seq = ++recommendationSeq
   carpoolAPI.declarationRecommendation()
     .then((rec) => {
+      // 迟到的响应不能再回写：这是金额输入框，覆盖用户已经改过的数字
+      // 会让他按自己没同意的额度上车。
+      if (seq !== recommendationSeq) return
       recommendation.value = rec
-      if (rec.recommendedWeeklyQuotaUsd > 0) {
+      if (rec.recommendedWeeklyQuotaUsd > 0 && joinForm.declaredQuota === null) {
         joinForm.declaredQuota = Math.round(rec.recommendedWeeklyQuotaUsd * 10) / 10
       }
     })
     .catch(() => {
+      if (seq !== recommendationSeq) return
       recommendationFailed.value = true
     })
     .finally(() => {
+      if (seq !== recommendationSeq) return
       recommendationLoading.value = false
     })
 }
@@ -1211,7 +1427,7 @@ async function submitJoin(): Promise<void> {
     )
     await loadCarpools()
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    appStore.showError(carpoolError(error))
   } finally {
     actionPending.value = false
   }
@@ -1238,6 +1454,10 @@ function requestCancel(carpool: Carpool): void {
   confirmAction.value = { type: 'cancel', carpool }
 }
 
+function requestUnconfirm(carpool: Carpool): void {
+  confirmAction.value = { type: 'unconfirm', carpool }
+}
+
 async function runConfirmedAction(): Promise<void> {
   if (!confirmAction.value || actionPending.value) return
   const action = confirmAction.value
@@ -1253,13 +1473,16 @@ async function runConfirmedAction(): Promise<void> {
     } else if (action.type === 'confirm') {
       await carpoolAPI.confirm(action.carpool.id)
       appStore.showSuccess(t('carpool.confirmDialog.success'))
+    } else if (action.type === 'unconfirm') {
+      await carpoolAPI.unconfirm(action.carpool.id)
+      appStore.showSuccess(t('carpool.unconfirmDialog.success'))
     } else {
       await carpoolAPI.launch(action.carpool.id, action.type === 'forceLaunch')
       appStore.showSuccess(t('carpool.launchDialog.success'))
     }
     await loadCarpools()
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('carpool.actionFailed')))
+    appStore.showError(carpoolError(error))
   } finally {
     actionPending.value = false
   }
@@ -1273,7 +1496,7 @@ async function openSettlement(carpool: Carpool): Promise<void> {
     settlementData.value = await carpoolAPI.settlement(carpool.id)
   } catch (error) {
     settlementDialogOpen.value = false
-    appStore.showError(extractApiErrorMessage(error, t('carpool.settlement.loadFailed')))
+    appStore.showError(carpoolError(error, 'carpool.settlement.loadFailed'))
   } finally {
     settlementLoading.value = false
   }
