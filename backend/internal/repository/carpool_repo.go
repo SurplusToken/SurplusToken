@@ -76,7 +76,7 @@ func (r *carpoolRepository) Create(ctx context.Context, ownerUserID int64, input
 	var groupNameExists bool
 	if err := tx.QueryRowContext(ctx, `
 SELECT EXISTS(SELECT 1 FROM groups WHERE name = $1 AND deleted_at IS NULL)
-    OR EXISTS(SELECT 1 FROM carpools WHERE name = $1 AND status IN ('recruiting', 'starting', 'active'))`, input.Name).Scan(&groupNameExists); err != nil {
+    OR EXISTS(SELECT 1 FROM carpools WHERE name = $1 AND status IN ('recruiting', 'confirmed', 'starting', 'active'))`, input.Name).Scan(&groupNameExists); err != nil {
 		return nil, fmt.Errorf("check carpool group name: %w", err)
 	}
 	if groupNameExists {
@@ -89,11 +89,13 @@ INSERT INTO carpools (
     name, description, owner_user_id, platform, plan_type, car_type, level,
     visibility, scheduled_start_at,
     weekly_limit_usd, seat_fee_cny, usage_pool_cny, reserve_ratio,
-    launch_min_ratio, launch_max_ratio
-) VALUES ($1, $2, $3, 'openai', 'openai_pro', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    launch_min_ratio, launch_max_ratio,
+    added_admin_wechat, group_qr_code, group_qr_code_content_type
+) VALUES ($1, $2, $3, 'openai', 'openai_pro', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id`, input.Name, input.Description, ownerUserID, input.CarType, input.Level,
 		input.Visibility, input.ScheduledStartAt, input.WeeklyLimitUSD, input.SeatFeeCNY,
-		input.UsagePoolCNY, input.ReserveRatio, input.LaunchMinRatio, input.LaunchMaxRatio).Scan(&carpoolID)
+		input.UsagePoolCNY, input.ReserveRatio, input.LaunchMinRatio, input.LaunchMaxRatio,
+		input.AddedAdminWechat, input.GroupQRCodeBytes, input.GroupQRCodeContentType).Scan(&carpoolID)
 	if err != nil {
 		return nil, translateCarpoolWriteError(err)
 	}
@@ -162,7 +164,7 @@ FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status, 
 	return nil
 }
 
-func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, inviteHash *string) (*service.CarpoolMutationResult, error) {
+func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*service.CarpoolMutationResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool join: %w", err)
@@ -191,18 +193,19 @@ FOR UPDATE`, *inviteHash).Scan(&resolvedInviteID, &carpoolID)
 
 	var status, visibility string
 	var locked bool
-	var weeklyLimitUSD, launchMaxRatio, seatFeeCNY, usagePoolCNY float64
+	var weeklyLimitUSD, launchMinRatio, launchMaxRatio, seatFeeCNY, usagePoolCNY float64
 	err = tx.QueryRowContext(ctx, `
 SELECT status, visibility, join_locked_at IS NOT NULL,
-    weekly_limit_usd, launch_max_ratio, seat_fee_cny, usage_pool_cny
+    weekly_limit_usd, launch_min_ratio, launch_max_ratio, seat_fee_cny, usage_pool_cny
 FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &locked,
-		&weeklyLimitUSD, &launchMaxRatio, &seatFeeCNY, &usagePoolCNY)
+		&weeklyLimitUSD, &launchMinRatio, &launchMaxRatio, &seatFeeCNY, &usagePoolCNY)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrCarpoolNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load carpool for join: %w", err)
 	}
+	// confirmed 全锁：仅 recruiting 可上车。
 	if status != "recruiting" || locked || (inviteID == nil && visibility != service.CarpoolVisibilityPublic) {
 		return nil, service.ErrCarpoolUnavailable
 	}
@@ -233,14 +236,15 @@ WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&decl
 
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO carpool_members (carpool_id, user_id, role, status, joined_via_invite_id,
-    declared_weekly_quota_usd, prepaid_amount_cny, joined_at, updated_at)
-VALUES ($1, $2, 'member', 'joined', $3, $4, $5, NOW(), NOW())
+    declared_weekly_quota_usd, prepaid_amount_cny, joined_wechat_group, joined_at, updated_at)
+VALUES ($1, $2, 'member', 'joined', $3, $4, $5, $6, NOW(), NOW())
 ON CONFLICT (carpool_id, user_id) DO UPDATE SET
     status = 'joined', joined_via_invite_id = EXCLUDED.joined_via_invite_id,
     declared_weekly_quota_usd = EXCLUDED.declared_weekly_quota_usd,
     prepaid_amount_cny = EXCLUDED.prepaid_amount_cny,
+    joined_wechat_group = EXCLUDED.joined_wechat_group,
     joined_at = NOW(), left_at = NULL, removed_by_user_id = NULL,
-    removal_reason = NULL, updated_at = NOW()`, carpoolID, userID, inviteID, declaredWeeklyQuotaUSD, prepaidAmountCNY)
+    removal_reason = NULL, updated_at = NOW()`, carpoolID, userID, inviteID, declaredWeeklyQuotaUSD, prepaidAmountCNY, joinedWechatGroup)
 	if err != nil {
 		return nil, fmt.Errorf("join carpool: %w", err)
 	}
@@ -257,6 +261,21 @@ ON CONFLICT (carpool_id, user_id) DO UPDATE SET
 		DeclaredWeeklyQuotaUSD: declaredWeeklyQuotaUSD,
 		PrepaidAmountCNY:       prepaidAmountCNY,
 	}
+	// 进区间通知：Σ申报 首次进入 [launch_min, launch_max]×周限额 时，同事务置
+	// launch_notified_at；service 在提交后据此通知车主确认发车。
+	newDeclaredTotal := declaredTotal + declaredWeeklyQuotaUSD
+	if newDeclaredTotal >= launchMinRatio*weeklyLimitUSD && newDeclaredTotal <= launchMaxRatio*weeklyLimitUSD {
+		res, err := tx.ExecContext(ctx, `
+UPDATE carpools SET launch_notified_at = NOW(), updated_at = NOW()
+WHERE id = $1 AND launch_notified_at IS NULL`, carpoolID)
+		if err != nil {
+			return nil, fmt.Errorf("mark carpool launch notified: %w", err)
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected > 0 {
+			result.LaunchBandEntered = true
+		}
+	}
+
 	result.Carpool, err = getCarpoolByID(ctx, tx, carpoolID, userID)
 	if err != nil {
 		return nil, err
@@ -267,8 +286,150 @@ ON CONFLICT (carpool_id, user_id) DO UPDATE SET
 	return result, nil
 }
 
-// Launch 手动发车（设计文档 §4.3）：仅 recruiting 状态可发车，Σ申报须进入
-// [launch_min, launch_max]×周限额 区间；force=true 时下限放宽到 80%（降档发车）。
+// Leave 下车：仅 recruiting 状态；同事务（FOR UPDATE 锁车行）把成员行置为 left。
+// Σ申报 统计只算 joined/active 成员，故下车即释放额度；若因此跌出发车区间，
+// 把 launch_notified_at 重置为 NULL（下次再进区间可重新通知车主）。操作幂等：
+// 已 left 的成员重复下车返回同样的成功结果。
+func (r *carpoolRepository) Leave(ctx context.Context, carpoolID, userID int64) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool leave: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	var weeklyLimitUSD, launchMinRatio, launchMaxRatio float64
+	var launchNotifiedAt sql.NullTime
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status, weekly_limit_usd, launch_min_ratio, launch_max_ratio, launch_notified_at
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status,
+		&weeklyLimitUSD, &launchMinRatio, &launchMaxRatio, &launchNotifiedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for leave: %w", err)
+	}
+	// confirmed/active/cancelled 等状态一律 409。
+	if status != "recruiting" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+	// 车主不能下车，只能取消整车。
+	if ownerUserID.Valid && ownerUserID.Int64 == userID {
+		return nil, service.ErrCarpoolOwnerCannotLeave
+	}
+
+	var memberStatus string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2`, carpoolID, userID).Scan(&memberStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotMember
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool member for leave: %w", err)
+	}
+	if memberStatus != "left" {
+		if memberStatus != "joined" {
+			return nil, service.ErrCarpoolUnavailable
+		}
+		if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET status = 'left', left_at = NOW(), updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2 AND status = 'joined'`, carpoolID, userID); err != nil {
+			return nil, fmt.Errorf("leave carpool: %w", err)
+		}
+		if err := insertCarpoolEvent(ctx, tx, carpoolID, userID, "member_left"); err != nil {
+			return nil, err
+		}
+		// 下车释放申报额度：跌出发车区间时重置 launch_notified_at。
+		if launchNotifiedAt.Valid {
+			var declaredTotal float64
+			if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members
+WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&declaredTotal); err != nil {
+				return nil, fmt.Errorf("sum carpool declared quota after leave: %w", err)
+			}
+			if declaredTotal < launchMinRatio*weeklyLimitUSD || declaredTotal > launchMaxRatio*weeklyLimitUSD {
+				if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET launch_notified_at = NULL, updated_at = NOW() WHERE id = $1`, carpoolID); err != nil {
+					return nil, fmt.Errorf("reset carpool launch notified: %w", err)
+				}
+			}
+		}
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool leave: %w", err)
+	}
+	return &service.CarpoolMutationResult{Carpool: item}, nil
+}
+
+// Confirm 车主确认发车（两段确认第一段）：仅 owner、recruiting、Σ申报在
+// [launch_min, launch_max]×周限额 区间内；确认后状态置 confirmed 并记 confirmed_at/by。
+func (r *carpoolRepository) Confirm(ctx context.Context, carpoolID, ownerUserID int64) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool confirm: %w", err)
+	}
+	defer tx.Rollback()
+
+	var carpoolOwner sql.NullInt64
+	var status string
+	var weeklyLimitUSD, launchMinRatio, launchMaxRatio float64
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status, weekly_limit_usd, launch_min_ratio, launch_max_ratio
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&carpoolOwner, &status,
+		&weeklyLimitUSD, &launchMinRatio, &launchMaxRatio)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for confirm: %w", err)
+	}
+	if !carpoolOwner.Valid || carpoolOwner.Int64 != ownerUserID {
+		return nil, service.ErrCarpoolForbidden
+	}
+	if status != "recruiting" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+
+	var declaredTotal float64
+	var memberCount int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_members
+WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&declaredTotal, &memberCount); err != nil {
+		return nil, fmt.Errorf("sum carpool declared quota for confirm: %w", err)
+	}
+	if memberCount == 0 || declaredTotal < launchMinRatio*weeklyLimitUSD || declaredTotal > launchMaxRatio*weeklyLimitUSD {
+		return nil, service.ErrCarpoolLaunchNotReady
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET status = 'confirmed', confirmed_at = NOW(), confirmed_by = $2,
+    version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID, ownerUserID); err != nil {
+		return nil, fmt.Errorf("confirm carpool: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, ownerUserID, "confirmed"); err != nil {
+		return nil, err
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool confirm: %w", err)
+	}
+	return &service.CarpoolMutationResult{Carpool: item}, nil
+}
+
+// Launch 管理员启动发车（两段确认第二段）：仅 admin。正常发车要求车已 confirmed
+// （owner 已在发车区间内确认）；force=true 用于招募不足的降档发车，要求 recruiting
+// 且 Σ申报 ≥ 80%×周限额，跳过确认流程。
 func (r *carpoolRepository) Launch(ctx context.Context, carpoolID, actorUserID int64, isAdmin, force bool) (*service.CarpoolMutationResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -276,14 +437,13 @@ func (r *carpoolRepository) Launch(ctx context.Context, carpoolID, actorUserID i
 	}
 	defer tx.Rollback()
 
-	var ownerUserID sql.NullInt64
 	var status string
 	var params carpoolLaunchParams
 	var launchMinRatio, launchMaxRatio float64
 	err = tx.QueryRowContext(ctx, `
-SELECT owner_user_id, status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,
+SELECT status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,
     reserve_ratio, launch_min_ratio, launch_max_ratio
-FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status,
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status,
 		&params.weeklyLimitUSD, &params.seatFeeCNY, &params.usagePoolCNY,
 		&params.reserveRatio, &launchMinRatio, &launchMaxRatio)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -292,11 +452,17 @@ FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status,
 	if err != nil {
 		return nil, fmt.Errorf("load carpool for launch: %w", err)
 	}
-	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
+	// 发车入口仅 admin（上一轮 owner 可直接 launch 的行为已被两段确认取代）。
+	if !isAdmin {
 		return nil, service.ErrCarpoolForbidden
 	}
-	if status != "recruiting" {
-		return nil, service.ErrCarpoolUnavailable
+	if force {
+		// force 降档发车：面向 recruiting 招募不足（Σ≥80%）的车，跳过确认流程。
+		if status != "recruiting" {
+			return nil, service.ErrCarpoolUnavailable
+		}
+	} else if status != "confirmed" {
+		return nil, service.ErrCarpoolNotConfirmed
 	}
 
 	var declaredTotal float64
@@ -350,7 +516,12 @@ func (r *carpoolRepository) Cancel(ctx context.Context, carpoolID, actorUserID i
 	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
 		return service.ErrCarpoolForbidden
 	}
-	if status != "recruiting" && status != "starting" {
+	// confirmed 全锁：仅 admin 可强制取消；其余入口仅 recruiting/starting 可取消。
+	if status == "confirmed" {
+		if !isAdmin {
+			return service.ErrCarpoolUnavailable
+		}
+	} else if status != "recruiting" && status != "starting" {
 		return service.ErrCarpoolUnavailable
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -397,6 +568,27 @@ func (r *carpoolRepository) SetJoinLocked(ctx context.Context, carpoolID, actorU
 
 func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
 	return getCarpoolByID(ctx, r.db, carpoolID, userID)
+}
+
+// GetGroupQRCode 读取车辆的微信群二维码字节与内容类型。
+func (r *carpoolRepository) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
+	var data []byte
+	var contentType sql.NullString
+	err := r.db.QueryRowContext(ctx, `
+SELECT group_qr_code, group_qr_code_content_type FROM carpools WHERE id = $1`, carpoolID).Scan(&data, &contentType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("get carpool group qr code: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, "", service.ErrCarpoolQRCodeNotFound
+	}
+	if !contentType.Valid || contentType.String == "" {
+		contentType = sql.NullString{String: "application/octet-stream", Valid: true}
+	}
+	return data, contentType.String, nil
 }
 
 func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
@@ -598,7 +790,7 @@ SELECT
     (SELECT COUNT(*) FROM carpool_members counted_member
      WHERE counted_member.carpool_id = c.id AND counted_member.status IN ('joined', 'active')),
     c.base_fee_cny, c.usage_pool_cny_per_account, c.visibility, c.status,
-    c.join_locked_at IS NOT NULL, c.scheduled_start_at, c.launched_at,
+    (c.join_locked_at IS NOT NULL OR c.status = 'confirmed'), c.scheduled_start_at, c.launched_at,
     c.group_id, g.name,
     (SELECT current_member.role FROM carpool_members current_member
      WHERE current_member.carpool_id = c.id AND current_member.user_id = $1
@@ -608,7 +800,8 @@ SELECT
     c.launch_min_ratio, c.launch_max_ratio,
     (SELECT COALESCE(SUM(declared_member.declared_weekly_quota_usd), 0)
      FROM carpool_members declared_member
-     WHERE declared_member.carpool_id = c.id AND declared_member.status IN ('joined', 'active'))
+     WHERE declared_member.carpool_id = c.id AND declared_member.status IN ('joined', 'active')),
+    c.launch_notified_at, c.confirmed_at, (c.group_qr_code IS NOT NULL)
 FROM carpools c
 LEFT JOIN users u ON u.id = c.owner_user_id
 LEFT JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL`
@@ -622,7 +815,7 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	var ownerUserID, groupID sql.NullInt64
 	var capacity sql.NullInt64
 	var groupName, memberRole sql.NullString
-	var scheduledStartAt, launchedAt sql.NullTime
+	var scheduledStartAt, launchedAt, launchNotifiedAt, confirmedAt sql.NullTime
 	err := scanner.Scan(
 		&item.ID, &item.Name, &item.Description, &item.Organizer,
 		&ownerUserID, &item.Platform, &item.PlanType, &item.CarType, &item.Level,
@@ -631,6 +824,7 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 		&groupID, &groupName, &memberRole, &item.CreatedAt,
 		&item.WeeklyLimitUSD, &item.SeatFeeCNY, &item.UsagePoolCNY, &item.ReserveRatio,
 		&item.LaunchMinRatio, &item.LaunchMaxRatio, &item.DeclaredTotalUSD,
+		&launchNotifiedAt, &confirmedAt, &item.HasGroupQRCode,
 	)
 	if err != nil {
 		return nil, err
@@ -655,6 +849,12 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	}
 	if launchedAt.Valid {
 		item.LaunchedAt = &launchedAt.Time
+	}
+	if launchNotifiedAt.Valid {
+		item.LaunchNotifiedAt = &launchNotifiedAt.Time
+	}
+	if confirmedAt.Valid {
+		item.ConfirmedAt = &confirmedAt.Time
 	}
 	return &item, nil
 }

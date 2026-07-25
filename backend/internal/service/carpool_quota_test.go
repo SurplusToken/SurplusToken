@@ -212,9 +212,15 @@ func (s *carpoolRepoStub) Create(ctx context.Context, ownerUserID int64, input C
 func (s *carpoolRepoStub) CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error {
 	panic("unexpected call")
 }
-func (s *carpoolRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, inviteHash *string) (*CarpoolMutationResult, error) {
+func (s *carpoolRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*CarpoolMutationResult, error) {
 	s.joinCall++
 	return nil, s.joinErr
+}
+func (s *carpoolRepoStub) Leave(ctx context.Context, carpoolID, userID int64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) Confirm(ctx context.Context, carpoolID, ownerUserID int64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
 }
 func (s *carpoolRepoStub) Launch(ctx context.Context, carpoolID, actorUserID int64, isAdmin, force bool) (*CarpoolMutationResult, error) {
 	panic("unexpected call")
@@ -223,6 +229,9 @@ func (s *carpoolRepoStub) Cancel(ctx context.Context, carpoolID, actorUserID int
 	panic("unexpected call")
 }
 func (s *carpoolRepoStub) SetJoinLocked(ctx context.Context, carpoolID, actorUserID int64, locked bool) error {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
 	panic("unexpected call")
 }
 func (s *carpoolRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error) {
@@ -253,7 +262,7 @@ func TestGetSettlementVisibility(t *testing.T) {
 	newSvc := func(memberRole *string) *CarpoolService {
 		c := *carpool
 		c.MemberRole = memberRole
-		return NewCarpoolService(&carpoolRepoStub{carpool: &c, rows: rows}, nil)
+		return NewCarpoolService(&carpoolRepoStub{carpool: &c, rows: rows}, nil, nil, nil)
 	}
 
 	ownerRole, memberRole := "owner", "member"
@@ -288,11 +297,11 @@ func TestGetSettlementVisibility(t *testing.T) {
 
 func TestJoinRejectsNonPositiveDeclaration(t *testing.T) {
 	stub := &carpoolRepoStub{}
-	svc := NewCarpoolService(stub, nil)
+	svc := NewCarpoolService(stub, nil, nil, nil)
 	for _, declared := range []float64{0, -10} {
-		_, err := svc.Join(context.Background(), 7, 12, declared)
+		_, err := svc.Join(context.Background(), 7, 12, declared, true)
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
-		_, err = svc.JoinByInvite(context.Background(), "token", 12, declared)
+		_, err = svc.JoinByInvite(context.Background(), "token", 12, declared, true)
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
 	}
 	require.Zero(t, stub.joinCall, "非法申报不应触达 repo 层")

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -35,15 +36,22 @@ type createCarpoolRequest struct {
 	LaunchMaxRatio   float64 `json:"launch_max_ratio"`
 	// DeclaredWeeklyQuotaUSD 是 owner 本人的申报（可选，0 = owner 仅发起不占额度）。
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
+	// 两项强制确认：已添加管理员微信（true）+ 群二维码（base64/data URL，≤2MB）。
+	AddedAdminWechat bool   `json:"added_admin_wechat"`
+	GroupQRCode      string `json:"group_qr_code"`
 }
 
 type carpoolInviteRequest struct {
 	Token                  string  `json:"token" binding:"required"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
+	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
+	JoinedWechatGroup bool `json:"joined_wechat_group"`
 }
 
 type carpoolJoinRequest struct {
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
+	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
+	JoinedWechatGroup bool `json:"joined_wechat_group"`
 }
 
 type carpoolLaunchRequest struct {
@@ -97,6 +105,8 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 		LaunchMinRatio:         req.LaunchMinRatio,
 		LaunchMaxRatio:         req.LaunchMaxRatio,
 		DeclaredWeeklyQuotaUSD: req.DeclaredWeeklyQuotaUSD,
+		AddedAdminWechat:       req.AddedAdminWechat,
+		GroupQRCode:            req.GroupQRCode,
 	})
 	if response.ErrorFrom(c, err) {
 		return
@@ -149,7 +159,7 @@ func (h *CarpoolHandler) Join(c *gin.Context) {
 		response.BadRequest(c, "declared_weekly_quota_usd is required")
 		return
 	}
-	result, err := h.service.Join(c.Request.Context(), id, subject.UserID, req.DeclaredWeeklyQuotaUSD)
+	result, err := h.service.Join(c.Request.Context(), id, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
 	if response.ErrorFrom(c, err) {
 		return
 	}
@@ -167,15 +177,69 @@ func (h *CarpoolHandler) JoinByInvite(c *gin.Context) {
 		response.BadRequest(c, "token and declared_weekly_quota_usd are required")
 		return
 	}
-	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID, req.DeclaredWeeklyQuotaUSD)
+	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
 	if response.ErrorFrom(c, err) {
 		return
 	}
 	response.Success(c, result)
 }
 
-// Launch 手动发车（设计文档 §4.3）：Σ申报进入 [95%, 105%]×周限额 后由
-// owner/admin 触发；force=true 时按降档发车放宽到 80% 下限。
+// Leave 下车：仅 recruiting 状态的普通成员；申报额度即时释放，幂等。
+func (h *CarpoolHandler) Leave(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Leave(c.Request.Context(), id, subject.UserID)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// Confirm 车主确认发车（两段确认第一段）：仅 owner、recruiting、Σ申报在发车区间内。
+func (h *CarpoolHandler) Confirm(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Confirm(c.Request.Context(), id, subject.UserID)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// GroupQRCode 返回车辆微信群二维码图片（任何登录用户可读，含未上车者）。
+func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
+	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	data, contentType, err := h.service.GetGroupQRCode(c.Request.Context(), id)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=3600")
+	c.Data(http.StatusOK, contentType, data)
+}
+
+// Launch 管理员启动发车（两段确认第二段）：仅 admin；正常发车要求车已 confirmed，
+// force=true 为降档发车（要求 recruiting 且 Σ申报≥80%×周限额，跳过确认流程）。
 func (h *CarpoolHandler) Launch(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {

@@ -201,7 +201,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountContributionService := service.NewAccountContributionService(accountService, accountContributionPoolRepository)
 	accountPoolHandler := handler.NewAccountPoolHandler(accountService, apiKeyService, accountUsageService, proxyService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, kimiOAuthService, accountTestService, scheduledTestService, rateLimitService, compositeTokenCacheInvalidator, privacyClientFactory, remoteSessionService, accountContributionService, openAIQuotaService)
 	carpoolRepository := repository.NewCarpoolRepository(db)
-	carpoolService := service.NewCarpoolService(carpoolRepository, subscriptionService)
+	carpoolService := service.NewCarpoolService(carpoolRepository, subscriptionService, emailService, userRepository)
 	carpoolHandler := handler.NewCarpoolHandler(carpoolService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
