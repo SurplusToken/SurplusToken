@@ -19,11 +19,13 @@ var (
 
 // launchFlowRepoStub 是可配置的 CarpoolRepository 桩：记录入参并返回预设结果。
 type launchFlowRepoStub struct {
-	createInput  *CreateCarpoolInput
-	createResult *CarpoolMutationResult
-	joinResult   *CarpoolMutationResult
-	confirmRes   *CarpoolMutationResult
-	launchResult *CarpoolMutationResult
+	createInput   *CreateCarpoolInput
+	createResult  *CarpoolMutationResult
+	joinResult    *CarpoolMutationResult
+	confirmRes    *CarpoolMutationResult
+	unconfirmRes  *CarpoolMutationResult
+	launchResult  *CarpoolMutationResult
+	pendingLaunch []CarpoolPendingLaunch
 }
 
 func (s *launchFlowRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -50,6 +52,12 @@ func (s *launchFlowRepoStub) Leave(ctx context.Context, carpoolID, userID int64)
 }
 func (s *launchFlowRepoStub) Confirm(ctx context.Context, carpoolID, ownerUserID int64) (*CarpoolMutationResult, error) {
 	return s.confirmRes, nil
+}
+func (s *launchFlowRepoStub) Unconfirm(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error) {
+	return s.unconfirmRes, nil
+}
+func (s *launchFlowRepoStub) ListPendingLaunch(ctx context.Context) ([]CarpoolPendingLaunch, error) {
+	return s.pendingLaunch, nil
 }
 func (s *launchFlowRepoStub) Launch(ctx context.Context, carpoolID, actorUserID int64, isAdmin, force bool) (*CarpoolMutationResult, error) {
 	return s.launchResult, nil
@@ -149,7 +157,7 @@ func TestCreateRequiresAddedAdminWechat(t *testing.T) {
 		Name: "weekend-car", Visibility: CarpoolVisibilityPublic,
 		GroupQRCode: "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNGBytes),
 	}
-	_, err := svc.Create(context.Background(), 11, input)
+	_, err := svc.Create(context.Background(), 11, false, input)
 	require.ErrorIs(t, err, ErrCarpoolContactConfirmRequired)
 	require.Nil(t, repo.createInput, "确认缺失时不应触达 repo 层")
 }
@@ -162,13 +170,13 @@ func TestCreateRequiresValidGroupQRCode(t *testing.T) {
 	}
 
 	// 缺二维码 → required
-	_, err := svc.Create(context.Background(), 11, base)
+	_, err := svc.Create(context.Background(), 11, false, base)
 	require.ErrorIs(t, err, ErrCarpoolGroupQRCodeRequired)
 
 	// 二维码类型不支持 → invalid
 	bad := base
 	bad.GroupQRCode = base64.StdEncoding.EncodeToString(testGIFBytes)
-	_, err = svc.Create(context.Background(), 11, bad)
+	_, err = svc.Create(context.Background(), 11, false, bad)
 	require.ErrorIs(t, err, ErrCarpoolGroupQRCodeInvalid)
 	require.Nil(t, repo.createInput)
 }
@@ -181,7 +189,7 @@ func TestCreateStoresParsedQRCode(t *testing.T) {
 		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true,
 		GroupQRCode: "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNGBytes),
 	}
-	result, err := svc.Create(context.Background(), 11, input)
+	result, err := svc.Create(context.Background(), 11, false, input)
 	require.NoError(t, err)
 	require.NotNil(t, repo.createInput)
 	require.True(t, repo.createInput.AddedAdminWechat)

@@ -261,10 +261,11 @@ func TestCarpoolFillDerivedMetrics(t *testing.T) {
 }
 
 type carpoolRepoStub struct {
-	carpool  *Carpool
-	rows     []CarpoolSettlementMemberRow
-	joinErr  error
-	joinCall int
+	carpool    *Carpool
+	rows       []CarpoolSettlementMemberRow
+	joinErr    error
+	joinCall   int
+	joinResult *CarpoolMutationResult
 }
 
 func (s *carpoolRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -284,12 +285,21 @@ func (s *carpoolRepoStub) CreateInvite(ctx context.Context, carpoolID, actorUser
 }
 func (s *carpoolRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*CarpoolMutationResult, error) {
 	s.joinCall++
-	return nil, s.joinErr
+	if s.joinErr != nil {
+		return nil, s.joinErr
+	}
+	return s.joinResult, nil
 }
 func (s *carpoolRepoStub) Leave(ctx context.Context, carpoolID, userID int64) (*CarpoolMutationResult, error) {
 	panic("unexpected call")
 }
 func (s *carpoolRepoStub) Confirm(ctx context.Context, carpoolID, ownerUserID int64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) Unconfirm(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) ListPendingLaunch(ctx context.Context) ([]CarpoolPendingLaunch, error) {
 	panic("unexpected call")
 }
 func (s *carpoolRepoStub) Launch(ctx context.Context, carpoolID, actorUserID int64, isAdmin, force bool) (*CarpoolMutationResult, error) {
@@ -375,6 +385,88 @@ func TestJoinRejectsNonPositiveDeclaration(t *testing.T) {
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
 	}
 	require.Zero(t, stub.joinCall, "非法申报不应触达 repo 层")
+}
+
+// 申报下限：低于 CarpoolMinDeclaredWeeklyQuotaUSD 直接拒绝。
+// 没有下限时 $0.01 就能占一个席位并拿到公共池准入。
+func TestJoinRejectsDeclarationBelowFloor(t *testing.T) {
+	stub := &carpoolRepoStub{}
+	svc := NewCarpoolService(stub, nil, nil, nil)
+	_, err := svc.Join(context.Background(), 7, 12, 0.01, true)
+	require.ErrorIs(t, err, ErrCarpoolDeclarationTooSmall)
+	_, err = svc.JoinByInvite(context.Background(), "token", 12, CarpoolMinDeclaredWeeklyQuotaUSD-0.01, true)
+	require.ErrorIs(t, err, ErrCarpoolDeclarationTooSmall)
+	require.Zero(t, stub.joinCall, "低于下限的申报不应触达 repo 层")
+
+	// 正好等于下限应放行到 repo 层。
+	stub.joinResult = &CarpoolMutationResult{Carpool: &Carpool{ID: 7}}
+	_, err = svc.Join(context.Background(), 7, 12, CarpoolMinDeclaredWeeklyQuotaUSD, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, stub.joinCall)
+}
+
+// 额度参数校验：公共池必须严格为正，否则组级硬约束（C ≤ 0 时被跳过）静默失效。
+func TestValidateQuotaParamsRejectsNonPositiveSharedPool(t *testing.T) {
+	base := func() CreateCarpoolInput {
+		in := CreateCarpoolInput{}
+		in.applyQuotaDefaults()
+		return in
+	}
+
+	ok := base()
+	require.NoError(t, ok.validateQuotaParams())
+	require.Greater(t, CarpoolSharedPoolCapacityUSD(ok.WeeklyLimitUSD, ok.ReserveRatio,
+		ok.LaunchMaxRatio*ok.WeeklyLimitUSD), 0.0)
+
+	// reserve×launch_max = 1 → C = 0 → 公共池检查被整体跳过。
+	bad := base()
+	bad.ReserveRatio = 1.0
+	bad.LaunchMaxRatio = 1.0
+	require.ErrorIs(t, bad.validateQuotaParams(), ErrCarpoolInvalidRequest)
+	require.LessOrEqual(t, CarpoolSharedPoolCapacityUSD(bad.WeeklyLimitUSD, bad.ReserveRatio,
+		bad.LaunchMaxRatio*bad.WeeklyLimitUSD), 0.0)
+
+	// reserve×launch_max > 1 → C 为负。
+	worse := base()
+	worse.ReserveRatio = 0.9
+	worse.LaunchMaxRatio = 1.5
+	require.ErrorIs(t, worse.validateQuotaParams(), ErrCarpoolInvalidRequest)
+}
+
+// owner 申报超过整车上限的车永远进不了发车区间，会一直卡在 recruiting。
+func TestValidateQuotaParamsRejectsOwnerDeclarationAboveCarCap(t *testing.T) {
+	in := CreateCarpoolInput{}
+	in.applyQuotaDefaults()
+	in.DeclaredWeeklyQuotaUSD = in.LaunchMaxRatio*in.WeeklyLimitUSD + 1
+	require.ErrorIs(t, in.validateQuotaParams(), ErrCarpoolQuotaExceeded)
+
+	in.DeclaredWeeklyQuotaUSD = 1
+	require.ErrorIs(t, in.validateQuotaParams(), ErrCarpoolDeclarationTooSmall)
+
+	// 0 = 仅发起、不占额度，合法。
+	in.DeclaredWeeklyQuotaUSD = 0
+	require.NoError(t, in.validateQuotaParams())
+}
+
+// 非 admin 不得自助设定额度池参数（否则任何用户都能造出"整车 $10 亿"的车）。
+func TestCreateRejectsCustomQuotaParamsForNonAdmin(t *testing.T) {
+	stub := &carpoolRepoStub{}
+	svc := NewCarpoolService(stub, nil, nil, nil)
+	input := CreateCarpoolInput{
+		Name: "whale-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true,
+		WeeklyLimitUSD: 1e9,
+	}
+	_, err := svc.Create(context.Background(), 11, false, input)
+	require.ErrorIs(t, err, ErrCarpoolCustomParamsForbidden)
+}
+
+// 咨询限流：冷却窗口内第二次预占被拒。
+func TestReserveInterestSlotCooldown(t *testing.T) {
+	svc := NewCarpoolService(&carpoolRepoStub{}, nil, nil, nil)
+	require.NoError(t, svc.ReserveInterestSlot(12))
+	require.ErrorIs(t, svc.ReserveInterestSlot(12), ErrCarpoolInterestTooFrequent)
+	// 不同用户互不影响。
+	require.NoError(t, svc.ReserveInterestSlot(13))
 }
 
 func TestCreateAppliesQuotaDefaults(t *testing.T) {

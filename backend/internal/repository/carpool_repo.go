@@ -107,8 +107,9 @@ RETURNING id`, input.Name, input.Description, ownerUserID, input.CarType, input.
 		ownerPrepaid = &prepaid
 	}
 	if _, err := tx.ExecContext(ctx, `
-INSERT INTO carpool_members (carpool_id, user_id, role, status, declared_weekly_quota_usd, prepaid_amount_cny)
-VALUES ($1, $2, 'owner', 'joined', $3, $4)`, carpoolID, ownerUserID, input.DeclaredWeeklyQuotaUSD, ownerPrepaid); err != nil {
+INSERT INTO carpool_members (carpool_id, user_id, role, status, declared_weekly_quota_usd,
+    prepaid_amount_cny, quoted_prepaid_amount_cny)
+VALUES ($1, $2, 'owner', 'joined', $3, $4, $4)`, carpoolID, ownerUserID, input.DeclaredWeeklyQuotaUSD, ownerPrepaid); err != nil {
 		return nil, fmt.Errorf("create carpool owner membership: %w", err)
 	}
 	if err := insertCarpoolInvite(ctx, tx, carpoolID, ownerUserID, inviteHash, inviteHint); err != nil {
@@ -171,24 +172,18 @@ func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, d
 	}
 	defer tx.Rollback()
 
-	var inviteID *int64
+	// 锁顺序约定：carpools → carpool_invites（父表在前）。Cancel 走的就是这个顺序，
+	// 本函数原来反着来（先锁邀请行再锁车行），两条路径并发时构成 AB-BA 死锁。
+	// 因此这里先不加锁地解析邀请拿到 carpool_id，锁住车行之后再回头锁邀请行并复核。
 	if inviteHash != nil {
-		var resolvedInviteID int64
 		err = tx.QueryRowContext(ctx, `
-SELECT id, carpool_id
-FROM carpool_invites
-WHERE token_hash = $1
-  AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > NOW())
-  AND (max_uses = 0 OR use_count < max_uses)
-FOR UPDATE`, *inviteHash).Scan(&resolvedInviteID, &carpoolID)
+SELECT carpool_id FROM carpool_invites WHERE token_hash = $1`, *inviteHash).Scan(&carpoolID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, service.ErrCarpoolInviteInvalid
 		}
 		if err != nil {
 			return nil, fmt.Errorf("resolve carpool invite for join: %w", err)
 		}
-		inviteID = &resolvedInviteID
 	}
 
 	var status, visibility string
@@ -205,6 +200,32 @@ FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &
 	if err != nil {
 		return nil, fmt.Errorf("load carpool for join: %w", err)
 	}
+
+	// 车行已锁，此时才锁邀请行——有效性（撤销/过期/用完）在锁下复核一次，
+	// 保证与原来 FOR UPDATE 解析等价的并发语义。
+	var inviteID *int64
+	if inviteHash != nil {
+		var resolvedInviteID, resolvedCarpoolID int64
+		err = tx.QueryRowContext(ctx, `
+SELECT id, carpool_id
+FROM carpool_invites
+WHERE token_hash = $1
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > NOW())
+  AND (max_uses = 0 OR use_count < max_uses)
+FOR UPDATE`, *inviteHash).Scan(&resolvedInviteID, &resolvedCarpoolID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, service.ErrCarpoolInviteInvalid
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock carpool invite for join: %w", err)
+		}
+		if resolvedCarpoolID != carpoolID {
+			return nil, service.ErrCarpoolInviteInvalid
+		}
+		inviteID = &resolvedInviteID
+	}
+
 	// confirmed 全锁：仅 recruiting 可上车。
 	if status != "recruiting" || locked || (inviteID == nil && visibility != service.CarpoolVisibilityPublic) {
 		return nil, service.ErrCarpoolUnavailable
@@ -226,22 +247,31 @@ SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_member
 WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&declaredTotal, &memberCount); err != nil {
 		return nil, fmt.Errorf("sum carpool declared quota: %w", err)
 	}
+	// 成员数硬上限：发车是单事务、逐成员建订阅，成员数直接决定事务大小。
+	if memberCount >= service.CarpoolMaxMembers {
+		return nil, service.ErrCarpoolFull
+	}
 	// 上车硬上限（设计文档 §4.1）：Σ申报 + 新申报 > 105%×周限额 时拒绝上车。
 	if declaredTotal+declaredWeeklyQuotaUSD > launchMaxRatio*weeklyLimitUSD {
 		return nil, service.ErrCarpoolQuotaExceeded
 	}
 
 	// 上车即记账（设计文档 §4.4）：预付 = 席位费/人数 + 变动池×(申报/周限额)。
+	// 这个数字是按"上车当时的人数"报给用户、并据此实际收款的，因此同时写入
+	// quoted_prepaid_amount_cny 永久留档；prepaid_amount_cny 会在发车时被按
+	// 发车人数重写，两者之差就是结算时席位费要找齐的钱。
 	prepaidAmountCNY := service.CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, weeklyLimitUSD, declaredWeeklyQuotaUSD, memberCount+1)
 
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO carpool_members (carpool_id, user_id, role, status, joined_via_invite_id,
-    declared_weekly_quota_usd, prepaid_amount_cny, joined_wechat_group, joined_at, updated_at)
-VALUES ($1, $2, 'member', 'joined', $3, $4, $5, $6, NOW(), NOW())
+    declared_weekly_quota_usd, prepaid_amount_cny, quoted_prepaid_amount_cny,
+    joined_wechat_group, joined_at, updated_at)
+VALUES ($1, $2, 'member', 'joined', $3, $4, $5, $5, $6, NOW(), NOW())
 ON CONFLICT (carpool_id, user_id) DO UPDATE SET
     status = 'joined', joined_via_invite_id = EXCLUDED.joined_via_invite_id,
     declared_weekly_quota_usd = EXCLUDED.declared_weekly_quota_usd,
     prepaid_amount_cny = EXCLUDED.prepaid_amount_cny,
+    quoted_prepaid_amount_cny = EXCLUDED.quoted_prepaid_amount_cny,
     joined_wechat_group = EXCLUDED.joined_wechat_group,
     joined_at = NOW(), left_at = NULL, removed_by_user_id = NULL,
     removal_reason = NULL, updated_at = NOW()`, carpoolID, userID, inviteID, declaredWeeklyQuotaUSD, prepaidAmountCNY, joinedWechatGroup)
@@ -427,6 +457,91 @@ WHERE id = $1`, carpoolID, ownerUserID); err != nil {
 	return &service.CarpoolMutationResult{Carpool: item}, nil
 }
 
+// Unconfirm 撤回确认（confirmed → recruiting）：车主或 admin 可用。
+// 清空 confirmed_at/confirmed_by 与 launch_notified_at——后者清空后，Σ申报 下次
+// 再进入发车区间时会重新通知车主，避免"通知只发一次、车却回到招募态"的死角。
+func (r *carpoolRepository) Unconfirm(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool unconfirm: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for unconfirm: %w", err)
+	}
+	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
+		return nil, service.ErrCarpoolForbidden
+	}
+	if status != "confirmed" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET status = 'recruiting', confirmed_at = NULL, confirmed_by = NULL,
+    launch_notified_at = NULL, version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID); err != nil {
+		return nil, fmt.Errorf("unconfirm carpool: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "unconfirmed"); err != nil {
+		return nil, err
+	}
+	item, err := getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool unconfirm: %w", err)
+	}
+	return &service.CarpoolMutationResult{Carpool: item}, nil
+}
+
+// ListPendingLaunch 列出全部等待 admin 启动的车（status = confirmed），最早确认的在前。
+func (r *carpoolRepository) ListPendingLaunch(ctx context.Context) ([]service.CarpoolPendingLaunch, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT c.id, c.name, c.owner_user_id, COALESCE(u.email, ''),
+    (SELECT COUNT(*) FROM carpool_members m
+     WHERE m.carpool_id = c.id AND m.status IN ('joined', 'active')),
+    (SELECT COALESCE(SUM(m.declared_weekly_quota_usd), 0) FROM carpool_members m
+     WHERE m.carpool_id = c.id AND m.status IN ('joined', 'active')),
+    c.weekly_limit_usd, c.confirmed_at,
+    EXTRACT(EPOCH FROM (NOW() - c.confirmed_at)) / 3600
+FROM carpools c
+LEFT JOIN users u ON u.id = c.owner_user_id
+WHERE c.status = 'confirmed' AND c.confirmed_at IS NOT NULL
+ORDER BY c.confirmed_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list pending launch carpools: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]service.CarpoolPendingLaunch, 0)
+	for rows.Next() {
+		var item service.CarpoolPendingLaunch
+		var ownerUserID sql.NullInt64
+		if err := rows.Scan(&item.CarpoolID, &item.Name, &ownerUserID, &item.OwnerEmail,
+			&item.MemberCount, &item.DeclaredTotalUSD, &item.WeeklyLimitUSD,
+			&item.ConfirmedAt, &item.PendingHours); err != nil {
+			return nil, fmt.Errorf("scan pending launch carpool: %w", err)
+		}
+		if ownerUserID.Valid {
+			item.OwnerUserID = &ownerUserID.Int64
+		}
+		item.Overdue = item.PendingHours > service.CarpoolLaunchSLAHours
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending launch carpools: %w", err)
+	}
+	return items, nil
+}
+
 // Launch 管理员启动发车（两段确认第二段）：仅 admin。正常发车要求车已 confirmed
 // （owner 已在发车区间内确认）；force=true 用于招募不足的降档发车，要求 recruiting
 // 且 Σ申报 ≥ 80%×周限额，跳过确认流程。
@@ -592,10 +707,15 @@ SELECT group_qr_code, group_qr_code_content_type FROM carpools WHERE id = $1`, c
 }
 
 func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
+	// 带上邮箱/用户名：结算单里只有 #userId 的话，车主没法把每一行对应到
+	// 微信群里的真人去收款/退款。可见性由 service 层控制（仅 owner/admin 全量）。
 	rows, err := r.db.QueryContext(ctx, `
-SELECT m.user_id, m.role, m.declared_weekly_quota_usd, COALESCE(m.prepaid_amount_cny, 0),
+SELECT m.user_id, COALESCE(u.email, ''), COALESCE(u.username, ''),
+    m.role, m.declared_weekly_quota_usd, COALESCE(m.prepaid_amount_cny, 0),
+    COALESCE(m.quoted_prepaid_amount_cny, m.prepaid_amount_cny, 0),
     COALESCE(s.monthly_usage_usd, 0), s.starts_at, s.expires_at
 FROM carpool_members m
+LEFT JOIN users u ON u.id = m.user_id
 LEFT JOIN user_subscriptions s ON s.id = m.subscription_id
 WHERE m.carpool_id = $1 AND m.status IN ('joined', 'active')
 ORDER BY m.id`, carpoolID)
@@ -608,8 +728,10 @@ ORDER BY m.id`, carpoolID)
 	for rows.Next() {
 		var item service.CarpoolSettlementMemberRow
 		var startsAt, expiresAt sql.NullTime
-		if err := rows.Scan(&item.UserID, &item.Role, &item.DeclaredWeeklyQuotaUSD,
-			&item.PrepaidAmountCNY, &item.ActualUsageUSD, &startsAt, &expiresAt); err != nil {
+		if err := rows.Scan(&item.UserID, &item.Email, &item.Username,
+			&item.Role, &item.DeclaredWeeklyQuotaUSD,
+			&item.PrepaidAmountCNY, &item.QuotedPrepaidCNY,
+			&item.ActualUsageUSD, &startsAt, &expiresAt); err != nil {
 			return nil, fmt.Errorf("scan carpool settlement member: %w", err)
 		}
 		if startsAt.Valid {
@@ -692,6 +814,9 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 		return 0, nil, fmt.Errorf("enqueue launched carpool group: %w", err)
 	}
 
+	// 只有申报 > 0 的成员上车：declared = 0 的车主是"仅发起、不占额度"，
+	// 给他建订阅等于白送一份公共池准入（保底 r = 0、无地板、无预付），
+	// 正是地板规则要防的搭便车。他会在下面被置为 left，不进结算、不摊席位费。
 	rows, err := tx.QueryContext(ctx, `SELECT id, user_id, declared_weekly_quota_usd FROM carpool_members WHERE carpool_id = $1 AND status = 'joined' ORDER BY id`, carpoolID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list launching carpool members: %w", err)
@@ -701,12 +826,17 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 		declared   float64
 	}
 	members := make([]member, 0)
+	skipped := make([]int64, 0)
 	declaredTotal := 0.0
 	for rows.Next() {
 		var m member
 		if err := rows.Scan(&m.id, &m.userID, &m.declared); err != nil {
 			rows.Close()
 			return 0, nil, fmt.Errorf("scan launching carpool member: %w", err)
+		}
+		if m.declared <= 0 {
+			skipped = append(skipped, m.id)
+			continue
 		}
 		declaredTotal += m.declared
 		members = append(members, m)
@@ -717,6 +847,20 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 	}
 	if err := rows.Close(); err != nil {
 		return 0, nil, fmt.Errorf("close launching carpool members: %w", err)
+	}
+	if len(members) == 0 {
+		return 0, nil, service.ErrCarpoolLaunchNotReady
+	}
+	if len(members) > service.CarpoolMaxMembers {
+		return 0, nil, service.ErrCarpoolFull
+	}
+	if len(skipped) > 0 {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET status = 'left', left_at = NOW(),
+    removal_reason = 'zero declared quota at launch', updated_at = NOW()
+WHERE id = ANY($1)`, pq.Array(skipped)); err != nil {
+			return 0, nil, fmt.Errorf("drop zero-declaration carpool members: %w", err)
+		}
 	}
 
 	now := time.Now().UTC()
@@ -742,7 +886,9 @@ RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatical
 		if err != nil {
 			return 0, nil, fmt.Errorf("assign carpool subscription to user %d: %w", member.userID, err)
 		}
-		// 预付按发车时人数锁定（设计文档 §4.4）。
+		// 预付按发车时人数锁定（设计文档 §4.4）。注意只重写 prepaid_amount_cny，
+		// 上车时的报价 quoted_prepaid_amount_cny 保持原值——结算时席位费退补
+		// 正是拿这两个数之差算出来的。
 		prepaidAmountCNY := service.CarpoolPrepaidCNY(params.seatFeeCNY, params.usagePoolCNY, params.weeklyLimitUSD, member.declared, len(members))
 		if _, err := tx.ExecContext(ctx, `
 UPDATE carpool_members SET status = 'active', subscription_id = $2,

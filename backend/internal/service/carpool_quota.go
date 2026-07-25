@@ -150,9 +150,12 @@ func BuildDeclarationRecommendation(weeklyUsageUSD float64, daysWithRecords int,
 // CarpoolSettlementMemberInput 是结算计算的成员输入。
 type CarpoolSettlementMemberInput struct {
 	UserID                 int64
+	Email                  string  // 供车主对应到真人收款
+	Username               string  // 同上，可能为空
 	Role                   string
 	DeclaredWeeklyQuotaUSD float64
 	PrepaidAmountCNY       float64 // 首月预付台账（发车时按发车人数锁定）
+	QuotedPrepaidCNY       float64 // 上车当时报给用户的预付（按上车时人数），实际收款依据
 	ActualUsageUSD         float64 // 订阅周期内实际用量（月度窗口）
 	PeriodDays             float64 // 订阅有效期天数（用于申报→周期地板折算）
 }
@@ -160,20 +163,23 @@ type CarpoolSettlementMemberInput struct {
 // CarpoolSettlementMember 是结算单中的成员行。
 type CarpoolSettlementMember struct {
 	UserID                 int64   `json:"user_id"`
+	Email                  string  `json:"email,omitempty"`
+	Username               string  `json:"username,omitempty"`
 	Role                   string  `json:"role"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
 	FloorUsageUSD          float64 `json:"floor_usage_usd"`    // 0.8×申报×周期周数（80% 地板）
 	ActualUsageUSD         float64 `json:"actual_usage_usd"`   // 周期内实际用量
 	BillableUsageUSD       float64 `json:"billable_usage_usd"` // 计费用量 = max(实际, 地板)
 	FloorTriggered         bool    `json:"floor_triggered"`    // 实际未达地板，按地板计费
-	PrepaidAmountCNY       float64 `json:"prepaid_amount_cny"`
-	UsagePrepaidCNY        float64 `json:"usage_prepaid_cny"`     // 预付变动部分 = 变动池×申报/周限额
-	UsageFinalShareCNY     float64 `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
-	UsageDeltaCNY          float64 `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
-	SeatFeePrepaidCNY      float64 `json:"seat_fee_prepaid_cny"`  // 预付席位费部分
-	SeatFeeFinalCNY        float64 `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
-	SeatFeeDeltaCNY        float64 `json:"seat_fee_delta_cny"`    // 席位费退/补：正=退，负=补
-	TotalDeltaCNY          float64 `json:"total_delta_cny"`       // 合计退/补：正=退，负=补
+	PrepaidAmountCNY       float64 `json:"prepaid_amount_cny"`        // 发车时按发车人数锁定的台账值
+	QuotedPrepaidCNY       float64 `json:"quoted_prepaid_cny"`        // 上车当时报给用户的金额（实际收款依据）
+	UsagePrepaidCNY        float64 `json:"usage_prepaid_cny"`         // 预付变动部分 = 变动池×申报/周限额
+	UsageFinalShareCNY     float64 `json:"usage_final_share_cny"`     // 最终分摊 = 变动池×计费用量/Σ计费用量
+	UsageDeltaCNY          float64 `json:"usage_delta_cny"`           // 变动部分退/补：正=退，负=补
+	SeatFeePrepaidCNY      float64 `json:"seat_fee_prepaid_cny"`      // 上车报价中的席位费部分 = 席位费/上车时人数
+	SeatFeeFinalCNY        float64 `json:"seat_fee_final_cny"`        // 最终席位费 = 席位费/发车人数
+	SeatFeeDeltaCNY        float64 `json:"seat_fee_delta_cny"`        // 席位费退/补：正=退，负=补
+	TotalDeltaCNY          float64 `json:"total_delta_cny"`           // 合计退/补：正=退，负=补
 }
 
 // ComputeCarpoolSettlementMembers 按设计文档 §4.5 计算全车结算单（含 80% 地板规则）。
@@ -213,10 +219,20 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 		if billableTotal > 0 {
 			usageFinalShare = usagePoolCNY * billable / billableTotal
 		}
-		seatFeePrepaid := in.PrepaidAmountCNY - usagePrepaid
+		// 席位费退补必须对着"用户上车当时被报价、并据此付给车主的金额"算。
+		// 发车时 prepaid_amount_cny 被按发车人数重写，如果拿它当预付基准，
+		// 差额恒等于 0——席位费"找齐"就成了死代码。老数据没有报价列时回落到
+		// 锁定值，行为退化为原来的恒 0，不产生错误金额。
+		quoted := in.QuotedPrepaidCNY
+		if quoted <= 0 {
+			quoted = in.PrepaidAmountCNY
+		}
+		seatFeePrepaid := quoted - usagePrepaid
 
 		member := CarpoolSettlementMember{
 			UserID:                 in.UserID,
+			Email:                  in.Email,
+			Username:               in.Username,
 			Role:                   in.Role,
 			DeclaredWeeklyQuotaUSD: in.DeclaredWeeklyQuotaUSD,
 			FloorUsageUSD:          floor,
@@ -224,6 +240,7 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 			BillableUsageUSD:       billable,
 			FloorTriggered:         floorTriggered,
 			PrepaidAmountCNY:       in.PrepaidAmountCNY,
+			QuotedPrepaidCNY:       quoted,
 			UsagePrepaidCNY:        usagePrepaid,
 			UsageFinalShareCNY:     usageFinalShare,
 			UsageDeltaCNY:          usagePrepaid - usageFinalShare,

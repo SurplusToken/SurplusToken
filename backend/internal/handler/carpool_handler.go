@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -69,6 +70,9 @@ type carpoolCustomRuleInterestRequest struct {
 
 // CustomRuleInterest 自定义规则咨询入口：登录用户点击后给全部 admin 发提示邮件；
 // SMTP 未配置或发送失败优雅降级，接口照常返回成功。
+//
+// 每用户冷却在派发前同步检查（超频返回 429），邮件本身异步发送——这个入口会给
+// 全部 admin 逐一发信，同步发会把 SMTP 往返挂在请求上，也把限流之外的放大面留给调用方。
 func (h *CarpoolHandler) CustomRuleInterest(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -80,7 +84,13 @@ func (h *CarpoolHandler) CustomRuleInterest(c *gin.Context) {
 		// 允许空 body（note 可选）。
 		req = carpoolCustomRuleInterestRequest{}
 	}
-	h.service.NotifyCustomRuleInterest(c.Request.Context(), subject.UserID, req.Note)
+	if response.ErrorFrom(c, h.service.ReserveInterestSlot(subject.UserID)) {
+		return
+	}
+	// 脱离请求生命周期但保留 trace 等请求值：请求返回后邮件仍需发完。
+	ctx := context.WithoutCancel(c.Request.Context())
+	userID, note := subject.UserID, req.Note
+	go h.service.NotifyCustomRuleInterest(ctx, userID, note)
 	response.Success(c, gin.H{"message": "ok"})
 }
 
@@ -113,7 +123,7 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "scheduled_start_at must use YYYY-MM-DD")
 		return
 	}
-	result, err := h.service.Create(c.Request.Context(), subject.UserID, service.CreateCarpoolInput{
+	result, err := h.service.Create(c.Request.Context(), subject.UserID, isCarpoolAdmin(c), service.CreateCarpoolInput{
 		Name:                   req.Name,
 		Description:            req.Description,
 		CarType:                req.CarType,
@@ -242,9 +252,12 @@ func (h *CarpoolHandler) Confirm(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// GroupQRCode 返回车辆微信群二维码图片（任何登录用户可读，含未上车者）。
+// GroupQRCode 返回车辆微信群二维码图片。可见性由 service 层判定：
+// admin/车主/成员始终可读；招募中的 public 车对登录用户开放；招募中的
+// invite_only 车必须带 ?token=<邀请码>。
 func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
-	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
 		response.Unauthorized(c, "User not found in context")
 		return
 	}
@@ -252,12 +265,46 @@ func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
 	if !ok {
 		return
 	}
-	data, contentType, err := h.service.GetGroupQRCode(c.Request.Context(), id)
+	data, contentType, err := h.service.GetGroupQRCode(c.Request.Context(), id,
+		subject.UserID, isCarpoolAdmin(c), c.Query("token"))
 	if response.ErrorFrom(c, err) {
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=3600")
+	// private：二维码是按调用者身份授权的，不能进共享缓存（CDN/代理）。
+	c.Header("Cache-Control", "private, max-age=300")
 	c.Data(http.StatusOK, contentType, data)
+}
+
+// Unconfirm 撤回确认（confirmed → recruiting）：车主或 admin。
+// 给"等 admin 启动"这段状态一个出口，避免车连人带钱无限挂起。
+func (h *CarpoolHandler) Unconfirm(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Unconfirm(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// PendingLaunch 列出全部等待管理员启动的车（仅 admin）。
+func (h *CarpoolHandler) PendingLaunch(c *gin.Context) {
+	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	items, err := h.service.ListPendingLaunch(c.Request.Context(), isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, items)
 }
 
 // Launch 管理员启动发车（两段确认第二段）：仅 admin；正常发车要求车已 confirmed，

@@ -107,7 +107,7 @@ var ProviderSet = wire.NewSet(
 	NewRemoteSessionRepository,           // 远程连接（Kasm）会话仓储
 	NewAccountContributionPoolRepository, // 账号级贡献奖励池（Model B）
 	NewCarpoolRepository,
-	NewCarpoolCommonsCache, // 拼车组级公共池计数器（Redis）
+	NewCarpoolCommonsCache, // 拼车组级公共池计数器（Redis + DB 重建）
 
 	// Cache implementations
 	NewGatewayCache,

@@ -11,6 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	// carpoolCreateMaxBodyBytes 创建车辆的请求体上限：群二维码解码后 ≤2MB，
+	// base64 后约 2.7MB，留到 8MB 覆盖 data URL 前缀与其余字段。
+	carpoolCreateMaxBodyBytes = 8 << 20
+	// carpoolSmallMaxBodyBytes 是拼车里只带短文本的请求体上限。
+	carpoolSmallMaxBodyBytes = 64 << 10
+)
+
 // RegisterUserRoutes 注册用户相关路由（需要认证）
 func RegisterUserRoutes(
 	v1 *gin.RouterGroup,
@@ -237,15 +245,19 @@ func RegisterUserRoutes(
 		carpools := authenticated.Group("/carpools")
 		{
 			carpools.GET("", h.Carpool.List)
-			carpools.POST("", h.Carpool.Create)
+			// 创建请求带 base64 群二维码（解码后上限 2MB ⇒ 编码后约 2.7MB）。
+			// 没有路由级上限时会落到全局 256MB，且 base64 在解码前要全量拷进内存。
+			carpools.POST("", middleware.RequestBodyLimit(carpoolCreateMaxBodyBytes), h.Carpool.Create)
 			carpools.GET("/declaration-recommendation", h.Carpool.DeclarationRecommendation)
+			carpools.GET("/pending-launch", h.Carpool.PendingLaunch)
 			carpools.GET("/invites/:token", h.Carpool.ResolveInvite)
 			carpools.POST("/join-by-invite", h.Carpool.JoinByInvite)
-			carpools.POST("/custom-rule-interest", h.Carpool.CustomRuleInterest)
+			carpools.POST("/custom-rule-interest", middleware.RequestBodyLimit(carpoolSmallMaxBodyBytes), h.Carpool.CustomRuleInterest)
 			carpools.POST("/:id/invites", h.Carpool.CreateInvite)
 			carpools.POST("/:id/join", h.Carpool.Join)
 			carpools.POST("/:id/leave", h.Carpool.Leave)
 			carpools.POST("/:id/confirm", h.Carpool.Confirm)
+			carpools.POST("/:id/unconfirm", h.Carpool.Unconfirm)
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
