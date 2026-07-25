@@ -145,3 +145,5 @@ frontend/coverage/
 aicodex
 output/
 .tools/
+.runtime-data/
+data/
