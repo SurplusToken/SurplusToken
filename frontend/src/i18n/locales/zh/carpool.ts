@@ -39,6 +39,7 @@ export default {
     },
     status: {
       recruiting: '招募中',
+      confirmed: '待管理员发车',
       starting: '准备开车',
       active: '已开车',
       cancelled: '已取消',
@@ -77,8 +78,10 @@ export default {
       joined: '已上车',
       invite: '邀请成员',
       details: '查看详情',
-      launch: '发车',
+      confirm: '确认发车',
+      launch: '启动',
       forceLaunch: '降档发车',
+      leave: '下车',
       settlement: '结算单',
       lock: '停止上人',
       unlock: '重新开放',
@@ -86,20 +89,24 @@ export default {
       copyLink: '复制链接',
       copied: '邀请链接已复制'
     },
+    wechat: {
+      adminLabel: '管理员微信',
+      scanToJoin: '扫码加入群聊',
+      copied: '管理员微信号已复制'
+    },
     createDialog: {
       title: '发起新拼车',
       submit: '创建并生成邀请链接',
       success: '拼车已创建',
       ownerQuota: '我的申报额度（可选，USD/周）',
       ownerQuotaHint: '留空表示仅发起拼车、不占用额度；填写则按 1 人记账预付。',
-      advanced: '高级设置（额度池参数）',
-      advancedHint: '默认值适用于绝大多数场景，一键创建无需修改。',
-      weeklyLimit: '整车周限额（USD）',
-      seatFee: '席位费（CNY/月）',
-      usagePool: '用量池（CNY/月）',
-      reserveRatio: '保底比例（0–1）',
-      launchMinRatio: '发车下限比例',
-      launchMaxRatio: '发车/上车上限比例'
+      contactTitle: '联系方式与群二维码（必填）',
+      contactHint: '发车由管理员人工执行，发起前请先添加管理员微信，并上传微信群二维码供成员扫码入群。',
+      addedAdmin: '我已添加管理员微信 {wechat}',
+      qrLabel: '群聊二维码',
+      qrHint: '支持 png / jpeg / webp，大小不超过 2MB',
+      qrInvalidType: '仅支持 png / jpeg / webp 格式图片',
+      qrTooLarge: '图片大小不能超过 2MB'
     },
     joinDialog: {
       title: '确认上车',
@@ -112,17 +119,32 @@ export default {
       previewAvgPrice: '该车当前均价',
       floorNotice: '即使未用满，也至少按申报的 80% 计费。',
       exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
+      groupSection: '上车前先加入微信群',
+      joinedGroup: '我已加入群聊',
       confirm: '确认上车',
       success: '已加入拼车，预付 ¥{amount}',
       successNoPrepaid: '已加入拼车'
     },
-    launchDialog: {
-      confirmTitle: '确认发车',
-      confirmMessage: '确认发车“{name}”？当前总申报 {total} USD（占周限额 {ratio}%）。发车后按 80% 保底 + 公共池配置限额，本月锁定。',
-      forceTitle: '降档发车',
-      forceMessage: '当前总申报 {total} USD（占周限额 {ratio}%），未达 95% 标准线。确认降档发车“{name}”？公共池将变大，每位成员的保底不变。',
+    confirmDialog: {
+      title: '确认发车',
+      message: '确认发车“{name}”？当前总申报 {total} USD（占周限额 {ratio}%）。确认后拼车将锁定，由管理员在 24 小时内启动。',
       confirm: '确认发车',
       notReady: '距 {ratio}% 发车线还差 {amount} USD',
+      aboveMax: '已超出发车上限 {ratio}%，需有成员下车后才能确认',
+      success: '已确认，等待管理员发车'
+    },
+    leaveDialog: {
+      title: '下车',
+      message: '确定要从“{name}”下车吗？你的申报额度将立即释放。',
+      confirm: '确认下车',
+      success: '已下车，申报额度已释放'
+    },
+    launchDialog: {
+      confirmTitle: '启动发车',
+      confirmMessage: '确认启动“{name}”？车主已确认发车（总申报 {total} USD，占周限额 {ratio}%）。启动后按 80% 保底 + 公共池配置限额，本月锁定。',
+      forceTitle: '降档发车',
+      forceMessage: '当前总申报 {total} USD（占周限额 {ratio}%），未达 95% 标准线。确认降档发车“{name}”？公共池将变大，每位成员的保底不变。',
+      confirm: '确认启动',
       forceReady: '已满 80%，可降档发车',
       success: '已发车'
     },

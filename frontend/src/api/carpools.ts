@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 
-export type CarpoolStatus = 'recruiting' | 'starting' | 'active' | 'cancelled' | 'ended'
+export type CarpoolStatus = 'recruiting' | 'confirmed' | 'starting' | 'active' | 'cancelled' | 'ended'
 export type CarpoolVisibility = 'public' | 'invite_only'
 export type CarpoolRole = 'owner' | 'member'
 export type CarpoolType = 'small' | 'large'
@@ -29,6 +29,11 @@ interface CarpoolResponse {
   group_name?: string
   member_role: CarpoolRole | null
   created_at: string
+  // 两段确认发车与入群信息
+  admin_wechat: string
+  has_group_qr_code: boolean
+  launch_notified_at?: string
+  confirmed_at?: string
   // 额度预约制参数（设计文档 §3）
   weekly_limit_usd: number
   seat_fee_cny: number
@@ -66,6 +71,10 @@ export interface Carpool {
   groupName: string | null
   memberRole: CarpoolRole | null
   createdAt: string
+  adminWechat: string
+  hasGroupQrCode: boolean
+  launchNotifiedAt?: string
+  confirmedAt?: string
   weeklyLimitUsd: number
   seatFeeCny: number
   usagePoolCny: number
@@ -83,6 +92,9 @@ export interface CreateCarpoolRequest {
   description: string
   visibility: CarpoolVisibility
   scheduled_start_at: string
+  // 两项强制确认：已添加管理员微信（必须为 true）+ 群二维码（base64/data URL，≤2MB png/jpeg/webp）
+  added_admin_wechat: boolean
+  group_qr_code: string
   // 以下为可选额度池/价格参数，缺省时后端使用默认值（2400/400/1000/0.8/0.95/1.05）
   weekly_limit_usd?: number
   seat_fee_cny?: number
@@ -212,6 +224,10 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     groupName: item.group_name || null,
     memberRole: item.member_role,
     createdAt: item.created_at,
+    adminWechat: item.admin_wechat || '',
+    hasGroupQrCode: !!item.has_group_qr_code,
+    launchNotifiedAt: item.launch_notified_at,
+    confirmedAt: item.confirmed_at,
     weeklyLimitUsd: item.weekly_limit_usd,
     seatFeeCny: item.seat_fee_cny,
     usagePoolCny: item.usage_pool_cny,
@@ -280,6 +296,7 @@ export async function createInvite(id: number): Promise<string> {
 export async function join(id: number, declaredWeeklyQuotaUsd: number): Promise<JoinCarpoolResult> {
   const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/join`, {
     declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
+    joined_wechat_group: true,
   })
   return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
 }
@@ -288,8 +305,26 @@ export async function joinByInvite(token: string, declaredWeeklyQuotaUsd: number
   const { data } = await apiClient.post<CarpoolMutationResponse>('/carpools/join-by-invite', {
     token,
     declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
+    joined_wechat_group: true,
   })
   return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
+}
+
+export async function leave(id: number): Promise<Carpool> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/leave`)
+  return mapCarpool(data.carpool)
+}
+
+export async function confirm(id: number): Promise<Carpool> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/confirm`)
+  return mapCarpool(data.carpool)
+}
+
+export async function groupQrCode(id: number): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/carpools/${id}/qr-code`, {
+    responseType: 'blob',
+  })
+  return data
 }
 
 export async function launch(id: number, force = false): Promise<Carpool> {
@@ -329,6 +364,9 @@ export default {
   createInvite,
   join,
   joinByInvite,
+  leave,
+  confirm,
+  groupQrCode,
   launch,
   declarationRecommendation,
   settlement,

@@ -75,6 +75,7 @@
             <select v-model="statusFilter" class="input h-10 sm:w-40">
               <option value="">{{ t('carpool.allStatuses') }}</option>
               <option value="recruiting">{{ t('carpool.status.recruiting') }}</option>
+              <option value="confirmed">{{ t('carpool.status.confirmed') }}</option>
               <option value="active">{{ t('carpool.status.active') }}</option>
               <option value="cancelled">{{ t('carpool.status.cancelled') }}</option>
             </select>
@@ -164,6 +165,30 @@
               </div>
             </dl>
 
+            <div
+              v-if="carpool.hasGroupQrCode"
+              class="mt-4 flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-700/40"
+            >
+              <img
+                v-if="qrCodeUrls[carpool.id]"
+                :src="qrCodeUrls[carpool.id]"
+                :alt="t('carpool.wechat.scanToJoin')"
+                class="h-14 w-14 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+              />
+              <div class="min-w-0 text-xs">
+                <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
+                <button
+                  type="button"
+                  class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  :title="t('common.copy')"
+                  @click="copyAdminWechat(carpool.adminWechat)"
+                >
+                  <Icon name="copy" size="xs" />
+                  <span>{{ t('carpool.wechat.adminLabel') }}: {{ carpool.adminWechat || ADMIN_WECHAT }}</span>
+                </button>
+              </div>
+            </div>
+
             <div class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-4 dark:border-dark-700">
               <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="btn btn-secondary h-9 px-3 py-2" @click="openDetails(carpool)">
@@ -180,19 +205,50 @@
                   <span>{{ t('carpool.actions.invite') }}</span>
                 </button>
                 <button
-                  v-if="canLaunch(carpool)"
+                  v-if="canConfirm(carpool)"
                   type="button"
-                  :data-testid="`launch-${carpool.id}`"
+                  :data-testid="`confirm-${carpool.id}`"
                   class="h-9 px-3 py-2"
                   :class="launchReady(carpool) ? 'btn btn-primary' : 'btn btn-secondary'"
-                  :disabled="!launchReady(carpool) && !forceLaunchReady(carpool)"
+                  :disabled="!launchReady(carpool)"
                   :title="launchHint(carpool)"
+                  @click="requestConfirm(carpool)"
+                >
+                  <Icon name="checkCircle" size="sm" />
+                  <span>{{ t('carpool.actions.confirm') }}</span>
+                </button>
+                <span v-if="canConfirm(carpool) && !launchReady(carpool)" class="text-xs text-gray-500 dark:text-dark-300">{{ launchHint(carpool) }}</span>
+                <button
+                  v-if="canAdminLaunch(carpool)"
+                  type="button"
+                  :data-testid="`launch-${carpool.id}`"
+                  class="btn btn-primary h-9 px-3 py-2"
                   @click="requestLaunch(carpool)"
                 >
                   <Icon name="play" size="sm" />
-                  <span>{{ forceLaunchReady(carpool) && !launchReady(carpool) ? t('carpool.actions.forceLaunch') : t('carpool.actions.launch') }}</span>
+                  <span>{{ t('carpool.actions.launch') }}</span>
                 </button>
-                <span v-if="canLaunch(carpool) && !launchReady(carpool)" class="text-xs text-gray-500 dark:text-dark-300">{{ launchHint(carpool) }}</span>
+                <button
+                  v-if="canForceLaunch(carpool)"
+                  type="button"
+                  :data-testid="`force-launch-${carpool.id}`"
+                  class="btn btn-secondary h-9 px-3 py-2"
+                  :title="t('carpool.launchDialog.forceReady')"
+                  @click="requestForceLaunch(carpool)"
+                >
+                  <Icon name="play" size="sm" />
+                  <span>{{ t('carpool.actions.forceLaunch') }}</span>
+                </button>
+                <button
+                  v-if="canLeave(carpool)"
+                  type="button"
+                  :data-testid="`leave-${carpool.id}`"
+                  class="btn btn-ghost h-9 px-3 py-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  @click="requestLeave(carpool)"
+                >
+                  <Icon name="xCircle" size="sm" />
+                  <span>{{ t('carpool.actions.leave') }}</span>
+                </button>
                 <button
                   v-if="canViewSettlement(carpool)"
                   type="button"
@@ -284,38 +340,47 @@
             </button>
           </div>
         </fieldset>
-        <div class="rounded-lg border border-gray-200 dark:border-dark-600">
-          <button type="button" class="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-dark-100" @click="advancedOpen = !advancedOpen">
-            <span>{{ t('carpool.createDialog.advanced') }}</span>
-            <Icon name="chevronDown" size="sm" class="transition-transform" :class="{ 'rotate-180': advancedOpen }" />
-          </button>
-          <div v-if="advancedOpen" class="space-y-3 border-t border-gray-200 px-3 py-3 dark:border-dark-600">
-            <p class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.advancedHint') }}</p>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="input-label" for="carpool-weekly-limit">{{ t('carpool.createDialog.weeklyLimit') }}</label>
-                <input id="carpool-weekly-limit" v-model.number="createForm.weeklyLimitUsd" type="number" min="1" step="1" class="input" />
+        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.createDialog.contactTitle') }}</div>
+          <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ t('carpool.createDialog.contactHint') }}</p>
+          <div class="mt-2 flex items-center justify-between gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-dark-700/40">
+            <span class="text-sm text-gray-700 dark:text-dark-100">
+              {{ t('carpool.wechat.adminLabel') }}: <span class="font-mono font-medium">{{ ADMIN_WECHAT }}</span>
+            </span>
+            <button type="button" class="btn btn-secondary h-7 px-2 py-1 text-xs" @click="copyAdminWechat(ADMIN_WECHAT)">
+              <Icon name="copy" size="xs" />
+              <span>{{ t('common.copy') }}</span>
+            </button>
+          </div>
+          <label class="mt-3 flex items-center gap-2">
+            <input
+              id="carpool-added-admin"
+              v-model="createForm.addedAdminWechat"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
+          </label>
+          <div class="mt-3">
+            <label class="input-label" for="carpool-group-qr">{{ t('carpool.createDialog.qrLabel') }}</label>
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <input
+                  id="carpool-group-qr"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:text-dark-300 dark:file:bg-primary-900/20 dark:file:text-primary-300"
+                  @change="handleQrFileChange"
+                />
+                <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.qrHint') }}</p>
+                <p v-if="createQrError" class="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{{ createQrError }}</p>
               </div>
-              <div>
-                <label class="input-label" for="carpool-seat-fee">{{ t('carpool.createDialog.seatFee') }}</label>
-                <input id="carpool-seat-fee" v-model.number="createForm.seatFeeCny" type="number" min="0" step="1" class="input" />
-              </div>
-              <div>
-                <label class="input-label" for="carpool-usage-pool">{{ t('carpool.createDialog.usagePool') }}</label>
-                <input id="carpool-usage-pool" v-model.number="createForm.usagePoolCny" type="number" min="0" step="1" class="input" />
-              </div>
-              <div>
-                <label class="input-label" for="carpool-reserve-ratio">{{ t('carpool.createDialog.reserveRatio') }}</label>
-                <input id="carpool-reserve-ratio" v-model.number="createForm.reserveRatio" type="number" min="0.01" max="1" step="0.05" class="input" />
-              </div>
-              <div>
-                <label class="input-label" for="carpool-launch-min">{{ t('carpool.createDialog.launchMinRatio') }}</label>
-                <input id="carpool-launch-min" v-model.number="createForm.launchMinRatio" type="number" min="0.01" step="0.01" class="input" />
-              </div>
-              <div>
-                <label class="input-label" for="carpool-launch-max">{{ t('carpool.createDialog.launchMaxRatio') }}</label>
-                <input id="carpool-launch-max" v-model.number="createForm.launchMaxRatio" type="number" min="0.01" step="0.01" class="input" />
-              </div>
+              <img
+                v-if="createForm.groupQrCode"
+                :src="createForm.groupQrCode"
+                :alt="t('carpool.createDialog.qrLabel')"
+                class="h-16 w-16 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+              />
             </div>
           </div>
         </div>
@@ -347,6 +412,39 @@
           <p v-if="recommendationLoading" class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
           <p v-else-if="recommendation" class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ recommendation.message }}</p>
           <p v-else-if="recommendationFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.recommendationFailed') }}</p>
+        </div>
+
+        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.joinDialog.groupSection') }}</div>
+          <div class="mt-2 flex items-center gap-3">
+            <img
+              v-if="joinQrUrl"
+              :src="joinQrUrl"
+              :alt="t('carpool.wechat.scanToJoin')"
+              class="h-20 w-20 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            />
+            <div class="min-w-0 text-xs leading-5 text-gray-500 dark:text-dark-300">
+              <p>{{ t('carpool.wechat.scanToJoin') }}</p>
+              <button
+                type="button"
+                class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                :title="t('common.copy')"
+                @click="copyAdminWechat(joinTarget.adminWechat)"
+              >
+                <Icon name="copy" size="xs" />
+                <span>{{ t('carpool.wechat.adminLabel') }}: {{ joinTarget.adminWechat || ADMIN_WECHAT }}</span>
+              </button>
+            </div>
+          </div>
+          <label class="mt-3 flex items-center gap-2">
+            <input
+              id="carpool-join-group"
+              v-model="joinForm.joinedGroup"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.joinDialog.joinedGroup') }}</span>
+          </label>
         </div>
 
         <p v-if="joinExceedsRemaining" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
@@ -455,6 +553,29 @@
             <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ selectedCarpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
           </div>
         </dl>
+        <div
+          v-if="selectedCarpool.hasGroupQrCode"
+          class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <img
+            v-if="qrCodeUrls[selectedCarpool.id]"
+            :src="qrCodeUrls[selectedCarpool.id]"
+            :alt="t('carpool.wechat.scanToJoin')"
+            class="h-20 w-20 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+          />
+          <div class="min-w-0 text-xs leading-5 text-gray-500 dark:text-dark-300">
+            <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
+            <button
+              type="button"
+              class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              :title="t('common.copy')"
+              @click="copyAdminWechat(selectedCarpool.adminWechat)"
+            >
+              <Icon name="copy" size="xs" />
+              <span>{{ t('carpool.wechat.adminLabel') }}: {{ selectedCarpool.adminWechat || ADMIN_WECHAT }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </BaseDialog>
 
@@ -517,7 +638,7 @@
       :title="confirmTitle"
       :message="confirmMessage"
       :confirm-text="confirmText"
-      :danger="confirmAction?.type === 'cancel'"
+      :danger="confirmAction?.type === 'cancel' || confirmAction?.type === 'leave'"
       @confirm="runConfirmedAction"
       @cancel="confirmAction = null"
     />
@@ -525,7 +646,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -546,22 +667,25 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
 const FORCE_LAUNCH_MIN_RATIO = 0.8
 
+// 与后端 CarpoolAdminWechatID 对齐：创建/上车前必须添加的管理员微信号。
+const ADMIN_WECHAT = 'Charlemartingale'
+
+// 与后端 CarpoolGroupQRCodeMaxBytes 对齐：群二维码大小上限（2MB）。
+const QR_CODE_MAX_BYTES = 2 * 1024 * 1024
+const QR_CODE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+
 interface CreateForm {
   name: string
   description: string
   visibility: CarpoolVisibility
   scheduledStartAt: string
   ownerQuota: number | null
-  weeklyLimitUsd: number
-  seatFeeCny: number
-  usagePoolCny: number
-  reserveRatio: number
-  launchMinRatio: number
-  launchMaxRatio: number
+  addedAdminWechat: boolean
+  groupQrCode: string
 }
 
 interface ConfirmAction {
-  type: 'cancel' | 'launch' | 'forceLaunch'
+  type: 'cancel' | 'launch' | 'forceLaunch' | 'confirm' | 'leave'
   carpool: Carpool
 }
 
@@ -577,7 +701,7 @@ const statusFilter = ref('')
 const loading = ref(true)
 const actionPending = ref(false)
 const createDialogOpen = ref(false)
-const advancedOpen = ref(false)
+const createQrError = ref('')
 const joinDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
@@ -588,7 +712,9 @@ const selectedCarpool = ref<Carpool | null>(null)
 const selectedInviteToken = ref('')
 const joinTarget = ref<Carpool | null>(null)
 const joinInviteToken = ref('')
-const joinForm = reactive({ declaredQuota: null as number | null })
+const joinForm = reactive({ declaredQuota: null as number | null, joinedGroup: false })
+const joinQrUrl = ref('')
+const qrCodeUrls = ref<Record<number, string>>({})
 const recommendation = ref<DeclarationRecommendation | null>(null)
 const recommendationLoading = ref(false)
 const recommendationFailed = ref(false)
@@ -606,12 +732,8 @@ const newCreateForm = (): CreateForm => ({
   visibility: 'public',
   scheduledStartAt: isoDateAfterDays(7),
   ownerQuota: null,
-  weeklyLimitUsd: 2400,
-  seatFeeCny: 400,
-  usagePoolCny: 1000,
-  reserveRatio: 0.8,
-  launchMinRatio: 0.95,
-  launchMaxRatio: 1.05,
+  addedAdminWechat: false,
+  groupQrCode: '',
 })
 
 const createForm = reactive<CreateForm>(newCreateForm())
@@ -646,13 +768,9 @@ const createFormValid = computed(() => (
   createForm.name.length > 0
   && createForm.scheduledStartAt.length > 0
   && (createForm.ownerQuota === null || createForm.ownerQuota >= 0)
-  && createForm.weeklyLimitUsd > 0
-  && createForm.seatFeeCny > 0
-  && createForm.usagePoolCny > 0
-  && createForm.reserveRatio > 0
-  && createForm.reserveRatio <= 1
-  && createForm.launchMinRatio > 0
-  && createForm.launchMinRatio <= createForm.launchMaxRatio
+  && createForm.addedAdminWechat
+  && createForm.groupQrCode.length > 0
+  && !createQrError.value
 ))
 const joinFloorQuota = computed(() => {
   if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
@@ -668,27 +786,36 @@ const joinExceedsRemaining = computed(() => (
   !!joinTarget.value && !!joinForm.declaredQuota && joinForm.declaredQuota > joinTarget.value.remainingJoinableUsd + 1e-9
 ))
 const joinFormValid = computed(() => (
-  !!joinForm.declaredQuota && joinForm.declaredQuota > 0 && !joinExceedsRemaining.value
+  !!joinForm.declaredQuota && joinForm.declaredQuota > 0 && !joinExceedsRemaining.value && joinForm.joinedGroup
 ))
 const confirmTitle = computed(() => {
   if (!confirmAction.value) return ''
-  if (confirmAction.value.type === 'cancel') return t('carpool.cancelDialog.title')
-  return confirmAction.value.type === 'forceLaunch' ? t('carpool.launchDialog.forceTitle') : t('carpool.launchDialog.confirmTitle')
+  switch (confirmAction.value.type) {
+    case 'cancel': return t('carpool.cancelDialog.title')
+    case 'leave': return t('carpool.leaveDialog.title')
+    case 'confirm': return t('carpool.confirmDialog.title')
+    case 'forceLaunch': return t('carpool.launchDialog.forceTitle')
+    default: return t('carpool.launchDialog.confirmTitle')
+  }
 })
 const confirmText = computed(() => {
   if (!confirmAction.value) return ''
   if (confirmAction.value.type === 'cancel') return t('carpool.cancelDialog.confirm')
+  if (confirmAction.value.type === 'leave') return t('carpool.leaveDialog.confirm')
+  if (confirmAction.value.type === 'confirm') return t('carpool.confirmDialog.confirm')
   return t('carpool.launchDialog.confirm')
 })
 const confirmMessage = computed(() => {
   if (!confirmAction.value) return ''
   const action = confirmAction.value
   if (action.type === 'cancel') return t('carpool.cancelDialog.message', { name: action.carpool.name })
+  if (action.type === 'leave') return t('carpool.leaveDialog.message', { name: action.carpool.name })
   const params = {
     name: action.carpool.name,
     total: formatUsd(action.carpool.declaredTotalUsd),
     ratio: launchRatioPercent(declaredRatio(action.carpool)),
   }
+  if (action.type === 'confirm') return t('carpool.confirmDialog.message', params)
   return action.type === 'forceLaunch'
     ? t('carpool.launchDialog.forceMessage', params)
     : t('carpool.launchDialog.confirmMessage', params)
@@ -697,10 +824,25 @@ const confirmMessage = computed(() => {
 async function loadCarpools(): Promise<void> {
   try {
     carpools.value = await carpoolAPI.list()
+    ensureQrCodes(carpools.value)
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('carpool.loadFailed')))
   } finally {
     loading.value = false
+  }
+}
+
+// 为有群二维码的车辆预取图片（任何登录用户可读），object URL 按车辆缓存。
+function ensureQrCodes(items: Carpool[]): void {
+  for (const item of items) {
+    if (!item.hasGroupQrCode || qrCodeUrls.value[item.id]) continue
+    carpoolAPI.groupQrCode(item.id)
+      .then((blob) => {
+        qrCodeUrls.value = { ...qrCodeUrls.value, [item.id]: URL.createObjectURL(blob) }
+      })
+      .catch(() => {
+        // 二维码加载失败不阻塞卡片展示
+      })
   }
 }
 
@@ -732,8 +874,23 @@ function canCancel(carpool: Carpool): boolean {
   return carpool.memberRole === 'owner' && (carpool.status === 'recruiting' || carpool.status === 'starting')
 }
 
-function canLaunch(carpool: Carpool): boolean {
-  return carpool.status === 'recruiting' && (carpool.memberRole === 'owner' || authStore.isAdmin)
+function canLeave(carpool: Carpool): boolean {
+  return carpool.status === 'recruiting' && carpool.memberRole === 'member'
+}
+
+// 两段确认第一段：车主在 recruiting 且 Σ 申报进入发车区间后确认发车。
+function canConfirm(carpool: Carpool): boolean {
+  return carpool.status === 'recruiting' && carpool.memberRole === 'owner'
+}
+
+// 两段确认第二段：仅管理员启动已确认的车。
+function canAdminLaunch(carpool: Carpool): boolean {
+  return authStore.isAdmin && carpool.status === 'confirmed'
+}
+
+// 降档发车（force）：仅管理员、recruiting 且 Σ≥80%，跳过确认流程。
+function canForceLaunch(carpool: Carpool): boolean {
+  return authStore.isAdmin && carpool.status === 'recruiting' && declaredRatio(carpool) >= FORCE_LAUNCH_MIN_RATIO
 }
 
 function launchReady(carpool: Carpool): boolean {
@@ -741,16 +898,13 @@ function launchReady(carpool: Carpool): boolean {
   return ratio >= carpool.launchMinRatio && ratio <= carpool.launchMaxRatio
 }
 
-function forceLaunchReady(carpool: Carpool): boolean {
-  const ratio = declaredRatio(carpool)
-  return ratio >= FORCE_LAUNCH_MIN_RATIO && ratio < carpool.launchMinRatio
-}
-
 function launchHint(carpool: Carpool): string {
   if (launchReady(carpool)) return ''
-  if (forceLaunchReady(carpool)) return t('carpool.launchDialog.forceReady')
+  if (declaredRatio(carpool) > carpool.launchMaxRatio) {
+    return t('carpool.confirmDialog.aboveMax', { ratio: launchRatioPercent(carpool.launchMaxRatio) })
+  }
   const missing = Math.max(0, carpool.launchMinRatio * carpool.weeklyLimitUsd - carpool.declaredTotalUsd)
-  return t('carpool.launchDialog.notReady', {
+  return t('carpool.confirmDialog.notReady', {
     ratio: launchRatioPercent(carpool.launchMinRatio),
     amount: formatUsd(missing),
   })
@@ -769,6 +923,7 @@ function statusLabel(carpool: Carpool): string {
 function statusBadgeClass(carpool: Carpool): string {
   if (carpool.status === 'cancelled' || carpool.status === 'ended') return 'badge-gray'
   if (carpool.status === 'active') return 'badge-success'
+  if (carpool.status === 'confirmed') return 'badge-warning'
   if (carpool.joinLocked || carpool.remainingJoinableUsd <= 0) return 'badge-warning'
   return 'badge-primary'
 }
@@ -820,8 +975,36 @@ function deltaLabel(delta: number): string {
 
 function openCreateDialog(): void {
   Object.assign(createForm, newCreateForm())
-  advancedOpen.value = false
+  createQrError.value = ''
   createDialogOpen.value = true
+}
+
+function handleQrFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  createQrError.value = ''
+  createForm.groupQrCode = ''
+  if (!file) return
+  if (!QR_CODE_TYPES.includes(file.type)) {
+    createQrError.value = t('carpool.createDialog.qrInvalidType')
+    input.value = ''
+    return
+  }
+  if (file.size > QR_CODE_MAX_BYTES) {
+    createQrError.value = t('carpool.createDialog.qrTooLarge')
+    input.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    createForm.groupQrCode = typeof reader.result === 'string' ? reader.result : ''
+  }
+  reader.readAsDataURL(file)
+}
+
+async function copyAdminWechat(wechat: string): Promise<void> {
+  await navigator.clipboard.writeText(wechat || ADMIN_WECHAT)
+  appStore.showSuccess(t('carpool.wechat.copied'))
 }
 
 async function createCarpool(): Promise<void> {
@@ -833,17 +1016,11 @@ async function createCarpool(): Promise<void> {
       description: createForm.description,
       visibility: createForm.visibility,
       scheduled_start_at: createForm.scheduledStartAt,
+      added_admin_wechat: createForm.addedAdminWechat,
+      group_qr_code: createForm.groupQrCode,
     }
     if (createForm.ownerQuota && createForm.ownerQuota > 0) {
       payload.declared_weekly_quota_usd = createForm.ownerQuota
-    }
-    if (advancedOpen.value) {
-      payload.weekly_limit_usd = createForm.weeklyLimitUsd
-      payload.seat_fee_cny = createForm.seatFeeCny
-      payload.usage_pool_cny = createForm.usagePoolCny
-      payload.reserve_ratio = createForm.reserveRatio
-      payload.launch_min_ratio = createForm.launchMinRatio
-      payload.launch_max_ratio = createForm.launchMaxRatio
     }
     const result = await carpoolAPI.create(payload)
     createDialogOpen.value = false
@@ -900,6 +1077,19 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
   joinTarget.value = carpool
   joinInviteToken.value = inviteToken
   joinForm.declaredQuota = null
+  joinForm.joinedGroup = false
+  joinQrUrl.value = qrCodeUrls.value[carpool.id] || ''
+  if (carpool.hasGroupQrCode && !joinQrUrl.value) {
+    carpoolAPI.groupQrCode(carpool.id)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        qrCodeUrls.value = { ...qrCodeUrls.value, [carpool.id]: url }
+        if (joinTarget.value?.id === carpool.id) joinQrUrl.value = url
+      })
+      .catch(() => {
+        // 二维码加载失败不阻塞上车流程
+      })
+  }
   recommendation.value = null
   recommendationFailed.value = false
   recommendationLoading.value = true
@@ -943,11 +1133,20 @@ async function submitJoin(): Promise<void> {
 }
 
 function requestLaunch(carpool: Carpool): void {
-  if (launchReady(carpool)) {
-    confirmAction.value = { type: 'launch', carpool }
-  } else if (forceLaunchReady(carpool)) {
-    confirmAction.value = { type: 'forceLaunch', carpool }
-  }
+  confirmAction.value = { type: 'launch', carpool }
+}
+
+function requestForceLaunch(carpool: Carpool): void {
+  confirmAction.value = { type: 'forceLaunch', carpool }
+}
+
+function requestConfirm(carpool: Carpool): void {
+  if (!launchReady(carpool)) return
+  confirmAction.value = { type: 'confirm', carpool }
+}
+
+function requestLeave(carpool: Carpool): void {
+  confirmAction.value = { type: 'leave', carpool }
 }
 
 function requestCancel(carpool: Carpool): void {
@@ -963,6 +1162,12 @@ async function runConfirmedAction(): Promise<void> {
     if (action.type === 'cancel') {
       await carpoolAPI.cancel(action.carpool.id)
       appStore.showSuccess(t('carpool.cancelDialog.success'))
+    } else if (action.type === 'leave') {
+      await carpoolAPI.leave(action.carpool.id)
+      appStore.showSuccess(t('carpool.leaveDialog.success'))
+    } else if (action.type === 'confirm') {
+      await carpoolAPI.confirm(action.carpool.id)
+      appStore.showSuccess(t('carpool.confirmDialog.success'))
     } else {
       await carpoolAPI.launch(action.carpool.id, action.type === 'forceLaunch')
       appStore.showSuccess(t('carpool.launchDialog.success'))
@@ -988,6 +1193,12 @@ async function openSettlement(carpool: Carpool): Promise<void> {
     settlementLoading.value = false
   }
 }
+
+onBeforeUnmount(() => {
+  for (const url of Object.values(qrCodeUrls.value)) {
+    URL.revokeObjectURL(url)
+  }
+})
 
 onMounted(async () => {
   await loadCarpools()

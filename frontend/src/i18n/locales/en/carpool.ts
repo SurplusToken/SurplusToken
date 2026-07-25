@@ -39,6 +39,7 @@ export default {
     },
     status: {
       recruiting: 'Recruiting',
+      confirmed: 'Pending admin launch',
       starting: 'Starting',
       active: 'Launched',
       cancelled: 'Cancelled',
@@ -77,8 +78,10 @@ export default {
       joined: 'Joined',
       invite: 'Invite',
       details: 'Details',
+      confirm: 'Confirm launch',
       launch: 'Launch',
       forceLaunch: 'Launch anyway',
+      leave: 'Leave',
       settlement: 'Settlement',
       lock: 'Close joining',
       unlock: 'Reopen',
@@ -86,20 +89,24 @@ export default {
       copyLink: 'Copy link',
       copied: 'Invite link copied'
     },
+    wechat: {
+      adminLabel: 'Admin WeChat',
+      scanToJoin: 'Scan to join the WeChat group',
+      copied: 'Admin WeChat ID copied'
+    },
     createDialog: {
       title: 'Start a new carpool',
       submit: 'Create and generate invite',
       success: 'Carpool created',
       ownerQuota: 'My declared quota (optional, USD/week)',
       ownerQuotaHint: 'Leave empty to organize without reserving quota; a value prepays as one member.',
-      advanced: 'Advanced settings (quota pool parameters)',
-      advancedHint: 'Defaults work for most cases; no changes needed for one-click creation.',
-      weeklyLimit: 'Car weekly limit (USD)',
-      seatFee: 'Seat fee (CNY/month)',
-      usagePool: 'Usage pool (CNY/month)',
-      reserveRatio: 'Reserve ratio (0–1)',
-      launchMinRatio: 'Launch min ratio',
-      launchMaxRatio: 'Launch/join max ratio'
+      contactTitle: 'Contact & group QR code (required)',
+      contactHint: 'Launches are performed manually by the admin. Add the admin on WeChat first, then upload the WeChat group QR code so members can join the group.',
+      addedAdmin: 'I have added the admin on WeChat ({wechat})',
+      qrLabel: 'Group QR code',
+      qrHint: 'png / jpeg / webp only, up to 2MB',
+      qrInvalidType: 'Only png, jpeg, or webp images are supported',
+      qrTooLarge: 'Image must be 2MB or smaller'
     },
     joinDialog: {
       title: 'Confirm joining',
@@ -112,17 +119,32 @@ export default {
       previewAvgPrice: 'Current avg price',
       floorNotice: 'Even if you use less, you are billed for at least 80% of your declaration.',
       exceedsRemaining: 'Declaration exceeds this car\'s remaining joinable quota ({amount} USD); lower it or wait for the next car',
+      groupSection: 'Join the WeChat group before boarding',
+      joinedGroup: 'I have joined the group',
       confirm: 'Confirm join',
       success: 'Joined carpool, prepaid ¥{amount}',
       successNoPrepaid: 'Joined carpool'
     },
-    launchDialog: {
-      confirmTitle: 'Confirm launch',
-      confirmMessage: 'Launch “{name}”? Total declared quota is {total} USD ({ratio}% of the weekly limit). Limits of 80% reserve + shared pool apply once launched and are locked for the month.',
-      forceTitle: 'Launch below the line',
-      forceMessage: 'Total declared quota is {total} USD ({ratio}% of the weekly limit), below the 95% standard line. Launch “{name}” anyway? The shared pool grows; every member\'s reserve stays the same.',
+    confirmDialog: {
+      title: 'Confirm launch',
+      message: 'Confirm the launch of “{name}”? Total declared quota is {total} USD ({ratio}% of the weekly limit). Once confirmed, the carpool locks and an admin will launch it within 24 hours.',
       confirm: 'Confirm launch',
       notReady: '{amount} USD short of the {ratio}% launch line',
+      aboveMax: 'Above the {ratio}% launch cap; a member has to leave before confirming',
+      success: 'Confirmed. Waiting for the admin to launch.'
+    },
+    leaveDialog: {
+      title: 'Leave carpool',
+      message: 'Leave “{name}”? Your declared quota will be released immediately.',
+      confirm: 'Leave',
+      success: 'Left the carpool; your declared quota was released'
+    },
+    launchDialog: {
+      confirmTitle: 'Launch carpool',
+      confirmMessage: 'Launch “{name}”? The owner has confirmed (total declared {total} USD, {ratio}% of the weekly limit). Limits of 80% reserve + shared pool apply once launched and are locked for the month.',
+      forceTitle: 'Launch below the line',
+      forceMessage: 'Total declared quota is {total} USD ({ratio}% of the weekly limit), below the 95% standard line. Launch “{name}” anyway? The shared pool grows; every member\'s reserve stays the same.',
+      confirm: 'Launch',
       forceReady: 'Above 80%; eligible for a forced launch',
       success: 'Carpool launched'
     },
