@@ -49,6 +49,8 @@ type UserSubscription struct {
 	MonthlyUsageUsd float64 `json:"monthly_usage_usd,omitempty"`
 	// WeeklyLimitUsd holds the value of the "weekly_limit_usd" field.
 	WeeklyLimitUsd *float64 `json:"weekly_limit_usd,omitempty"`
+	// WeeklyReservedUsd holds the value of the "weekly_reserved_usd" field.
+	WeeklyReservedUsd *float64 `json:"weekly_reserved_usd,omitempty"`
 	// AssignedBy holds the value of the "assigned_by" field.
 	AssignedBy *int64 `json:"assigned_by,omitempty"`
 	// AssignedAt holds the value of the "assigned_at" field.
@@ -123,7 +125,7 @@ func (*UserSubscription) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case usersubscription.FieldDailyUsageUsd, usersubscription.FieldWeeklyUsageUsd, usersubscription.FieldMonthlyUsageUsd, usersubscription.FieldWeeklyLimitUsd:
+		case usersubscription.FieldDailyUsageUsd, usersubscription.FieldWeeklyUsageUsd, usersubscription.FieldMonthlyUsageUsd, usersubscription.FieldWeeklyLimitUsd, usersubscription.FieldWeeklyReservedUsd:
 			values[i] = new(sql.NullFloat64)
 		case usersubscription.FieldID, usersubscription.FieldUserID, usersubscription.FieldGroupID, usersubscription.FieldAssignedBy:
 			values[i] = new(sql.NullInt64)
@@ -246,6 +248,13 @@ func (_m *UserSubscription) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.WeeklyLimitUsd = new(float64)
 				*_m.WeeklyLimitUsd = value.Float64
+			}
+		case usersubscription.FieldWeeklyReservedUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field weekly_reserved_usd", values[i])
+			} else if value.Valid {
+				_m.WeeklyReservedUsd = new(float64)
+				*_m.WeeklyReservedUsd = value.Float64
 			}
 		case usersubscription.FieldAssignedBy:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -375,6 +384,11 @@ func (_m *UserSubscription) String() string {
 	builder.WriteString(", ")
 	if v := _m.WeeklyLimitUsd; v != nil {
 		builder.WriteString("weekly_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.WeeklyReservedUsd; v != nil {
+		builder.WriteString("weekly_reserved_usd=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

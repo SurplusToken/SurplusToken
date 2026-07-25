@@ -174,9 +174,11 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
 	balanceCollected := false
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+		commonsDelta, err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost)
+		if err != nil {
 			return err
 		}
+		result.CarpoolCommonsDelta = commonsDelta
 	}
 
 	if cmd.BalanceCost > 0 {
@@ -293,7 +295,11 @@ SET pool_amount = account_contribution_pools.pool_amount + EXCLUDED.pool_amount,
 	return err
 }
 
-func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
+// incrementUsageBillingSubscription 原子累加订阅三窗口用量，并在同一 UPDATE 内
+// 用 RETURNING 取回新值，精确计算本次越过拼车保底、应计入组级公共池的增量
+// （delta = max(0,新−r) − max(0,旧−r)，旧 = 新 − cost）。非拼车订阅
+// （weekly_reserved_usd 为 NULL）返回 nil，不产生任何额外行为。
+func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) (*service.CarpoolCommonsUsageDelta, error) {
 	const updateSQL = `
 		UPDATE user_subscriptions us
 		SET
@@ -306,19 +312,33 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 			AND us.deleted_at IS NULL
 			AND us.group_id = g.id
 			AND g.deleted_at IS NULL
+		RETURNING us.weekly_usage_usd, us.weekly_window_start, us.weekly_reserved_usd, us.group_id
 	`
-	res, err := tx.ExecContext(ctx, updateSQL, costUSD, subscriptionID)
+	var newWeeklyUsage float64
+	var windowStart sql.NullTime
+	var reserved sql.NullFloat64
+	var groupID int64
+	err := tx.QueryRowContext(ctx, updateSQL, costUSD, subscriptionID).
+		Scan(&newWeeklyUsage, &windowStart, &reserved, &groupID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrSubscriptionNotFound
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	if !reserved.Valid || !windowStart.Valid {
+		return nil, nil
 	}
-	if affected > 0 {
-		return nil
+	delta := service.CarpoolCommonsExcessDelta(newWeeklyUsage-costUSD, newWeeklyUsage, reserved.Float64)
+	if delta <= 0 {
+		return nil, nil
 	}
-	return service.ErrSubscriptionNotFound
+	return &service.CarpoolCommonsUsageDelta{
+		GroupID:     groupID,
+		WindowStart: windowStart.Time,
+		DeltaUSD:    delta,
+	}, nil
 }
 
 func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (float64, bool, error) {

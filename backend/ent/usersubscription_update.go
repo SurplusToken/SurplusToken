@@ -277,6 +277,33 @@ func (_u *UserSubscriptionUpdate) ClearWeeklyLimitUsd() *UserSubscriptionUpdate 
 	return _u
 }
 
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdate) SetWeeklyReservedUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetWeeklyReservedUsd()
+	_u.mutation.SetWeeklyReservedUsd(v)
+	return _u
+}
+
+// SetNillableWeeklyReservedUsd sets the "weekly_reserved_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableWeeklyReservedUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetWeeklyReservedUsd(*v)
+	}
+	return _u
+}
+
+// AddWeeklyReservedUsd adds value to the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdate) AddWeeklyReservedUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddWeeklyReservedUsd(v)
+	return _u
+}
+
+// ClearWeeklyReservedUsd clears the value of the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdate) ClearWeeklyReservedUsd() *UserSubscriptionUpdate {
+	_u.mutation.ClearWeeklyReservedUsd()
+	return _u
+}
+
 // SetAssignedBy sets the "assigned_by" field.
 func (_u *UserSubscriptionUpdate) SetAssignedBy(v int64) *UserSubscriptionUpdate {
 	_u.mutation.SetAssignedBy(v)
@@ -551,6 +578,15 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if _u.mutation.WeeklyLimitUsdCleared() {
 		_spec.ClearField(usersubscription.FieldWeeklyLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.WeeklyReservedUsd(); ok {
+		_spec.SetField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyReservedUsd(); ok {
+		_spec.AddField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.WeeklyReservedUsdCleared() {
+		_spec.ClearField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)
@@ -959,6 +995,33 @@ func (_u *UserSubscriptionUpdateOne) ClearWeeklyLimitUsd() *UserSubscriptionUpda
 	return _u
 }
 
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetWeeklyReservedUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetWeeklyReservedUsd()
+	_u.mutation.SetWeeklyReservedUsd(v)
+	return _u
+}
+
+// SetNillableWeeklyReservedUsd sets the "weekly_reserved_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableWeeklyReservedUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetWeeklyReservedUsd(*v)
+	}
+	return _u
+}
+
+// AddWeeklyReservedUsd adds value to the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddWeeklyReservedUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddWeeklyReservedUsd(v)
+	return _u
+}
+
+// ClearWeeklyReservedUsd clears the value of the "weekly_reserved_usd" field.
+func (_u *UserSubscriptionUpdateOne) ClearWeeklyReservedUsd() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearWeeklyReservedUsd()
+	return _u
+}
+
 // SetAssignedBy sets the "assigned_by" field.
 func (_u *UserSubscriptionUpdateOne) SetAssignedBy(v int64) *UserSubscriptionUpdateOne {
 	_u.mutation.SetAssignedBy(v)
@@ -1263,6 +1326,15 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 	}
 	if _u.mutation.WeeklyLimitUsdCleared() {
 		_spec.ClearField(usersubscription.FieldWeeklyLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.WeeklyReservedUsd(); ok {
+		_spec.SetField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyReservedUsd(); ok {
+		_spec.AddField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.WeeklyReservedUsdCleared() {
+		_spec.ClearField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)

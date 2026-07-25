@@ -666,8 +666,11 @@ func ProvideBillingCacheService(
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	carpoolCommons CarpoolCommonsCounter,
 ) *BillingCacheService {
-	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc := NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc.SetCarpoolCommonsCounter(carpoolCommons)
+	return svc
 }
 
 // ProvideAPIKeyService wires APIKeyService and connects rate-limit cache invalidation.

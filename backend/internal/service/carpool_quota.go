@@ -1,6 +1,9 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // 拼车额度预约制核心参数默认值（设计文档 §3）。
 const (
@@ -39,9 +42,63 @@ func CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, weeklyLimitUSD, declaredWeeklyQ
 
 // CarpoolMemberWeeklyLimitUSD 计算开车时写入成员订阅的周限额（设计文档 §4.2）：
 // 个人订阅周限额 = reserveRatio×申报 + C，其中公共池 C = 周限额 − reserveRatio×Σ申报。
+// 该值是个人绝对上限（防呆）；公共池的硬约束由组级计数器执行（见 carpool_commons.go）。
 func CarpoolMemberWeeklyLimitUSD(weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD, declaredTotalUSD float64) float64 {
-	sharedPool := weeklyLimitUSD - reserveRatio*declaredTotalUSD
-	return reserveRatio*declaredWeeklyQuotaUSD + sharedPool
+	return CarpoolMemberReservedUSD(reserveRatio, declaredWeeklyQuotaUSD) +
+		CarpoolSharedPoolCapacityUSD(weeklyLimitUSD, reserveRatio, declaredTotalUSD)
+}
+
+// CarpoolMemberReservedUSD 计算成员的保底额度 r = reserveRatio×申报。
+// 发车时写入订阅的 weekly_reserved_usd；周用量 < r 无条件放行（保底硬保证）。
+func CarpoolMemberReservedUSD(reserveRatio, declaredWeeklyQuotaUSD float64) float64 {
+	return reserveRatio * declaredWeeklyQuotaUSD
+}
+
+// CarpoolSharedPoolCapacityUSD 计算公共池容量 C = 周限额 − reserveRatio×Σ申报。
+// 105% 超募上限保证 C ≥ (1−0.8×1.05)×周限额 = 16%×周限额 > 0。
+func CarpoolSharedPoolCapacityUSD(weeklyLimitUSD, reserveRatio, declaredTotalUSD float64) float64 {
+	return weeklyLimitUSD - reserveRatio*declaredTotalUSD
+}
+
+// CarpoolCommonsExcessDelta 计算一次用量累加应计入组级公共池计数器的增量：
+//
+//	delta = max(0, newUsage − r) − max(0, oldUsage − r)
+//
+// 只有越过保底 r 的那部分消耗才占用公共池（跨界场景：r−10 → r+15，delta = 15）。
+func CarpoolCommonsExcessDelta(oldUsage, newUsage, reserved float64) float64 {
+	excessAfter := newUsage - reserved
+	if excessAfter < 0 {
+		excessAfter = 0
+	}
+	excessBefore := oldUsage - reserved
+	if excessBefore < 0 {
+		excessBefore = 0
+	}
+	delta := excessAfter - excessBefore
+	if delta < 0 {
+		// 用量不会回退；防御负增量（如窗口重置竞态下的脏读）。
+		return 0
+	}
+	return delta
+}
+
+// carpoolWeeklyWindowDuration 是拼车周窗口长度（与 NeedsWeeklyReset 的 7 天判定一致）。
+const carpoolWeeklyWindowDuration = 7 * 24 * time.Hour
+
+// CarpoolWeeklyWindowGridStart 把过期的拼车周窗口吸附回 7 天网格：
+// 在 prev 锚定的网格上取最大的起点 P，满足 P ≤ now < P+7d。
+// 发车时全车 weekly_window_start 统一对齐，之后每次周重置都吸附回同一网格，
+// 保证全体成员的窗口起点恒等，组级公共池计数器 key 因此一致。
+func CarpoolWeeklyWindowGridStart(prev, now time.Time) time.Time {
+	if prev.IsZero() || now.Before(prev.Add(carpoolWeeklyWindowDuration)) {
+		// 窗口未过期（now < prev+7d，与 NeedsWeeklyReset 的 >= 判定互补）：保持原起点。
+		return prev
+	}
+	periods := int(now.Sub(prev) / carpoolWeeklyWindowDuration)
+	if periods < 1 {
+		periods = 1
+	}
+	return prev.Add(time.Duration(periods) * carpoolWeeklyWindowDuration)
 }
 
 // CarpoolDeclarationRecommendation 是申报推荐结果（设计文档 §4.1）。

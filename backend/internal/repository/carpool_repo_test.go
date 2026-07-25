@@ -19,14 +19,15 @@ var testLaunchParams = carpoolLaunchParams{
 	reserveRatio:   0.8,
 }
 
-// 开车时：group 写周限额安全帽 2400，成员订阅写 0.8×申报 + C，预付按发车人数锁定。
+// 开车时：group 写周限额安全帽 2400，成员订阅写保底 r=0.8×申报（weekly_reserved_usd）
+// 与个人上限 r+C（weekly_limit_usd），周窗口起点全车对齐，预付按发车人数锁定。
 func TestLaunchCarpoolCreatesLimitedGroupAndPerMemberSubscriptions(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	// 2 名成员各申报 $1200（Σ=2400）：公共池 C = 2400 − 0.8×2400 = 480，
-	// 每人订阅周限额 = 0.8×1200 + 480 = 1440；预付 = 400/2 + 1000×1200/2400 = 700。
+	// 2 名成员各申报 $1200（Σ=2400）：保底 r = 0.8×1200 = 960，公共池 C = 2400 − 0.8×2400 = 480，
+	// 每人订阅周限额 = 960 + 480 = 1440；预付 = 400/2 + 1000×1200/2400 = 700。
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT name, description, owner_user_id FROM carpools WHERE id = $1")).
 		WithArgs(int64(7)).
@@ -45,7 +46,7 @@ func TestLaunchCarpoolCreatesLimitedGroupAndPerMemberSubscriptions(t *testing.T)
 	for i, userID := range []int64{11, 12} {
 		mock.ExpectQuery("INSERT INTO user_subscriptions").
 			WithArgs(userID, int64(91), sqlmock.AnyArg(), sqlmock.AnyArg(), sql.NullInt64{Int64: 11, Valid: true},
-				"Automatically assigned when carpool launched", 1440.0).
+				"Automatically assigned when carpool launched", 1440.0, 960.0, sqlmock.AnyArg()).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(101 + i)))
 		mock.ExpectExec("UPDATE carpool_members SET status = 'active'").
 			WithArgs(int64(21+i), int64(101+i), 700.0, sqlmock.AnyArg()).

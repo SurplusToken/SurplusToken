@@ -39,6 +39,7 @@ func (r *userSubscriptionRepository) Create(ctx context.Context, sub *service.Us
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
 		SetNillableWeeklyLimitUsd(sub.WeeklyLimitUSD).
+		SetNillableWeeklyReservedUsd(sub.WeeklyReservedUSD).
 		SetNillableAssignedBy(sub.AssignedBy)
 
 	if sub.StartsAt.IsZero() {
@@ -139,6 +140,7 @@ func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.Us
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
 		SetNillableWeeklyLimitUsd(sub.WeeklyLimitUSD).
+		SetNillableWeeklyReservedUsd(sub.WeeklyReservedUSD).
 		SetNillableAssignedBy(sub.AssignedBy).
 		SetAssignedAt(sub.AssignedAt).
 		SetNotes(sub.Notes)
@@ -638,6 +640,7 @@ func userSubscriptionEntityToServiceWithStatusMapping(m *dbent.UserSubscription,
 		WeeklyUsageUSD:     m.WeeklyUsageUsd,
 		MonthlyUsageUSD:    m.MonthlyUsageUsd,
 		WeeklyLimitUSD:     m.WeeklyLimitUsd,
+		WeeklyReservedUSD:  m.WeeklyReservedUsd,
 		AssignedBy:         m.AssignedBy,
 		AssignedAt:         m.AssignedAt,
 		Notes:              derefString(m.Notes),

@@ -45,6 +45,8 @@ const (
 	FieldMonthlyUsageUsd = "monthly_usage_usd"
 	// FieldWeeklyLimitUsd holds the string denoting the weekly_limit_usd field in the database.
 	FieldWeeklyLimitUsd = "weekly_limit_usd"
+	// FieldWeeklyReservedUsd holds the string denoting the weekly_reserved_usd field in the database.
+	FieldWeeklyReservedUsd = "weekly_reserved_usd"
 	// FieldAssignedBy holds the string denoting the assigned_by field in the database.
 	FieldAssignedBy = "assigned_by"
 	// FieldAssignedAt holds the string denoting the assigned_at field in the database.
@@ -109,6 +111,7 @@ var Columns = []string{
 	FieldWeeklyUsageUsd,
 	FieldMonthlyUsageUsd,
 	FieldWeeklyLimitUsd,
+	FieldWeeklyReservedUsd,
 	FieldAssignedBy,
 	FieldAssignedAt,
 	FieldNotes,
@@ -233,6 +236,11 @@ func ByMonthlyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByWeeklyLimitUsd orders the results by the weekly_limit_usd field.
 func ByWeeklyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldWeeklyLimitUsd, opts...).ToFunc()
+}
+
+// ByWeeklyReservedUsd orders the results by the weekly_reserved_usd field.
+func ByWeeklyReservedUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWeeklyReservedUsd, opts...).ToFunc()
 }
 
 // ByAssignedBy orders the results by the assigned_by field.

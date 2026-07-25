@@ -896,10 +896,16 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 	// 周窗口重置（7天）
 	if sub.NeedsWeeklyReset() {
 		expectedWindowStart := sub.WeeklyWindowStart
-		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
+		weeklyStart := windowStart
+		if sub.HasWeeklyReserve() && sub.WeeklyWindowStart != nil {
+			// 拼车订阅：新窗口起点吸附回发车时对齐的 7 天网格（而非当天零点），
+			// 保证全车成员窗口起点恒等，组级公共池计数器 key 一致。
+			weeklyStart = CarpoolWeeklyWindowGridStart(*sub.WeeklyWindowStart, time.Now())
+		}
+		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, weeklyStart); err != nil {
 			return err
 		}
-		sub.WeeklyWindowStart = &windowStart
+		sub.WeeklyWindowStart = &weeklyStart
 		sub.WeeklyUsageUSD = 0
 		needsInvalidateCache = true
 	}
@@ -968,9 +974,10 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 }
 
 // ValidateAndCheckLimits 合并验证+限额检查（中间件热路径专用）
-// 仅做内存检查，不触发 DB 写入。调用方必须在放行请求前同步完成窗口维护。
+// 除拼车公共池计数器读取（Redis GET）外仅做内存检查，不触发 DB 写入。
+// 调用方必须在放行请求前同步完成窗口维护。
 // 返回 needsMaintenance 表示是否需要执行窗口维护并回读数据库快照。
-func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, group *Group) (needsMaintenance bool, err error) {
+func (s *SubscriptionService) ValidateAndCheckLimits(ctx context.Context, sub *UserSubscription, group *Group) (needsMaintenance bool, err error) {
 	// 1. 验证订阅状态
 	if sub.Status == SubscriptionStatusExpired {
 		return false, ErrSubscriptionExpired
@@ -1011,7 +1018,24 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 		return needsMaintenance, ErrMonthlyLimitExceeded
 	}
 
+	// 4. 拼车组级公共池硬约束（设计文档 §4.2 v3.2）：
+	//    周用量 < 保底 r → 无条件放行（保底硬保证，不读计数器）；
+	//    周用量 ≥ r → 全车超额之和（组级计数器）必须 < 公共池容量 C。
+	if err := s.checkCarpoolCommons(ctx, sub); err != nil {
+		return needsMaintenance, err
+	}
+
 	return needsMaintenance, nil
+}
+
+// checkCarpoolCommons 通过 BillingCacheService 注入的计数器执行公共池预检查。
+// 计数器未注入（billingCacheService/counter 为 nil）或读取失败时 fail-open：
+// 保底硬保证不依赖计数器，公共池强制降级不阻塞保底内用量。
+func (s *SubscriptionService) checkCarpoolCommons(ctx context.Context, sub *UserSubscription) error {
+	if s == nil || s.billingCacheService == nil {
+		return nil
+	}
+	return s.billingCacheService.checkCarpoolCommonsEligibility(ctx, sub, sub.WeeklyUsageUSD)
 }
 
 // DoWindowMaintenance 异步执行窗口维护（激活+重置）

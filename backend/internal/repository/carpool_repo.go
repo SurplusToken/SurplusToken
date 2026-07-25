@@ -665,8 +665,10 @@ type carpoolLaunchParams struct {
 	reserveRatio   float64
 }
 
-// launchCarpool 在事务内完成发车：创建带周限额安全帽的订阅分组，为每位成员
-// 创建写入订阅级周限额（reserve×申报 + 公共池 C）的订阅，并按发车人数锁定预付。
+// launchCarpool 在事务内完成发车：创建带周限额安全帽的订阅分组，为每位成员创建
+// 写入保底额度（weekly_reserved_usd = reserve×申报）与订阅级周限额（保底 + 公共池 C，
+// 个人绝对上限）的订阅，周窗口起点全车对齐（公共池计数器 key 一致的前提），
+// 并按发车人数锁定预付。公共池硬约束由组级 Redis 计数器执行（设计文档 §4.2 v3.2）。
 func launchCarpool(ctx context.Context, tx *sql.Tx, carpoolID int64, params carpoolLaunchParams) (int64, []int64, error) {
 	var name, description string
 	var ownerUserID sql.NullInt64
@@ -719,16 +721,24 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 
 	now := time.Now().UTC()
 	expiresAt := now.AddDate(0, 1, 0)
+	// 全车周窗口统一对齐到发车日零点（UTC），之后周重置吸附回同一 7 天网格
+	// （subscription_service.CheckAndResetWindows），保证全体成员窗口起点恒等，
+	// 组级公共池计数器 key（carpool:commons:{group}:{window_start}）因此一致。
+	weeklyWindowStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	userIDs := make([]int64, 0, len(members))
 	for _, member := range members {
-		// 订阅级周限额 = reserve×申报 + 公共池 C（设计文档 §4.2）。
+		// 保底 r = reserve×申报（weekly_reserved_usd）：周用量 < r 无条件放行；
+		// 订阅级周限额 = r + 公共池 C（设计文档 §4.2），保留为个人绝对上限防呆。
+		reservedUSD := service.CarpoolMemberReservedUSD(params.reserveRatio, member.declared)
 		weeklyLimitUSD := service.CarpoolMemberWeeklyLimitUSD(params.weeklyLimitUSD, params.reserveRatio, member.declared, declaredTotal)
 		var subscriptionID int64
 		err := tx.QueryRowContext(ctx, `
 INSERT INTO user_subscriptions (
-    user_id, group_id, starts_at, expires_at, status, assigned_by, assigned_at, notes, weekly_limit_usd
-) VALUES ($1, $2, $3, $4, 'active', $5, $3, $6, $7)
-RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatically assigned when carpool launched", weeklyLimitUSD).Scan(&subscriptionID)
+    user_id, group_id, starts_at, expires_at, status, assigned_by, assigned_at, notes,
+    weekly_limit_usd, weekly_reserved_usd, weekly_window_start
+) VALUES ($1, $2, $3, $4, 'active', $5, $3, $6, $7, $8, $9)
+RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatically assigned when carpool launched",
+			weeklyLimitUSD, reservedUSD, weeklyWindowStart).Scan(&subscriptionID)
 		if err != nil {
 			return 0, nil, fmt.Errorf("assign carpool subscription to user %d: %w", member.userID, err)
 		}

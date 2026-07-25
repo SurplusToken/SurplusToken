@@ -391,6 +391,12 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
 			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
 		}
+		// 拼车组级公共池计数：计费已在事务内提交，此处同步累加 Redis 计数器，
+		// 把公共池预检查的 TOCTOU 窗口限制在并发 in-flight 请求数量内
+		// （best-effort：失败仅记 ALERT，见 AddCarpoolCommonsUsage）。
+		if result != nil && result.CarpoolCommonsDelta != nil && deps.billingCacheService != nil {
+			deps.billingCacheService.AddCarpoolCommonsUsage(ctx, result.CarpoolCommonsDelta)
+		}
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
 		syncBalanceCacheAfterDeduction(ctx, p, deps, result)
 	}

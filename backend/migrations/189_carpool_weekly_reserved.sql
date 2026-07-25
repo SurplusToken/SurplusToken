@@ -1,0 +1,12 @@
+-- Carpool shared-pool hard constraint (公共池用量硬约束): per-subscription
+-- weekly reserve (保底) amount. NULL means "not a carpool quota-reservation
+-- subscription" and all limit behavior falls back to pre-existing semantics.
+--
+-- Model (design doc §4.2, v3.2):
+--   reserve_i = reserve_ratio x declared_i          -> weekly_reserved_usd
+--   shared pool C = group weekly limit - SUM(reserve_i)
+--   weekly_limit_usd keeps the launch-time value reserve_i + C as a personal
+--   absolute cap (defense in depth); the actual shared-pool enforcement is a
+--   group-level Redis counter of SUM max(0, usage_i - reserve_i) per aligned
+--   weekly window, checked with pre-check (TOCTOU) semantics.
+ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS weekly_reserved_usd DECIMAL(20, 10) NULL;

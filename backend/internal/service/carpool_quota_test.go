@@ -18,26 +18,96 @@ func TestCarpoolPrepaidCNYMatchesDesignAppendixA1(t *testing.T) {
 }
 
 func TestCarpoolMemberWeeklyLimitUSDGuaranteesReserve(t *testing.T) {
-	// §4.2：个人订阅周限额 = 0.8×申报 + C，C = 2400 − 0.8×Σ申报。
-	// 保底是数学保证：组限额钉死 2400 时，其他人最多消耗 0.8×(Σ−d_i)+C，
-	// 恰好给每位成员剩下 0.8×申报。
+	// §4.2（v3.2 公共池硬约束）：保底 r = 0.8×申报 写入 weekly_reserved_usd；
+	// 公共池 C = 2400 − 0.8×Σ申报；个人周限额 = r + C（保留为个人绝对上限防呆）。
+	// 新的数学不变式（替代旧版"组限额钉死总量"的错误前提）：
+	//   1) Σr + C = 2400 —— 全车理论用量上界恰好等于上游周限：
+	//      每人保底内用量 ≤ r，超额部分计入组级计数器且 Σ超额 < C，
+	//      故 Σ用量 ≤ Σr + C = 2400；
+	//   2) 105% 超募上限保证 C ≥ 16%×2400 > 0 —— 公共池不会消失；
+	//   3) 保底内放行不依赖计数器（见 carpool_commons_test.go 的行为测试）。
 	weeklyLimit, reserve := 2400.0, 0.8
 	declared := []float64{400, 400, 200, 200, 200, 200, 200, 200, 100, 100, 100, 100} // A2 混合场景 Σ=2400
 	total := 0.0
 	for _, d := range declared {
 		total += d
 	}
-	sharedPool := weeklyLimit - reserve*total
+	sharedPool := CarpoolSharedPoolCapacityUSD(weeklyLimit, reserve, total)
 	require.InDelta(t, 480.0, sharedPool, 1e-9)
 
+	reservedTotal := 0.0
 	for i, d := range declared {
+		r := CarpoolMemberReservedUSD(reserve, d)
+		require.InDelta(t, reserve*d, r, 1e-9, "成员 %d 的保底应恰好等于 0.8×申报", i)
+		reservedTotal += r
 		limit := CarpoolMemberWeeklyLimitUSD(weeklyLimit, reserve, d, total)
-		require.InDelta(t, reserve*d+sharedPool, limit, 1e-9)
-		others := total - d
-		othersMaxConsumption := reserve*others + sharedPool
-		guaranteed := weeklyLimit - othersMaxConsumption
-		require.InDelta(t, reserve*d, guaranteed, 1e-9, "成员 %d 的保底应恰好等于 0.8×申报", i)
+		require.InDelta(t, r+sharedPool, limit, 1e-9, "成员 %d 的个人上限应为 r+C", i)
 	}
+	// 不变式 1：Σr + C 恰好钉死上游周限 2400（全车总用量的硬上界）。
+	require.InDelta(t, weeklyLimit, reservedTotal+sharedPool, 1e-9)
+}
+
+func TestCarpoolSharedPoolInvariantHoldsAtRecruitmentBounds(t *testing.T) {
+	// 发车区间 [95%, 105%]×2400 内，公共池恒为正且 Σr + C = 2400 恒成立。
+	weeklyLimit, reserve := 2400.0, 0.8
+	for _, total := range []float64{2280, 2400, 2520} {
+		sharedPool := CarpoolSharedPoolCapacityUSD(weeklyLimit, reserve, total)
+		require.Greater(t, sharedPool, 0.0, "Σ=%v 时公共池必须为正", total)
+		require.InDelta(t, weeklyLimit, reserve*total+sharedPool, 1e-9, "Σ=%v 时 Σr+C 必须等于周限", total)
+	}
+	// 105% 超募上限处 C 恰为 16%×2400（公共池下界，保底机制不会失效）。
+	require.InDelta(t, 0.16*weeklyLimit, CarpoolSharedPoolCapacityUSD(weeklyLimit, reserve, 1.05*weeklyLimit), 1e-9)
+}
+
+func TestCarpoolCommonsExcessDelta(t *testing.T) {
+	const r = 100.0
+	cases := []struct {
+		name          string
+		oldUsage      float64
+		newUsage      float64
+		expectedDelta float64
+	}{
+		{"跨界：保底内到保底外（r-10 → r+15）", r - 10, r + 15, 15},
+		{"全程保底内（r-20 → r-5）", r - 20, r - 5, 0},
+		{"恰好抵达保底（r-5 → r）", r - 5, r, 0},
+		{"从保底出发越界（r → r+10）", r, r + 10, 10},
+		{"全程保底外（r+5 → r+10）", r + 5, r + 10, 5},
+		{"从零起步直接越界（0 → r+50）", 0, r + 50, 50},
+		{"用量原地不动", r + 5, r + 5, 0},
+		{"防御负增量（脏读/重置竞态）", r + 20, r + 5, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.InDelta(t, tc.expectedDelta, CarpoolCommonsExcessDelta(tc.oldUsage, tc.newUsage, r), 1e-9)
+		})
+	}
+}
+
+func TestCarpoolWeeklyWindowGridStart(t *testing.T) {
+	anchor := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	week := 7 * 24 * time.Hour
+
+	// 窗口未过期：保持原起点
+	within := anchor.Add(3 * 24 * time.Hour)
+	require.Equal(t, anchor, CarpoolWeeklyWindowGridStart(anchor, within))
+
+	// 过期一次：推进到下一网格点
+	atBoundary := anchor.Add(week)
+	require.Equal(t, anchor.Add(week), CarpoolWeeklyWindowGridStart(anchor, atBoundary))
+
+	// 过期多日但不足两周：仍只推进一格
+	midSecondWeek := anchor.Add(week + 30*time.Hour)
+	require.Equal(t, anchor.Add(week), CarpoolWeeklyWindowGridStart(anchor, midSecondWeek))
+
+	// 跨多个周期（长期未用后归来）：吸附到当前所属网格点，而非"当天零点"
+	afterLongIdle := anchor.Add(23*24*time.Hour + 5*time.Hour)
+	got := CarpoolWeeklyWindowGridStart(anchor, afterLongIdle)
+	require.Equal(t, anchor.Add(3*week), got)
+
+	// 不变式：结果总是网格点，且满足 起点 ≤ now < 起点+7d
+	require.Zero(t, got.Sub(anchor)%week)
+	require.False(t, afterLongIdle.Before(got))
+	require.True(t, afterLongIdle.Before(got.Add(week)))
 }
 
 func TestBuildDeclarationRecommendation(t *testing.T) {

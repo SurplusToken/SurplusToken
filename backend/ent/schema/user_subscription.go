@@ -75,6 +75,13 @@ func (UserSubscription) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 
+		// 拼车保底额度 r = reserve_ratio×申报（公共池硬约束）：NULL 表示非拼车订阅，
+		// 限额行为与既有语义完全一致。用量 < r 无条件放行；≥ r 部分计入组级公共池计数器。
+		field.Float("weekly_reserved_usd").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+
 		field.Int64("assigned_by").
 			Optional().
 			Nillable(),
