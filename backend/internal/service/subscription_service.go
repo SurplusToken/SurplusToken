@@ -393,6 +393,43 @@ func appendSubscriptionNotes(existingNotes, newNotes string) string {
 }
 
 // createSubscription 创建新订阅（内部方法）
+// subscriptionHistoryLookup 是可选能力：查出该 (user, group) 最近一条订阅（含已撤销的）。
+// 做成可选接口而不是塞进 UserSubscriptionRepository，是因为后者被大量测试桩实现，
+// 而这里只需要生产仓储具备该能力；不具备时继承逻辑安全地退化为不做任何事。
+type subscriptionHistoryLookup interface {
+	GetLatestIncludingDeletedByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error)
+}
+
+// inheritQuotaOverrides 从同一 (user, group) 最近一条订阅（含已撤销的）继承订阅级
+// 限额覆盖字段。
+//
+// 撤销订阅是软删除，而 ExistsByUserIDAndGroupID 看不到软删行，所以"撤销 + 重新分配"
+// 会走 Create 新建一行。对拼车成员来说，这一行没有 weekly_reserved_usd 就意味着：
+// 保底额度消失、用量不再计入组级公共池计数器，而个人上限回落到分组级的整车周限额
+// ——一个人可以独占全车额度，且对公共池完全隐形。继承是就地可做、不跨层的修法。
+// 查询失败或没有历史行时保持原样（新订阅按分组级限额），不阻塞分配。
+func (s *SubscriptionService) inheritQuotaOverrides(ctx context.Context, sub *UserSubscription) {
+	if sub == nil || s.userSubRepo == nil {
+		return
+	}
+	lookup, ok := s.userSubRepo.(subscriptionHistoryLookup)
+	if !ok {
+		return
+	}
+	previous, err := lookup.GetLatestIncludingDeletedByUserIDAndGroupID(ctx, sub.UserID, sub.GroupID)
+	if err != nil || previous == nil {
+		return
+	}
+	if sub.WeeklyLimitUSD == nil && previous.WeeklyLimitUSD != nil {
+		limit := *previous.WeeklyLimitUSD
+		sub.WeeklyLimitUSD = &limit
+	}
+	if sub.WeeklyReservedUSD == nil && previous.WeeklyReservedUSD != nil {
+		reserved := *previous.WeeklyReservedUSD
+		sub.WeeklyReservedUSD = &reserved
+	}
+}
+
 func (s *SubscriptionService) createSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, error) {
 	validityDays := input.ValidityDays
 	if validityDays <= 0 {
@@ -423,6 +460,7 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 	if input.AssignedBy > 0 {
 		sub.AssignedBy = &input.AssignedBy
 	}
+	s.inheritQuotaOverrides(ctx, sub)
 
 	if err := s.userSubRepo.Create(ctx, sub); err != nil {
 		return nil, err

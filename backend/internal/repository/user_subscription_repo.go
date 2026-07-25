@@ -325,6 +325,24 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 	return result, paginationResultFromTotal(int64(total), params), nil
 }
 
+// GetLatestIncludingDeletedByUserIDAndGroupID 返回该 (user, group) 最近创建的一条订阅，
+// 包含已撤销（软删）的行；一条都没有时返回 ErrSubscriptionNotFound。
+func (r *userSubscriptionRepository) GetLatestIncludingDeletedByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+	client := clientFromContext(ctx, r.client)
+	queryCtx := mixins.SkipSoftDelete(ctx)
+	sub, err := client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID)).
+		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
+		First(queryCtx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, service.ErrSubscriptionNotFound
+		}
+		return nil, err
+	}
+	return userSubscriptionEntityToService(sub), nil
+}
+
 func (r *userSubscriptionRepository) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
 	client := clientFromContext(ctx, r.client)
 	return client.UserSubscription.Query().

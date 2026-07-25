@@ -150,8 +150,8 @@ func BuildDeclarationRecommendation(weeklyUsageUSD float64, daysWithRecords int,
 // CarpoolSettlementMemberInput 是结算计算的成员输入。
 type CarpoolSettlementMemberInput struct {
 	UserID                 int64
-	Email                  string  // 供车主对应到真人收款
-	Username               string  // 同上，可能为空
+	Email                  string // 供车主对应到真人收款
+	Username               string // 同上，可能为空
 	Role                   string
 	DeclaredWeeklyQuotaUSD float64
 	PrepaidAmountCNY       float64 // 首月预付台账（发车时按发车人数锁定）
@@ -167,19 +167,19 @@ type CarpoolSettlementMember struct {
 	Username               string  `json:"username,omitempty"`
 	Role                   string  `json:"role"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
-	FloorUsageUSD          float64 `json:"floor_usage_usd"`    // 0.8×申报×周期周数（80% 地板）
-	ActualUsageUSD         float64 `json:"actual_usage_usd"`   // 周期内实际用量
-	BillableUsageUSD       float64 `json:"billable_usage_usd"` // 计费用量 = max(实际, 地板)
-	FloorTriggered         bool    `json:"floor_triggered"`    // 实际未达地板，按地板计费
-	PrepaidAmountCNY       float64 `json:"prepaid_amount_cny"`        // 发车时按发车人数锁定的台账值
-	QuotedPrepaidCNY       float64 `json:"quoted_prepaid_cny"`        // 上车当时报给用户的金额（实际收款依据）
-	UsagePrepaidCNY        float64 `json:"usage_prepaid_cny"`         // 预付变动部分 = 变动池×申报/周限额
-	UsageFinalShareCNY     float64 `json:"usage_final_share_cny"`     // 最终分摊 = 变动池×计费用量/Σ计费用量
-	UsageDeltaCNY          float64 `json:"usage_delta_cny"`           // 变动部分退/补：正=退，负=补
-	SeatFeePrepaidCNY      float64 `json:"seat_fee_prepaid_cny"`      // 上车报价中的席位费部分 = 席位费/上车时人数
-	SeatFeeFinalCNY        float64 `json:"seat_fee_final_cny"`        // 最终席位费 = 席位费/发车人数
-	SeatFeeDeltaCNY        float64 `json:"seat_fee_delta_cny"`        // 席位费退/补：正=退，负=补
-	TotalDeltaCNY          float64 `json:"total_delta_cny"`           // 合计退/补：正=退，负=补
+	FloorUsageUSD          float64 `json:"floor_usage_usd"`       // 0.8×申报×周期周数（80% 地板）
+	ActualUsageUSD         float64 `json:"actual_usage_usd"`      // 周期内实际用量
+	BillableUsageUSD       float64 `json:"billable_usage_usd"`    // 计费用量 = max(实际, 地板)
+	FloorTriggered         bool    `json:"floor_triggered"`       // 实际未达地板，按地板计费
+	PrepaidAmountCNY       float64 `json:"prepaid_amount_cny"`    // 发车时按发车人数锁定的台账值
+	QuotedPrepaidCNY       float64 `json:"quoted_prepaid_cny"`    // 上车当时报给用户的金额（实际收款依据）
+	UsagePrepaidCNY        float64 `json:"usage_prepaid_cny"`     // 预付变动部分 = 变动池×申报/周限额
+	UsageFinalShareCNY     float64 `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
+	UsageDeltaCNY          float64 `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
+	SeatFeePrepaidCNY      float64 `json:"seat_fee_prepaid_cny"`  // 上车报价中的席位费部分 = 席位费/上车时人数
+	SeatFeeFinalCNY        float64 `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
+	SeatFeeDeltaCNY        float64 `json:"seat_fee_delta_cny"`    // 席位费退/补：正=退，负=补
+	TotalDeltaCNY          float64 `json:"total_delta_cny"`       // 合计退/补：正=退，负=补
 }
 
 // ComputeCarpoolSettlementMembers 按设计文档 §4.5 计算全车结算单（含 80% 地板规则）。
