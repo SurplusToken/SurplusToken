@@ -68,6 +68,14 @@ var (
 const (
 	// CarpoolAdminWechatID 是硬编码的管理员微信号，创建车辆前必须先添加。
 	CarpoolAdminWechatID = "Charlemartingale"
+	// CarpoolAdminEmail 是拼车运营联系人邮箱：所有"通知管理员"类的拼车邮件
+	// （车主确认发车、自定义规则咨询）都只发到这里。
+	//
+	// 刻意不查 users 表里的 role=admin：那是**授权**角色，一个部署可能有若干个
+	// 运维/客服管理员，他们不负责拼车运营；拼车的联系人是一个具体的人，与
+	// CarpoolAdminWechatID 指的是同一个人。两者放在一起，换人时一并改这两行。
+	// 平台其他模块（余额告警、运维告警等）的管理员通知不受此影响。
+	CarpoolAdminEmail = "zhongshanhu@stu.pku.edu.cn"
 	// CarpoolGroupQRCodeMaxBytes 是群二维码解码后的字节上限（2MB）。
 	CarpoolGroupQRCodeMaxBytes = 2 << 20
 
@@ -928,16 +936,8 @@ func (s *CarpoolService) ReserveInterestSlot(userID int64) error {
 func (s *CarpoolService) NotifyCustomRuleInterest(ctx context.Context, userID int64, note string) {
 	initiatorEmail := s.userEmail(ctx, userID)
 	logAttrs := []any{"user_id", userID, "user_email", initiatorEmail}
-	if s.userDirectory == nil || s.emailSender == nil {
+	if s.emailSender == nil {
 		slog.Warn("carpool custom rule interest: email pipeline unavailable", logAttrs...)
-		return
-	}
-	includeSubscriptions := false
-	admins, _, err := s.userDirectory.ListWithFilters(ctx,
-		pagination.PaginationParams{Page: 1, PageSize: 100},
-		UserListFilters{Role: RoleAdmin, Status: StatusActive, IncludeSubscriptions: &includeSubscriptions})
-	if err != nil {
-		slog.Warn("carpool custom rule interest: list admins failed", append(logAttrs, "error", err)...)
 		return
 	}
 	displayEmail := initiatorEmail
@@ -952,9 +952,7 @@ func (s *CarpoolService) NotifyCustomRuleInterest(ctx context.Context, userID in
 	if note = truncateRunes(strings.TrimSpace(note), CarpoolInterestNoteMaxRunes); note != "" {
 		body += fmt.Sprintf(`<p>用户备注：%s</p>`, html.EscapeString(note))
 	}
-	for _, admin := range admins {
-		s.sendCarpoolNotification(ctx, admin.Email, subject, body, logAttrs...)
-	}
+	s.sendCarpoolNotification(ctx, CarpoolAdminEmail, subject, body, logAttrs...)
 }
 
 func (s *CarpoolService) invalidateLaunchedSubscriptions(result *CarpoolMutationResult) {
@@ -1024,17 +1022,10 @@ func (s *CarpoolService) notifyOwnerLaunchBandEntered(ctx context.Context, resul
 	s.sendCarpoolNotification(ctx, s.userEmail(ctx, *carpool.OwnerUserID), "拼车已达发车区间，请登录确认发车", body)
 }
 
-// notifyAdminsCarpoolConfirmed 车主确认后通知所有 admin 在 24 小时内启动。
+// notifyAdminsCarpoolConfirmed 车主确认后通知拼车运营联系人在 24 小时内启动。
+// 收件人固定为 CarpoolAdminEmail，不是 users 表里的 role=admin（见该常量注释）。
 func (s *CarpoolService) notifyAdminsCarpoolConfirmed(ctx context.Context, carpool *Carpool) {
-	if s.userDirectory == nil || carpool == nil {
-		return
-	}
-	includeSubscriptions := false
-	admins, _, err := s.userDirectory.ListWithFilters(ctx,
-		pagination.PaginationParams{Page: 1, PageSize: 100},
-		UserListFilters{Role: RoleAdmin, Status: StatusActive, IncludeSubscriptions: &includeSubscriptions})
-	if err != nil {
-		slog.Warn("carpool notification: list admins failed", "carpool_id", carpool.ID, "error", err)
+	if carpool == nil {
 		return
 	}
 	safeName := carpoolDisplayName(carpool.Name)
@@ -1043,9 +1034,7 @@ func (s *CarpoolService) notifyAdminsCarpoolConfirmed(ctx context.Context, carpo
 			`<p>请在 24 小时内登录管理后台执行启动。</p>`,
 		safeName, carpool.ID, carpool.DeclaredTotalUSD)
 	subject := fmt.Sprintf("拼车「%s」已确认，请 24 小时内启动", safeName)
-	for _, admin := range admins {
-		s.sendCarpoolNotification(ctx, admin.Email, subject, body)
-	}
+	s.sendCarpoolNotification(ctx, CarpoolAdminEmail, subject, body, "carpool_id", carpool.ID)
 }
 
 // notifyMembersCarpoolLaunched 启动成功后逐一通知成员拼车已发车。

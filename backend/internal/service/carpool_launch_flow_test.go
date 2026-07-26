@@ -244,20 +244,22 @@ func TestJoinNotifiesOwnerWhenBandEnteredWithEmailDegradation(t *testing.T) {
 	require.Empty(t, sender.to)
 }
 
-// 车主确认后给所有 admin 发邮件；邮件失败不影响确认结果。
-func TestConfirmNotifiesAdminsWithEmailDegradation(t *testing.T) {
+// 车主确认后只通知拼车运营联系人（不群发平台 admin）；邮件失败不影响确认结果。
+func TestConfirmNotifiesCarpoolAdminWithEmailDegradation(t *testing.T) {
 	owner := int64(11)
 	repo := &launchFlowRepoStub{confirmRes: &CarpoolMutationResult{
 		Carpool: &Carpool{ID: 7, Name: "weekend-car", OwnerUserID: &owner, Status: "confirmed", DeclaredTotalUSD: 2350, WeeklyLimitUSD: 2400, LaunchMaxRatio: 1.05},
 	}}
 	sender := &recordingSender{fail: true}
+	// 平台里有两个 admin，但拼车确认通知不该发给他们。
 	dir := &stubUserDirectory{admins: []User{{ID: 1, Email: "a1@example.com"}, {ID: 2, Email: "a2@example.com"}}}
 	svc := newLaunchFlowService(repo, sender, dir)
 
 	result, err := svc.Confirm(context.Background(), 7, 11)
 	require.NoError(t, err, "邮件失败不得中断确认流程")
 	require.NotNil(t, result.Carpool)
-	require.ElementsMatch(t, []string{"a1@example.com", "a2@example.com"}, sender.to)
+	require.Equal(t, []string{CarpoolAdminEmail}, sender.to)
+	require.NotContains(t, sender.to, "a1@example.com", "平台 admin 不该收到拼车运营通知")
 	for _, subject := range sender.subject {
 		require.True(t, strings.Contains(subject, "24 小时"), "主题应提示 24 小时内启动: %s", subject)
 	}
