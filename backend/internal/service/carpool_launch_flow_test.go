@@ -80,6 +80,9 @@ func (s *launchFlowRepoStub) PersistSettlement(ctx context.Context, carpoolID, a
 func (s *launchFlowRepoStub) ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error {
 	panic("unexpected call")
 }
+func (s *launchFlowRepoStub) ListExpiredUnsettled(ctx context.Context) ([]int64, error) {
+	return nil, nil
+}
 func (s *launchFlowRepoStub) GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (float64, int, error) {
 	panic("unexpected call")
 }

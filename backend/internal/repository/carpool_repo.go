@@ -1155,3 +1155,37 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	}
 	return &item, nil
 }
+
+// ListExpiredUnsettled 返回订阅已到期、但结算单尚未冻结的拼车 ID。
+//
+// 判定"到期"用的是成员订阅的 expires_at：全车订阅都过期了，这一期就跑完了。
+// 自定义规则车不在其中——它们的账不由平台计算。
+func (r *carpoolRepository) ListExpiredUnsettled(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT c.id
+FROM carpools c
+WHERE c.status IN ('active', 'ended')
+  AND c.settled_at IS NULL
+  AND COALESCE(c.pricing_model, 'quota') = 'quota'
+  AND EXISTS (SELECT 1 FROM carpool_members m WHERE m.carpool_id = c.id AND m.status = 'active')
+  AND NOT EXISTS (
+      SELECT 1 FROM carpool_members m
+      JOIN user_subscriptions s ON s.id = m.subscription_id AND s.deleted_at IS NULL
+      WHERE m.carpool_id = c.id AND m.status = 'active' AND s.expires_at > NOW()
+  )
+ORDER BY c.id`)
+	if err != nil {
+		return nil, fmt.Errorf("list expired unsettled carpools: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan expired unsettled carpool: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

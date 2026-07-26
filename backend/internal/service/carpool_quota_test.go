@@ -261,14 +261,15 @@ func TestCarpoolFillDerivedMetrics(t *testing.T) {
 }
 
 type carpoolRepoStub struct {
-	carpool        *Carpool
-	rows           []CarpoolSettlementMemberRow
-	joinErr        error
-	joinCall       int
-	joinResult     *CarpoolMutationResult
-	settledMembers []CarpoolSettlementMember
-	settleErr      error
-	cleared        bool
+	carpool          *Carpool
+	rows             []CarpoolSettlementMemberRow
+	joinErr          error
+	joinCall         int
+	joinResult       *CarpoolMutationResult
+	settledMembers   []CarpoolSettlementMember
+	settleErr        error
+	cleared          bool
+	expiredUnsettled []int64
 }
 
 func (s *carpoolRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -309,6 +310,9 @@ func (s *carpoolRepoStub) PersistSettlement(ctx context.Context, carpoolID, acto
 func (s *carpoolRepoStub) ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error {
 	s.cleared = true
 	return nil
+}
+func (s *carpoolRepoStub) ListExpiredUnsettled(ctx context.Context) ([]int64, error) {
+	return s.expiredUnsettled, nil
 }
 func (s *carpoolRepoStub) ListPendingLaunch(ctx context.Context) ([]CarpoolPendingLaunch, error) {
 	panic("unexpected call")

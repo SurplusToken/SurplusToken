@@ -79,6 +79,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	subscriptionService := service.NewSubscriptionService(groupRepository, userSubscriptionRepository, billingCacheService, client, configConfig)
 	carpoolUpstreamWindows := repository.NewCarpoolUpstreamWindowRepository(db)
 	subscriptionService.SetCarpoolUpstreamWindowSource(carpoolUpstreamWindows)
+	carpoolBillingCycles := repository.NewCarpoolBillingCycleRepository(db)
+	subscriptionService.SetCarpoolBillingCycleRecorder(carpoolBillingCycles)
 	if capacitySource, ok := carpoolUpstreamWindows.(service.CarpoolObservedCapacitySource); ok {
 		billingCacheService.SetCarpoolObservedCapacitySource(capacitySource)
 	}
@@ -208,6 +210,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountPoolHandler := handler.NewAccountPoolHandler(accountService, apiKeyService, accountUsageService, proxyService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, kimiOAuthService, accountTestService, scheduledTestService, rateLimitService, compositeTokenCacheInvalidator, privacyClientFactory, remoteSessionService, accountContributionService, openAIQuotaService)
 	carpoolRepository := repository.NewCarpoolRepository(db)
 	carpoolService := service.NewCarpoolService(carpoolRepository, subscriptionService, emailService, userRepository)
+	carpoolService.SetBillingCycleRecorder(carpoolBillingCycles)
 	carpoolHandler := handler.NewCarpoolHandler(carpoolService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)

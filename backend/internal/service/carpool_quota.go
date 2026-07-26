@@ -158,6 +158,11 @@ type CarpoolSettlementMemberInput struct {
 	QuotedPrepaidCNY       float64 // 上车当时报给用户的预付（按上车时人数），实际收款依据
 	ActualUsageUSD         float64 // 订阅周期内实际用量（月度窗口）
 	PeriodDays             float64 // 订阅有效期天数（用于申报→周期地板折算）
+
+	// Cycles 是该成员在本订阅周期内的分周期账目（含当期未关闭的那一周）。
+	// 非空时按周计地板：Σ max(周实际, 0.8×申报)；为空时退回按月整体算
+	// （老车没有台账），此时 CycleBased 为 false，单据上要标明口径不同。
+	Cycles []CarpoolBillingCycle
 }
 
 // CarpoolSettlementMember 是结算单中的成员行。
@@ -167,19 +172,25 @@ type CarpoolSettlementMember struct {
 	Username               string  `json:"username,omitempty"`
 	Role                   string  `json:"role"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
-	FloorUsageUSD          float64 `json:"floor_usage_usd"`       // 0.8×申报×周期周数（80% 地板）
-	ActualUsageUSD         float64 `json:"actual_usage_usd"`      // 周期内实际用量
-	BillableUsageUSD       float64 `json:"billable_usage_usd"`    // 计费用量 = max(实际, 地板)
-	FloorTriggered         bool    `json:"floor_triggered"`       // 实际未达地板，按地板计费
-	PrepaidAmountCNY       float64 `json:"prepaid_amount_cny"`    // 发车时按发车人数锁定的台账值
-	QuotedPrepaidCNY       float64 `json:"quoted_prepaid_cny"`    // 上车当时报给用户的金额（实际收款依据）
-	UsagePrepaidCNY        float64 `json:"usage_prepaid_cny"`     // 预付变动部分 = 变动池×申报/周限额
-	UsageFinalShareCNY     float64 `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
-	UsageDeltaCNY          float64 `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
-	SeatFeePrepaidCNY      float64 `json:"seat_fee_prepaid_cny"`  // 上车报价中的席位费部分 = 席位费/上车时人数
-	SeatFeeFinalCNY        float64 `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
-	SeatFeeDeltaCNY        float64 `json:"seat_fee_delta_cny"`    // 席位费退/补：正=退，负=补
-	TotalDeltaCNY          float64 `json:"total_delta_cny"`       // 合计退/补：正=退，负=补
+	// CycleBased 为 true 表示计费用量按周逐个算了地板（正确口径）；
+	// false 表示该成员没有周期台账，退回按月整体算地板（老车/台账缺失）。
+	CycleBased         bool                  `json:"cycle_based"`
+	CycleCount         int                   `json:"cycle_count"`           // 计费周期数
+	FloorCycles        int                   `json:"floor_cycles"`          // 其中被地板托底的周期数
+	Cycles             []CarpoolBillingCycle `json:"cycles,omitempty"`      // 每个周期的明细
+	FloorUsageUSD      float64               `json:"floor_usage_usd"`       // 地板合计（按周口径时为 Σ各周保底）
+	ActualUsageUSD     float64               `json:"actual_usage_usd"`      // 周期内实际用量
+	BillableUsageUSD   float64               `json:"billable_usage_usd"`    // 计费用量 = max(实际, 地板)
+	FloorTriggered     bool                  `json:"floor_triggered"`       // 实际未达地板，按地板计费
+	PrepaidAmountCNY   float64               `json:"prepaid_amount_cny"`    // 发车时按发车人数锁定的台账值
+	QuotedPrepaidCNY   float64               `json:"quoted_prepaid_cny"`    // 上车当时报给用户的金额（实际收款依据）
+	UsagePrepaidCNY    float64               `json:"usage_prepaid_cny"`     // 预付变动部分 = 变动池×申报/周限额
+	UsageFinalShareCNY float64               `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
+	UsageDeltaCNY      float64               `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
+	SeatFeePrepaidCNY  float64               `json:"seat_fee_prepaid_cny"`  // 上车报价中的席位费部分 = 席位费/上车时人数
+	SeatFeeFinalCNY    float64               `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
+	SeatFeeDeltaCNY    float64               `json:"seat_fee_delta_cny"`    // 席位费退/补：正=退，负=补
+	TotalDeltaCNY      float64               `json:"total_delta_cny"`       // 合计退/补：正=退，负=补
 }
 
 // ComputeCarpoolSettlementMembers 按设计文档 §4.5 计算全车结算单（含 80% 地板规则）。
@@ -192,24 +203,14 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 
 	billableTotal := 0.0
 	for _, in := range inputs {
-		floor := reserveRatio * in.DeclaredWeeklyQuotaUSD * in.PeriodDays / 7
-		actual := in.ActualUsageUSD
-		if actual > floor {
-			billableTotal += actual
-		} else {
-			billableTotal += floor
-		}
+		b, _, _, _, _ := memberBillable(in, reserveRatio)
+		billableTotal += b
 	}
 
 	seatFeeFinal := seatFeeCNY / float64(len(inputs))
 	for _, in := range inputs {
-		floor := reserveRatio * in.DeclaredWeeklyQuotaUSD * in.PeriodDays / 7
-		billable := floor
-		floorTriggered := true
-		if in.ActualUsageUSD > floor {
-			billable = in.ActualUsageUSD
-			floorTriggered = false
-		}
+		billable, floor, actual, cycleBased, cycleStats := memberBillable(in, reserveRatio)
+		floorTriggered := actual <= floor
 
 		usagePrepaid := 0.0
 		if weeklyLimitUSD > 0 {
@@ -235,8 +236,12 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 			Username:               in.Username,
 			Role:                   in.Role,
 			DeclaredWeeklyQuotaUSD: in.DeclaredWeeklyQuotaUSD,
+			CycleBased:             cycleBased,
+			CycleCount:             cycleStats.count,
+			FloorCycles:            cycleStats.floorCycles,
+			Cycles:                 in.Cycles,
 			FloorUsageUSD:          floor,
-			ActualUsageUSD:         in.ActualUsageUSD,
+			ActualUsageUSD:         actual,
 			BillableUsageUSD:       billable,
 			FloorTriggered:         floorTriggered,
 			PrepaidAmountCNY:       in.PrepaidAmountCNY,
@@ -252,4 +257,37 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 		members = append(members, member)
 	}
 	return members
+}
+
+// cycleStats 是分周期账目的计数。
+type cycleStats struct {
+	count       int
+	floorCycles int
+}
+
+// memberBillable 计算一位成员的计费用量、地板合计与实际用量。
+//
+// 有周期台账时按**周**逐个算地板再求和，这是正确口径：保底按周刷新、未用完
+// 不结转，所以每周各算各的 max(实际, 保底)。
+//
+// 没有台账时（发车早于台账功能的老车）退回按月整体算 max(Σ实际, 0.8×申报×周数)，
+// 并把 cycleBased 置 false——这个口径会让超用的周补贴没用满的周，账单上要标明。
+func memberBillable(in CarpoolSettlementMemberInput, reserveRatio float64) (billable, floor, actual float64, cycleBased bool, stats cycleStats) {
+	if len(in.Cycles) > 0 {
+		for _, c := range in.Cycles {
+			actual += c.ActualUsageUSD
+			floor += c.ReservedUSD
+			billable += CarpoolCycleBillableUSD(c.ActualUsageUSD, c.ReservedUSD)
+			stats.count++
+			if c.ActualUsageUSD <= c.ReservedUSD {
+				stats.floorCycles++
+			}
+		}
+		return billable, floor, actual, true, stats
+	}
+
+	floor = reserveRatio * in.DeclaredWeeklyQuotaUSD * in.PeriodDays / 7
+	actual = in.ActualUsageUSD
+	billable = CarpoolCycleBillableUSD(actual, floor)
+	return billable, floor, actual, false, stats
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -412,6 +413,8 @@ type CarpoolRepository interface {
 	PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []CarpoolSettlementMember) error
 	// ClearSettlement 撤销结算（admin 出口），清空车与成员上的全部冻结字段。
 	ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error
+	// ListExpiredUnsettled 返回订阅已到期但尚未结算的车（供期末自动结算）。
+	ListExpiredUnsettled(ctx context.Context) ([]int64, error)
 	GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (totalUSD float64, daysWithRecords int, err error)
 }
 
@@ -433,6 +436,9 @@ type CarpoolService struct {
 	emailSender         CarpoolEmailSender
 	userDirectory       CarpoolUserDirectory
 
+	// cycles 提供分周期计费台账（可选注入）。未注入时结算退回按月整体算地板。
+	cycles CarpoolBillingCycleRecorder
+
 	// interestMu/interestLastAt 是自定义规则咨询的每用户冷却表（进程内）。
 	// 多实例部署下每实例各自限流——对"给 admin 发提示邮件"这种低频入口足够，
 	// 且不引入新的 Redis 硬依赖。
@@ -449,6 +455,36 @@ func NewCarpoolService(repo CarpoolRepository, subscriptionService *Subscription
 		svc.userDirectory = userRepo
 	}
 	return svc
+}
+
+// SetBillingCycleRecorder 注入分周期计费台账（wire 组装时调用）。
+func (s *CarpoolService) SetBillingCycleRecorder(rec CarpoolBillingCycleRecorder) {
+	if s == nil {
+		return
+	}
+	s.cycles = rec
+}
+
+// loadMemberCycles 取回本车在结算区间内的分周期台账，按成员分组。
+// 台账不可用或该车还没有任何已关闭周期时返回 nil，调用方退回按月口径。
+func (s *CarpoolService) loadMemberCycles(ctx context.Context, carpoolID int64, from, to time.Time) map[int64][]CarpoolBillingCycle {
+	if s.cycles == nil {
+		return nil
+	}
+	list, err := s.cycles.ListCyclesByCarpool(ctx, carpoolID, from, to)
+	if err != nil {
+		slog.Warn("carpool settlement: load billing cycles failed (falling back to monthly floor)",
+			"carpool_id", carpoolID, "error", err)
+		return nil
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	grouped := make(map[int64][]CarpoolBillingCycle, len(list))
+	for _, c := range list {
+		grouped[c.UserID] = append(grouped[c.UserID], c)
+	}
+	return grouped
 }
 
 func (s *CarpoolService) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -815,7 +851,37 @@ func (s *CarpoolService) SettleCarpool(ctx context.Context, carpoolID, actorUser
 	if err := s.repo.PersistSettlement(ctx, carpoolID, actorUserID, allMembers); err != nil {
 		return nil, err
 	}
-	return s.GetSettlement(ctx, carpoolID, actorUserID, isAdmin)
+	frozen, err := s.GetSettlement(ctx, carpoolID, actorUserID, isAdmin)
+	if err != nil {
+		return nil, err
+	}
+	// 结算冻结即本期账已定，给运营联系人发一份完整账单（含逐周期明细）。
+	// 发信失败只记日志，不影响已经冻结的结算结果。
+	s.NotifyCarpoolSettlement(ctx, item, frozen)
+	return frozen, nil
+}
+
+// SettleExpiredCarpools 扫描到期未结算的车，逐一冻结结算并发出账单邮件。
+//
+// 由到期巡检调度（每天一次即可）。幂等：已结算的车会被 PersistSettlement 的
+// settled_at IS NULL 守卫挡掉，不会重复出账、重复发信。
+func (s *CarpoolService) SettleExpiredCarpools(ctx context.Context) (settled int, err error) {
+	pending, err := s.repo.ListExpiredUnsettled(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, carpoolID := range pending {
+		// actorUserID = 0 表示系统自动结算；isAdmin=true 以跳过人工权限校验。
+		if _, err := s.SettleCarpool(ctx, carpoolID, 0, true); err != nil {
+			if errors.Is(err, ErrCarpoolAlreadySettled) {
+				continue // 并发下别的实例已经结过，正常
+			}
+			slog.Warn("carpool auto-settle failed", "carpool_id", carpoolID, "error", err)
+			continue
+		}
+		settled++
+	}
+	return settled, nil
 }
 
 // UnsettleCarpool 撤销结算（仅 admin）：清空冻结字段，结算单回到实时预览。
@@ -866,6 +932,18 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 		return settlement, nil, nil
 	}
 
+	// 分周期台账：有就按周计地板（正确口径），没有就退回按月整体算。
+	var periodFrom, periodTo time.Time
+	for _, row := range rows {
+		if row.PeriodStart != nil && (periodFrom.IsZero() || row.PeriodStart.Before(periodFrom)) {
+			periodFrom = *row.PeriodStart
+		}
+		if row.PeriodEnd != nil && row.PeriodEnd.After(periodTo) {
+			periodTo = *row.PeriodEnd
+		}
+	}
+	memberCycles := s.loadMemberCycles(ctx, item.ID, periodFrom, periodTo)
+
 	inputs := make([]CarpoolSettlementMemberInput, 0, len(rows))
 	for _, row := range rows {
 		periodDays := 30.0
@@ -887,6 +965,7 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 			QuotedPrepaidCNY:       row.QuotedPrepaidCNY,
 			ActualUsageUSD:         row.ActualUsageUSD,
 			PeriodDays:             periodDays,
+			Cycles:                 memberCycles[row.UserID],
 		})
 	}
 

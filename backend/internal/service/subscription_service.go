@@ -59,6 +59,55 @@ type SubscriptionService struct {
 	// upstreamWindows 提供拼车组绑定账号的上游周窗口（可选注入）。
 	// 未注入时拼车周窗口退回本地 7 天网格，行为与注入前一致。
 	upstreamWindows CarpoolUpstreamWindowSource
+
+	// cycleRecorder 落库已关闭的拼车计费周期（可选注入）。
+	// 未注入时不记台账，结算退回按月整体算地板。
+	cycleRecorder CarpoolBillingCycleRecorder
+}
+
+// SetCarpoolBillingCycleRecorder 注入计费周期台账（wire 组装时调用）。
+func (s *SubscriptionService) SetCarpoolBillingCycleRecorder(rec CarpoolBillingCycleRecorder) {
+	if s == nil {
+		return
+	}
+	s.cycleRecorder = rec
+}
+
+// recordClosedCarpoolCycle 在周窗口推进前，把即将被清零的那一周落成台账。
+//
+// 这是唯一能拿到"这一周实际用了多少"的时刻——weekly_usage_usd 下一行就被置零。
+// 不落库，月末就算不出 Σ max(周实际, 周保底)，只能退回按月整体算地板，而那会让
+// 超用的周补贴没用满的周（见 migration 193 的说明）。
+//
+// 失败只记日志不阻断：窗口推进关系到用户能不能继续用，不能因为台账写失败就卡住。
+// 漏记的周期在结算时会被识别（周期数对不上覆盖天数），单据上会标出来。
+func (s *SubscriptionService) recordClosedCarpoolCycle(ctx context.Context, sub *UserSubscription, cycleEnd time.Time) {
+	if s == nil || s.cycleRecorder == nil || sub == nil {
+		return
+	}
+	if !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
+		return // 非拼车订阅不记台账
+	}
+	reserved := *sub.WeeklyReservedUSD
+	actual := sub.WeeklyUsageUSD
+	subID := sub.ID
+	groupID := sub.GroupID
+	cycle := &CarpoolBillingCycle{
+		UserID:         sub.UserID,
+		SubscriptionID: &subID,
+		GroupID:        &groupID,
+		CycleStart:     *sub.WeeklyWindowStart,
+		CycleEnd:       cycleEnd,
+		// 申报值由保底反推：发车时 reserved = reserve_ratio x declared。
+		// 台账只需要这两个数就能复现该周的计费，不必再去 join 成员表。
+		ReservedUSD:      reserved,
+		ActualUsageUSD:   actual,
+		BillableUsageUSD: CarpoolCycleBillableUSD(actual, reserved),
+	}
+	if err := s.cycleRecorder.RecordCycle(ctx, cycle); err != nil {
+		log.Printf("[subscription] ALERT: record carpool billing cycle failed sub=%d start=%s: %v",
+			sub.ID, sub.WeeklyWindowStart.Format(time.RFC3339), err)
+	}
 }
 
 // SetCarpoolUpstreamWindowSource 注入上游周窗口查询器（wire 组装时调用）。
@@ -994,6 +1043,8 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 		}
 		if shouldReset {
 			expectedWindowStart := sub.WeeklyWindowStart
+			// 先把这一周落成台账，再清零——顺序反了就永远拿不到该周用量。
+			s.recordClosedCarpoolCycle(ctx, sub, target)
 			if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, target); err != nil {
 				return err
 			}
