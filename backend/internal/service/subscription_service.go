@@ -55,6 +55,51 @@ type SubscriptionService struct {
 	subCacheJitter int // 抖动百分比
 
 	maintenanceQueue *SubscriptionMaintenanceQueue
+
+	// upstreamWindows 提供拼车组绑定账号的上游周窗口（可选注入）。
+	// 未注入时拼车周窗口退回本地 7 天网格，行为与注入前一致。
+	upstreamWindows CarpoolUpstreamWindowSource
+}
+
+// SetCarpoolUpstreamWindowSource 注入上游周窗口查询器（wire 组装时调用）。
+func (s *SubscriptionService) SetCarpoolUpstreamWindowSource(src CarpoolUpstreamWindowSource) {
+	if s == nil {
+		return
+	}
+	s.upstreamWindows = src
+}
+
+// carpoolWeeklyWindowTarget 返回拼车订阅此刻应处的周窗口起点，以及是否采信了上游。
+// 上游不可用/陈旧/查询失败时退回本地 7 天网格（降级后全车依然一致）。
+func (s *SubscriptionService) carpoolWeeklyWindowTarget(ctx context.Context, sub *UserSubscription) (time.Time, bool) {
+	if sub == nil || sub.WeeklyWindowStart == nil {
+		return time.Time{}, false
+	}
+	var upstream *CarpoolUpstreamWindow
+	if s.upstreamWindows != nil {
+		w, err := s.upstreamWindows.GroupUpstreamWeeklyWindow(ctx, sub.GroupID)
+		if err != nil {
+			log.Printf("[subscription] ALERT: read upstream carpool window failed group=%d: %v (falling back to local grid)", sub.GroupID, err)
+		} else {
+			upstream = w
+		}
+	}
+	return CarpoolWeeklyWindowTarget(*sub.WeeklyWindowStart, upstream, time.Now())
+}
+
+// carpoolWeeklyWindowDrifted 报告拼车订阅的周窗口是否已经偏离目标窗口。
+//
+// 这是"上游在我们的 7 天到点之前/之后重置了"的检测点：只看时间差是发现不了的，
+// 必须拿上游那条外部事实来比。
+func (s *SubscriptionService) carpoolWeeklyWindowDrifted(ctx context.Context, sub *UserSubscription) bool {
+	if sub == nil || !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
+		return false
+	}
+	target, fromUpstream := s.carpoolWeeklyWindowTarget(ctx, sub)
+	if !fromUpstream {
+		return false
+	}
+	return CarpoolWeeklyWindowDrifted(*sub.WeeklyWindowStart, target)
 }
 
 // NewSubscriptionService 创建订阅服务
@@ -931,19 +976,37 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 		needsInvalidateCache = true
 	}
 
-	// 周窗口重置（7天）
-	if sub.NeedsWeeklyReset() {
-		expectedWindowStart := sub.WeeklyWindowStart
-		weeklyStart := windowStart
-		if sub.HasWeeklyReserve() && sub.WeeklyWindowStart != nil {
-			// 拼车订阅：新窗口起点吸附回发车时对齐的 7 天网格（而非当天零点），
-			// 保证全车成员窗口起点恒等，组级公共池计数器 key 一致。
-			weeklyStart = CarpoolWeeklyWindowGridStart(*sub.WeeklyWindowStart, time.Now())
+	// 周窗口重置。
+	//
+	// 拼车订阅的"一周"应当等于上游 OpenAI 的一周：上游按自己的节奏重置，
+	// 与我们发车那天锚定的 7 天网格未必对得上。所以这里不再只看"过了 7 天"，
+	// 而是算出目标窗口起点再比对——两个方向的漂移都能纠正：
+	//   上游提前重置 → 本地计时器没响，但目标窗口已前移，跟着重置；
+	//   上游推后重置 → 本地 7 天到点，但目标窗口没动，保持不变，避免全车
+	//                  拿着新保底去撞一个尚未重置的上游账号。
+	// 上游数据缺失或陈旧时目标退回本地 7 天网格，行为与原来一致。
+	if sub.HasWeeklyReserve() && sub.WeeklyWindowStart != nil {
+		target, fromUpstream := s.carpoolWeeklyWindowTarget(ctx, sub)
+		shouldReset := CarpoolWeeklyWindowDrifted(*sub.WeeklyWindowStart, target)
+		if !fromUpstream {
+			// 降级路径：维持原语义，只在本地 7 天到点后吸附网格。
+			shouldReset = sub.NeedsWeeklyReset() && !target.Equal(*sub.WeeklyWindowStart)
 		}
-		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, weeklyStart); err != nil {
+		if shouldReset {
+			expectedWindowStart := sub.WeeklyWindowStart
+			if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, target); err != nil {
+				return err
+			}
+			sub.WeeklyWindowStart = &target
+			sub.WeeklyUsageUSD = 0
+			needsInvalidateCache = true
+		}
+	} else if sub.NeedsWeeklyReset() {
+		expectedWindowStart := sub.WeeklyWindowStart
+		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
 			return err
 		}
-		sub.WeeklyWindowStart = &weeklyStart
+		sub.WeeklyWindowStart = &windowStart
 		sub.WeeklyUsageUSD = 0
 		needsInvalidateCache = true
 	}
@@ -1034,6 +1097,11 @@ func (s *SubscriptionService) ValidateAndCheckLimits(ctx context.Context, sub *U
 		needsMaintenance = true
 	}
 	if sub.NeedsWeeklyReset() {
+		sub.WeeklyUsageUSD = 0
+		needsMaintenance = true
+	} else if s.carpoolWeeklyWindowDrifted(ctx, sub) {
+		// 上游在我们的 7 天到点之前就重置了：本地计时器还没响，但那一周
+		// 事实上已经翻篇。不在这里跟上就会拿上一周的用量继续挡用户。
 		sub.WeeklyUsageUSD = 0
 		needsMaintenance = true
 	}
