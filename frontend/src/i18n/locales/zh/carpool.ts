@@ -179,7 +179,6 @@ export default {
       overdue: '已超 24 小时',
       overdueBadge: '{count} 辆超时',
       summary: '{members} 人 · 总申报 {total} · 已等待 {hours} 小时',
-      notLoaded: '这辆车不在当前列表里，请刷新页面后重试'
     },
     unconfirmDialog: {
       title: '撤回确认',

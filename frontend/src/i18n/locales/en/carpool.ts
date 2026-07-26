@@ -179,7 +179,6 @@ export default {
       overdue: 'Over 24h',
       overdueBadge: '{count} overdue',
       summary: '{members} members · {total} declared · waiting {hours}h',
-      notLoaded: 'That carpool is not in the current list; refresh and try again'
     },
     unconfirmDialog: {
       title: 'Withdraw confirmation',

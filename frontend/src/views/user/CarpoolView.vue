@@ -93,7 +93,7 @@
               type="button"
               class="btn btn-primary h-8 shrink-0 px-3 py-1.5"
               :disabled="actionPending"
-              @click="requestLaunchById(item.carpoolId)"
+              @click="requestLaunchFromPending(item)"
             >
               <Icon name="play" size="sm" />
               <span>{{ t('carpool.actions.launch') }}</span>
@@ -752,7 +752,7 @@
               v-if="authStore.isAdmin"
               type="button"
               class="btn btn-ghost h-7 px-2 py-1 text-xs"
-              :disabled="settleePending"
+              :disabled="settlePending"
               @click="unsettleCarpool"
             >
               {{ t('carpool.settlement.unsettle') }}
@@ -768,7 +768,7 @@
               v-if="settlementData.canSettle"
               type="button"
               class="btn btn-primary h-7 px-3 py-1 text-xs"
-              :disabled="settleePending"
+              :disabled="settlePending"
               @click="settleCarpool"
             >
               {{ t('carpool.settlement.settle') }}
@@ -885,9 +885,19 @@ interface CreateForm {
 // 创建对话框的规则模式：default 走现有创建流程；custom 仅通知管理员协商，不调用创建接口。
 type CreateRuleMode = 'default' | 'custom'
 
+// ConfirmTarget 是确认对话框真正需要的那几个字段。刻意比 Carpool 窄：
+// 待启动列表里的车可能根本不在 carpools 列表中（admin 看不到别人的私密车），
+// 只能从 pendingLaunch 的行里拿到这几项。Carpool 结构上满足该类型，可直接传。
+interface ConfirmTarget {
+  id: number
+  name: string
+  declaredTotalUsd: number
+  weeklyLimitUsd: number
+}
+
 interface ConfirmAction {
   type: 'cancel' | 'launch' | 'forceLaunch' | 'confirm' | 'unconfirm' | 'leave'
-  carpool: Carpool
+  carpool: ConfirmTarget
 }
 
 const { t, locale } = useI18n()
@@ -913,7 +923,7 @@ const settlementDialogOpen = ref(false)
 const settlementLoading = ref(false)
 const settlementData = ref<CarpoolSettlement | null>(null)
 const settlementTarget = ref<Carpool | null>(null)
-const settleePending = ref(false)
+const settlePending = ref(false)
 const selectedCarpool = ref<Carpool | null>(null)
 const selectedInviteToken = ref('')
 const joinTarget = ref<Carpool | null>(null)
@@ -1122,14 +1132,21 @@ async function loadPendingLaunches(): Promise<void> {
   }
 }
 
-// 从待启动列表启动：复用确认对话框，需要先在已加载的车辆里找到对应项。
-function requestLaunchById(carpoolId: number): void {
-  const carpool = carpools.value.find((item) => item.id === carpoolId)
-  if (!carpool) {
-    appStore.showWarning(t('carpool.pendingLaunch.notLoaded'))
-    return
+// 从待启动列表启动：直接用待启动行自己的数据构造确认目标。
+//
+// 不能去 carpools 列表里查——List 只返回公开车与自己参与的车，别人的
+// 私密车 admin 根本看不到；而待启动列表是 admin 专用、不做可见性过滤。
+// 早先的实现会让这种车在横幅里可见却点不动（后端其实允许启动）。
+function requestLaunchFromPending(item: PendingLaunchCarpool): void {
+  confirmAction.value = {
+    type: 'launch',
+    carpool: {
+      id: item.carpoolId,
+      name: item.name,
+      declaredTotalUsd: item.declaredTotalUsd,
+      weeklyLimitUsd: item.weeklyLimitUsd,
+    },
   }
-  confirmAction.value = { type: 'launch', carpool }
 }
 
 // 为有群二维码的车辆预取图片，object URL 按车辆缓存。
@@ -1149,7 +1166,7 @@ function ensureQrCodes(items: Carpool[]): void {
   }
 }
 
-function declaredRatio(carpool: Carpool): number {
+function declaredRatio(carpool: Pick<Carpool, 'weeklyLimitUsd' | 'declaredTotalUsd'>): number {
   return carpool.weeklyLimitUsd > 0 ? carpool.declaredTotalUsd / carpool.weeklyLimitUsd : 0
 }
 
@@ -1553,8 +1570,8 @@ async function openSettlement(carpool: Carpool): Promise<void> {
 // 冻结结算单：之后所有人读到的都是这一份，车主可以按它收退款。
 async function settleCarpool(): Promise<void> {
   const target = settlementTarget.value
-  if (!target || settleePending.value) return
-  settleePending.value = true
+  if (!target || settlePending.value) return
+  settlePending.value = true
   try {
     settlementData.value = await carpoolAPI.settle(target.id)
     appStore.showSuccess(t('carpool.settlement.settleSuccess'))
@@ -1562,15 +1579,15 @@ async function settleCarpool(): Promise<void> {
   } catch (error) {
     appStore.showError(carpoolError(error))
   } finally {
-    settleePending.value = false
+    settlePending.value = false
   }
 }
 
 // 撤销结算（仅 admin）：回到实时预览，可以重新结算。
 async function unsettleCarpool(): Promise<void> {
   const target = settlementTarget.value
-  if (!target || settleePending.value) return
-  settleePending.value = true
+  if (!target || settlePending.value) return
+  settlePending.value = true
   try {
     await carpoolAPI.unsettle(target.id)
     settlementData.value = await carpoolAPI.settlement(target.id)
@@ -1579,7 +1596,7 @@ async function unsettleCarpool(): Promise<void> {
   } catch (error) {
     appStore.showError(carpoolError(error))
   } finally {
-    settleePending.value = false
+    settlePending.value = false
   }
 }
 
