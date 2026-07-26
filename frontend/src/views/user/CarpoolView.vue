@@ -1067,8 +1067,13 @@ const stats = computed(() => [
 ])
 const filteredCarpools = computed(() => {
   const query = searchQuery.value.toLowerCase()
+  // 已取消的车默认不出现在任何标签页里。取消之后它对用户来说就是"没了"，
+  // 继续挂在「我的拼车」里会让人以为取消没生效——广场页本来就排除了，
+  // 这里漏掉只是不一致。要回看历史就从状态筛选里显式选「已取消」。
+  const showCancelled = statusFilter.value === 'cancelled'
   return carpools.value
-    .filter((item) => activeTab.value === 'plaza' ? item.visibility === 'public' && item.status !== 'cancelled' : item.memberRole !== null)
+    .filter((item) => showCancelled || item.status !== 'cancelled')
+    .filter((item) => activeTab.value === 'plaza' ? item.visibility === 'public' : item.memberRole !== null)
     .filter((item) => !statusFilter.value || item.status === statusFilter.value)
     .filter((item) => !query || item.name.toLowerCase().includes(query) || item.organizer.toLowerCase().includes(query))
 })

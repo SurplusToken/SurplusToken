@@ -678,6 +678,54 @@ describe('CarpoolView', () => {
     expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.settlement.unsettle'))).toBe(false)
   })
 
+  // 车主取消之后，车不该继续挂在「我的拼车」里——那会让人以为取消没生效。
+  // 广场页本来就排除了已取消，这里曾经漏掉，只是不一致。
+  it('hides a cancelled carpool from my-carpools by default', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'live-car', status: 'recruiting', memberRole: 'owner' }),
+      makeCarpool({ id: 11, name: 'cancelled-car', status: 'cancelled', memberRole: 'owner' }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 切到「我的拼车」
+    await findButton(wrapper, 'carpool.mine').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('live-car')
+    expect(wrapper.text()).not.toContain('cancelled-car')
+  })
+
+  // 但要回看历史时，显式选「已取消」筛选仍然看得到。
+  it('shows cancelled carpools when the status filter asks for them', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'live-car', status: 'recruiting', memberRole: 'owner' }),
+      makeCarpool({ id: 11, name: 'cancelled-car', status: 'cancelled', memberRole: 'owner' }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.mine').trigger('click')
+    await wrapper.get('select').setValue('cancelled')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('cancelled-car')
+    expect(wrapper.text()).not.toContain('live-car')
+  })
+
+  // 广场页同样不出现已取消的车。
+  it('keeps cancelled carpools out of the plaza', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 11, name: 'cancelled-car', status: 'cancelled', memberRole: null }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('cancelled-car')
+  })
+
   // 自定义规则车（含平台升级前建立的老车）：展示规则说明，不渲染额度进度与
   // 均价——它们的成员申报恒为 0，硬渲染出来就是 "0 / 2400"、"均价 ¥0"。
   it('renders the rule note instead of a quota bar for custom-rule carpools', async () => {
