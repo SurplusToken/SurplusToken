@@ -86,13 +86,13 @@ const (
 	// CarpoolAdminWechatID 是硬编码的管理员微信号，创建车辆前必须先添加。
 	CarpoolAdminWechatID = "Charlemartingale"
 	// CarpoolAdminEmail 是拼车运营联系人邮箱：所有"通知管理员"类的拼车邮件
-	// （车主确认发车、自定义规则咨询）都只发到这里。
+	// （车主确认发车、自定义规则咨询、期末结算账单）都只发到这里。
 	//
 	// 刻意不查 users 表里的 role=admin：那是**授权**角色，一个部署可能有若干个
 	// 运维/客服管理员，他们不负责拼车运营；拼车的联系人是一个具体的人，与
 	// CarpoolAdminWechatID 指的是同一个人。两者放在一起，换人时一并改这两行。
 	// 平台其他模块（余额告警、运维告警等）的管理员通知不受此影响。
-	CarpoolAdminEmail = "zhongshanhu@stu.pku.edu.cn"
+	CarpoolAdminEmail = "zhongshanhu@mail.surplustoken.com"
 	// CarpoolGroupQRCodeMaxBytes 是群二维码解码后的字节上限（2MB）。
 	CarpoolGroupQRCodeMaxBytes = 2 << 20
 
