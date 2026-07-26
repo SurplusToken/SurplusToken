@@ -36,9 +36,9 @@ SET rule_note = concat(
         '旧版席位规则（平台升级前建立）：共 ',
         COALESCE(capacity::text, '若干'),
         ' 席，基础费 ¥',
-        to_char(base_fee_cny, 'FM999999990.99'),
+        to_char(base_fee_cny, 'FM999999990.00'),
         '/席，用量池 ¥',
-        to_char(usage_pool_cny_per_account, 'FM999999990.99'),
+        to_char(usage_pool_cny_per_account, 'FM999999990.00'),
         '/账号，按实际用量比例分摊。本车不适用额度预约制的保底与自动退补，由车主按上述规则人工结算。')
 WHERE pricing_model = 'custom' AND rule_note IS NULL;
 
