@@ -88,23 +88,9 @@ func (s *SubscriptionService) recordClosedCarpoolCycle(ctx context.Context, sub 
 	if !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
 		return // 非拼车订阅不记台账
 	}
-	reserved := *sub.WeeklyReservedUSD
-	actual := sub.WeeklyUsageUSD
-	subID := sub.ID
-	groupID := sub.GroupID
-	cycle := &CarpoolBillingCycle{
-		UserID:         sub.UserID,
-		SubscriptionID: &subID,
-		GroupID:        &groupID,
-		CycleStart:     *sub.WeeklyWindowStart,
-		CycleEnd:       cycleEnd,
-		// 申报值由保底反推：发车时 reserved = reserve_ratio x declared。
-		// 台账只需要这两个数就能复现该周的计费，不必再去 join 成员表。
-		ReservedUSD:      reserved,
-		ActualUsageUSD:   actual,
-		BillableUsageUSD: CarpoolCycleBillableUSD(actual, reserved),
-	}
-	if err := s.cycleRecorder.RecordCycle(ctx, cycle); err != nil {
+	// 只传订阅 ID：用量等数值由仓储层直接读订阅行，绝不用这里的内存快照——
+	// ValidateAndCheckLimits 已经把 sub.WeeklyUsageUSD 在内存里清零了。
+	if err := s.cycleRecorder.RecordCycle(ctx, sub.ID, cycleEnd); err != nil {
 		log.Printf("[subscription] ALERT: record carpool billing cycle failed sub=%d start=%s: %v",
 			sub.ID, sub.WeeklyWindowStart.Format(time.RFC3339), err)
 	}

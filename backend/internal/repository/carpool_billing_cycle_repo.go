@@ -18,15 +18,18 @@ func NewCarpoolBillingCycleRepository(db *sql.DB) service.CarpoolBillingCycleRec
 	return &carpoolBillingCycleRepository{db: db}
 }
 
-// RecordCycle 写入一个已关闭的计费周期。
+// RecordCycle 把订阅当前所处的周期落成台账。
 //
-// carpool_id 由订阅所属的组反查（一辆车对应一个组）。查不到就说明这条订阅
-// 不属于任何在跑的拼车，直接跳过——不为孤儿订阅造台账。
+// 所有数值都在同一条语句里从 user_subscriptions 行直接读取，不接受调用方传值：
+// 调用点持有的是内存快照，而 ValidateAndCheckLimits 为了让预检查不误拒用户，
+// 已经把 WeeklyUsageUSD 清零了；照它记账会让每个周期的实际用量都是 0、计费
+// 恒等于保底，重度用户的超出部分全部漏计。
 //
-// ON CONFLICT DO NOTHING 配合唯一索引保证幂等：周重置可能被并发请求同时触发，
-// 没有这一层会把同一周重复计费。
-func (r *carpoolBillingCycleRepository) RecordCycle(ctx context.Context, cycle *service.CarpoolBillingCycle) error {
-	if r == nil || r.db == nil || cycle == nil || cycle.SubscriptionID == nil {
+// 必须在 ResetWeeklyUsage 之前调用——之后订阅行上的用量就没了。
+//
+// ON CONFLICT DO NOTHING 配合唯一索引保证幂等：周重置可能被并发请求同时触发。
+func (r *carpoolBillingCycleRepository) RecordCycle(ctx context.Context, subscriptionID int64, cycleEnd time.Time) error {
+	if r == nil || r.db == nil || subscriptionID <= 0 {
 		return nil
 	}
 	_, err := r.db.ExecContext(ctx, `
@@ -34,15 +37,21 @@ INSERT INTO carpool_billing_cycles (
     carpool_id, user_id, subscription_id, group_id,
     cycle_start, cycle_end,
     declared_weekly_quota_usd, reserved_usd, actual_usage_usd, billable_usage_usd)
-SELECT c.id, $1, $2, $3, $4, $5,
-       COALESCE(m.declared_weekly_quota_usd, 0), $6, $7, $8
-FROM carpools c
-JOIN carpool_members m ON m.carpool_id = c.id AND m.user_id = $1
-WHERE c.group_id = $3
+SELECT c.id, s.user_id, s.id, s.group_id,
+       s.weekly_window_start, $2,
+       COALESCE(m.declared_weekly_quota_usd, 0),
+       s.weekly_reserved_usd,
+       s.weekly_usage_usd,
+       GREATEST(s.weekly_usage_usd, s.weekly_reserved_usd)
+FROM user_subscriptions s
+JOIN carpools c ON c.group_id = s.group_id
+JOIN carpool_members m ON m.carpool_id = c.id AND m.user_id = s.user_id
+WHERE s.id = $1
+  AND s.deleted_at IS NULL
+  AND s.weekly_reserved_usd IS NOT NULL
+  AND s.weekly_window_start IS NOT NULL
 ON CONFLICT (subscription_id, cycle_start) WHERE subscription_id IS NOT NULL DO NOTHING`,
-		cycle.UserID, cycle.SubscriptionID, cycle.GroupID,
-		cycle.CycleStart, cycle.CycleEnd,
-		cycle.ReservedUSD, cycle.ActualUsageUSD, cycle.BillableUsageUSD)
+		subscriptionID, cycleEnd)
 	if err != nil {
 		return fmt.Errorf("record carpool billing cycle: %w", err)
 	}

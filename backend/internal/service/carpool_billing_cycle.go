@@ -36,9 +36,17 @@ func CarpoolCycleBillableUSD(actualUSD, reservedUSD float64) float64 {
 
 // CarpoolBillingCycleRecorder 落库已关闭的计费周期。
 type CarpoolBillingCycleRecorder interface {
-	// RecordCycle 写入一个已关闭的周期。同一订阅同一周期起点重复写入必须幂等
-	// （唯一索引保证），因为周重置可能被并发请求同时触发。
-	RecordCycle(ctx context.Context, cycle *CarpoolBillingCycle) error
+	// RecordCycle 把订阅当前所处的周期落成台账，周期结束时刻为 cycleEnd。
+	//
+	// 刻意只收订阅 ID：用量、保底、窗口起点全部由实现方直接从订阅行读取，
+	// 不接受调用方传值。原因是调用点（窗口重置）拿到的 sub 是内存快照，而
+	// ValidateAndCheckLimits 为了让预检查不误拒用户，已经把 WeeklyUsageUSD
+	// 在内存里清零了——照着它记账会让每个周期的实际用量都变成 0，计费恒等于
+	// 保底，重度用户的超出部分全部漏计。
+	//
+	// 同一订阅同一周期起点重复写入必须幂等（唯一索引保证），因为周重置可能
+	// 被并发请求同时触发。
+	RecordCycle(ctx context.Context, subscriptionID int64, cycleEnd time.Time) error
 	// ListCyclesByCarpool 取回某辆车在给定时间范围内的全部已关闭周期。
 	ListCyclesByCarpool(ctx context.Context, carpoolID int64, from, to time.Time) ([]CarpoolBillingCycle, error)
 }
