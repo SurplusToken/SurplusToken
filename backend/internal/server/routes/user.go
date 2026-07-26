@@ -261,6 +261,8 @@ func RegisterUserRoutes(
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
+			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)
+			carpools.POST("/:id/settlement/unsettle", h.Carpool.Unsettle)
 			carpools.POST("/:id/cancel", h.Carpool.Cancel)
 			carpools.PATCH("/:id/join-lock", h.Carpool.SetJoinLocked)
 		}

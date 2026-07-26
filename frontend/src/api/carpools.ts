@@ -155,6 +155,13 @@ export interface CarpoolSettlement {
   periodStart?: string
   periodEnd?: string
   members: SettlementMember[]
+  // settled=true 时 members 是结算时冻结的快照，不再随用量变化；
+  // false 时是实时预览。settleBlockedFor 给出不能结算的原因。
+  settled: boolean
+  settledAt?: string
+  settledByUserId?: number
+  canSettle: boolean
+  settleBlockedFor: string
 }
 
 interface CarpoolMutationResponse {
@@ -206,6 +213,11 @@ interface CarpoolSettlementResponse {
   period_start?: string
   period_end?: string
   members: SettlementMemberResponse[]
+  settled?: boolean
+  settled_at?: string
+  settled_by_user_id?: number
+  can_settle?: boolean
+  settle_blocked_for?: string
 }
 
 function mapCarpool(item: CarpoolResponse): Carpool {
@@ -261,6 +273,11 @@ function mapSettlement(data: CarpoolSettlementResponse): CarpoolSettlement {
     fullView: data.full_view,
     periodStart: data.period_start,
     periodEnd: data.period_end,
+    settled: !!data.settled,
+    settledAt: data.settled_at,
+    settledByUserId: data.settled_by_user_id,
+    canSettle: !!data.can_settle,
+    settleBlockedFor: data.settle_blocked_for || '',
     members: (data.members || []).map((member) => ({
       userId: member.user_id,
       email: member.email,
@@ -417,6 +434,17 @@ export async function settlement(id: number): Promise<CarpoolSettlement> {
   return mapSettlement(data)
 }
 
+// 冻结结算单（车主或 admin）：把当下的金额写死，之后读到的就是这份快照。
+export async function settle(id: number): Promise<CarpoolSettlement> {
+  const { data } = await apiClient.post<CarpoolSettlementResponse>(`/carpools/${id}/settlement/settle`)
+  return mapSettlement(data)
+}
+
+// 撤销结算（仅 admin）：结算算错了的受控改回路径。
+export async function unsettle(id: number): Promise<void> {
+  await apiClient.post(`/carpools/${id}/settlement/unsettle`)
+}
+
 export async function cancel(id: number): Promise<void> {
   await apiClient.post(`/carpools/${id}/cancel`)
 }
@@ -441,6 +469,8 @@ export default {
   declarationRecommendation,
   notifyCustomRuleInterest,
   settlement,
+  settle,
+  unsettle,
   cancel,
   setJoinLocked,
 }

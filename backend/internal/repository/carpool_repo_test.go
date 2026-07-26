@@ -82,6 +82,7 @@ func carpoolDetailRow() *sqlmock.Rows {
 		"weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio",
 		"launch_min_ratio", "launch_max_ratio", "declared_total",
 		"launch_notified_at", "confirmed_at", "has_group_qr_code",
+		"settled_at", "settled_by_user_id",
 	}).AddRow(
 		int64(7), "weekend-car", "test", "owner", int64(11), "openai", "openai_pro",
 		"small", 1, nil, 9, 130.0, 750.0,
@@ -90,6 +91,7 @@ func carpoolDetailRow() *sqlmock.Rows {
 		2400.0, 400.0, 1000.0, 0.8,
 		0.95, 1.05, 2250.0,
 		nil, nil, true,
+		nil, nil,
 	)
 }
 

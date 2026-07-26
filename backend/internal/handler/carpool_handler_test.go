@@ -78,6 +78,12 @@ func (s *carpoolHandlerRepoStub) GetGroupQRCode(ctx context.Context, carpoolID i
 func (s *carpoolHandlerRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
 	panic("unexpected call")
 }
+func (s *carpoolHandlerRepoStub) PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []service.CarpoolSettlementMember) error {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error {
+	panic("unexpected call")
+}
 func (s *carpoolHandlerRepoStub) GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (float64, int, error) {
 	panic("unexpected call")
 }

@@ -58,6 +58,11 @@ var (
 	ErrCarpoolFull                = infraerrors.Conflict("CARPOOL_FULL", "carpool has reached its member limit")
 	// 自定义规则咨询限流。
 	ErrCarpoolInterestTooFrequent = infraerrors.TooManyRequests("CARPOOL_INTEREST_TOO_FREQUENT", "custom rule enquiry was submitted recently; please wait before retrying")
+
+	// 结算落库（migration 191）。
+	ErrCarpoolAlreadySettled = infraerrors.Conflict("CARPOOL_ALREADY_SETTLED", "carpool settlement is already frozen")
+	ErrCarpoolNotSettled     = infraerrors.Conflict("CARPOOL_NOT_SETTLED", "carpool settlement has not been frozen yet")
+	ErrCarpoolNotSettleable  = infraerrors.Conflict("CARPOOL_NOT_SETTLEABLE", "only a launched carpool can be settled")
 )
 
 const (
@@ -111,8 +116,11 @@ type Carpool struct {
 	// 两段确认发车（recruiting → confirmed → active）与创建确认展示字段。
 	LaunchNotifiedAt *time.Time `json:"launch_notified_at,omitempty"`
 	ConfirmedAt      *time.Time `json:"confirmed_at,omitempty"`
-	HasGroupQRCode   bool       `json:"has_group_qr_code"`
-	AdminWechat      string     `json:"admin_wechat"`
+	// SettledAt 非空表示结算单已冻结（migration 191），金额不再随用量变化。
+	SettledAt       *time.Time `json:"settled_at,omitempty"`
+	SettledByUserID *int64     `json:"settled_by_user_id,omitempty"`
+	HasGroupQRCode  bool       `json:"has_group_qr_code"`
+	AdminWechat     string     `json:"admin_wechat"`
 
 	// 额度预约制参数（设计文档 §3）
 	WeeklyLimitUSD float64 `json:"weekly_limit_usd"`
@@ -290,6 +298,20 @@ type CarpoolSettlementMemberRow struct {
 	ActualUsageUSD         float64
 	PeriodStart            *time.Time
 	PeriodEnd              *time.Time
+
+	// Frozen 是已结算车辆的冻结快照；nil 表示该成员行尚未结算，按实时计算。
+	Frozen *CarpoolSettlementFrozenRow
+}
+
+// CarpoolSettlementFrozenRow 是结算时冻结下来的金额快照（migration 191）。
+// 实时重算会随 monthly_usage_usd 漂移——车主按 A 收的钱，第二天读到的是 B。
+type CarpoolSettlementFrozenRow struct {
+	FloorUsageUSD    float64
+	ActualUsageUSD   float64
+	BillableUsageUSD float64
+	UsageShareCNY    float64
+	SeatFeeCNY       float64
+	TotalDeltaCNY    float64
 }
 
 // CarpoolPendingLaunch 是 admin"待启动"列表的一行：车主已确认、等待管理员启动的车。
@@ -324,6 +346,14 @@ type CarpoolSettlement struct {
 	PeriodStart    *time.Time                `json:"period_start,omitempty"`
 	PeriodEnd      *time.Time                `json:"period_end,omitempty"`
 	Members        []CarpoolSettlementMember `json:"members"`
+
+	// Settled 为 true 时 Members 来自结算时冻结的快照，不随后续用量变化；
+	// 为 false 时是实时预览（数字会随用量继续走）。
+	Settled          bool       `json:"settled"`
+	SettledAt        *time.Time `json:"settled_at,omitempty"`
+	SettledByUserID  *int64     `json:"settled_by_user_id,omitempty"`
+	CanSettle        bool       `json:"can_settle"`         // 调用者此刻能否执行结算
+	SettleBlockedFor string     `json:"settle_blocked_for"` // 不能结算的原因（前端提示用）
 }
 
 type CarpoolRepository interface {
@@ -342,6 +372,11 @@ type CarpoolRepository interface {
 	SetJoinLocked(ctx context.Context, carpoolID, actorUserID int64, locked bool) error
 	GetGroupQRCode(ctx context.Context, carpoolID int64) (data []byte, contentType string, err error)
 	ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error)
+	// PersistSettlement 冻结结算：仅当车未结算时写入（settled_at IS NULL 为幂等守卫），
+	// 已结算返回 ErrCarpoolAlreadySettled。
+	PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []CarpoolSettlementMember) error
+	// ClearSettlement 撤销结算（admin 出口），清空车与成员上的全部冻结字段。
+	ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error
 	GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (totalUSD float64, daysWithRecords int, err error)
 }
 
@@ -685,6 +720,9 @@ func (s *CarpoolService) GetDeclarationRecommendation(ctx context.Context, userI
 
 // GetSettlement 按设计文档 §4.5 输出月度结算单（含 80% 地板规则）。
 // 成员仅见自己的结算行，owner/admin 见全车。
+//
+// 车已结算（settled_at 非空）时返回结算时冻结的快照；未结算时是实时预览，
+// 金额会随用量继续变化——这个区别由 Settled 字段告诉调用方。
 func (s *CarpoolService) GetSettlement(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolSettlement, error) {
 	item, err := s.repo.GetByID(ctx, carpoolID, actorUserID)
 	if err != nil {
@@ -694,22 +732,82 @@ func (s *CarpoolService) GetSettlement(ctx context.Context, carpoolID, actorUser
 	if !isAdmin && !isOwner && item.MemberRole == nil {
 		return nil, ErrCarpoolForbidden
 	}
+	settlement, _, err := s.buildSettlement(ctx, item, actorUserID, isAdmin, isOwner)
+	return settlement, err
+}
 
-	rows, err := s.repo.ListSettlementMembers(ctx, carpoolID)
+// SettleCarpool 冻结结算单：把当下算出来的每一行金额写进 carpool_members，
+// 之后读到的就是这份快照，不再随用量漂移。owner 或 admin 可执行——owner 是
+// 实际收退款的人，需要能把自己账本上的数字钉死。
+//
+// 幂等由 repo 的 `settled_at IS NULL` 守卫保证：重复提交返回 ErrCarpoolAlreadySettled，
+// 不会覆盖已冻结的单子。
+func (s *CarpoolService) SettleCarpool(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolSettlement, error) {
+	item, err := s.repo.GetByID(ctx, carpoolID, actorUserID)
 	if err != nil {
 		return nil, err
 	}
+	isOwner := item.OwnerUserID != nil && *item.OwnerUserID == actorUserID
+	if !isAdmin && !isOwner {
+		return nil, ErrCarpoolForbidden
+	}
+	if item.SettledAt != nil {
+		return nil, ErrCarpoolAlreadySettled
+	}
+	if !carpoolSettleable(item.Status) {
+		return nil, ErrCarpoolNotSettleable
+	}
+
+	// 全量计算（不受 FullView 裁剪影响）后整车落库。
+	_, allMembers, err := s.buildSettlement(ctx, item, actorUserID, isAdmin, true)
+	if err != nil {
+		return nil, err
+	}
+	if len(allMembers) == 0 {
+		return nil, ErrCarpoolNotSettleable
+	}
+	if err := s.repo.PersistSettlement(ctx, carpoolID, actorUserID, allMembers); err != nil {
+		return nil, err
+	}
+	return s.GetSettlement(ctx, carpoolID, actorUserID, isAdmin)
+}
+
+// UnsettleCarpool 撤销结算（仅 admin）：清空冻结字段，结算单回到实时预览。
+// 结算算错了却改不回来的话，账目就只能靠改数据库修——留一个受控出口。
+func (s *CarpoolService) UnsettleCarpool(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) error {
+	if !isAdmin {
+		return ErrCarpoolForbidden
+	}
+	return s.repo.ClearSettlement(ctx, carpoolID, actorUserID)
+}
+
+// carpoolSettleable 报告该状态的车能否结算：只有真正发过车的才有账可结。
+func carpoolSettleable(status string) bool {
+	return status == "active" || status == "ended"
+}
+
+// buildSettlement 组装结算单。第二个返回值是**未按可见性裁剪**的全量成员行，
+// 供 SettleCarpool 落库使用（结算必须写全车，不能只写调用者看得见的那部分）。
+func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, actorUserID int64, isAdmin, isOwner bool) (*CarpoolSettlement, []CarpoolSettlementMember, error) {
+	rows, err := s.repo.ListSettlementMembers(ctx, item.ID)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	settlement := &CarpoolSettlement{
-		CarpoolID:      item.ID,
-		Status:         item.Status,
-		WeeklyLimitUSD: item.WeeklyLimitUSD,
-		SeatFeeCNY:     item.SeatFeeCNY,
-		UsagePoolCNY:   item.UsagePoolCNY,
-		ReserveRatio:   item.ReserveRatio,
-		MemberCount:    len(rows),
-		FullView:       isAdmin || isOwner,
+		CarpoolID:       item.ID,
+		Status:          item.Status,
+		WeeklyLimitUSD:  item.WeeklyLimitUSD,
+		SeatFeeCNY:      item.SeatFeeCNY,
+		UsagePoolCNY:    item.UsagePoolCNY,
+		ReserveRatio:    item.ReserveRatio,
+		MemberCount:     len(rows),
+		FullView:        isAdmin || isOwner,
+		Settled:         item.SettledAt != nil,
+		SettledAt:       item.SettledAt,
+		SettledByUserID: item.SettledByUserID,
 	}
+	settlement.CanSettle, settlement.SettleBlockedFor = settleAvailability(item, isAdmin, isOwner, len(rows))
 
 	inputs := make([]CarpoolSettlementMemberInput, 0, len(rows))
 	for _, row := range rows {
@@ -736,6 +834,10 @@ func (s *CarpoolService) GetSettlement(ctx context.Context, carpoolID, actorUser
 	}
 
 	members := ComputeCarpoolSettlementMembers(item.WeeklyLimitUSD, item.SeatFeeCNY, item.UsagePoolCNY, item.ReserveRatio, inputs)
+	if settlement.Settled {
+		applyFrozenSettlement(members, rows)
+	}
+
 	if settlement.FullView {
 		settlement.Members = members
 	} else {
@@ -746,7 +848,50 @@ func (s *CarpoolService) GetSettlement(ctx context.Context, carpoolID, actorUser
 			}
 		}
 	}
-	return settlement, nil
+	return settlement, members, nil
+}
+
+// settleAvailability 返回调用者此刻能否结算，以及不能的原因（供前端直接提示）。
+func settleAvailability(item *Carpool, isAdmin, isOwner bool, memberCount int) (bool, string) {
+	switch {
+	case !isAdmin && !isOwner:
+		return false, "forbidden"
+	case item.SettledAt != nil:
+		return false, "already_settled"
+	case !carpoolSettleable(item.Status):
+		return false, "not_launched"
+	case memberCount == 0:
+		return false, "no_members"
+	default:
+		return true, ""
+	}
+}
+
+// applyFrozenSettlement 用冻结快照覆盖实时算出来的金额字段。
+// 申报值、邮箱这些不会漂移的展示字段保留实时值（改了邮箱也应该看到新的）。
+// 某一行缺快照（结算后手工插入的异常数据）时保留实时值，不伪造历史。
+func applyFrozenSettlement(members []CarpoolSettlementMember, rows []CarpoolSettlementMemberRow) {
+	frozen := make(map[int64]*CarpoolSettlementFrozenRow, len(rows))
+	for _, row := range rows {
+		if row.Frozen != nil {
+			frozen[row.UserID] = row.Frozen
+		}
+	}
+	for i := range members {
+		snapshot, ok := frozen[members[i].UserID]
+		if !ok {
+			continue
+		}
+		members[i].FloorUsageUSD = snapshot.FloorUsageUSD
+		members[i].ActualUsageUSD = snapshot.ActualUsageUSD
+		members[i].BillableUsageUSD = snapshot.BillableUsageUSD
+		members[i].FloorTriggered = snapshot.ActualUsageUSD <= snapshot.FloorUsageUSD
+		members[i].UsageFinalShareCNY = snapshot.UsageShareCNY
+		members[i].UsageDeltaCNY = members[i].UsagePrepaidCNY - snapshot.UsageShareCNY
+		members[i].SeatFeeFinalCNY = snapshot.SeatFeeCNY
+		members[i].SeatFeeDeltaCNY = members[i].SeatFeePrepaidCNY - snapshot.SeatFeeCNY
+		members[i].TotalDeltaCNY = snapshot.TotalDeltaCNY
+	}
 }
 
 // ReserveInterestSlot 预占一次自定义规则咨询的发送名额（每用户冷却

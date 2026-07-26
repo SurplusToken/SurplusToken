@@ -21,6 +21,9 @@ const {
   unconfirmMock,
   pendingLaunchMock,
   createInviteMock,
+  settlementMock,
+  settleMock,
+  unsettleMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -39,6 +42,9 @@ const {
   unconfirmMock: vi.fn(),
   pendingLaunchMock: vi.fn(),
   createInviteMock: vi.fn(),
+  settlementMock: vi.fn(),
+  settleMock: vi.fn(),
+  unsettleMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -58,7 +64,9 @@ vi.mock('@/api/carpools', () => ({
     launch: launchMock,
     declarationRecommendation: recommendationMock,
     notifyCustomRuleInterest: notifyCustomRuleInterestMock,
-    settlement: vi.fn(),
+    settlement: settlementMock,
+    settle: settleMock,
+    unsettle: unsettleMock,
     cancel: vi.fn(),
     setJoinLocked: vi.fn(),
   },
@@ -197,6 +205,9 @@ describe('CarpoolView', () => {
     pendingLaunchMock.mockReset()
     pendingLaunchMock.mockResolvedValue([])
     createInviteMock.mockReset()
+    settlementMock.mockReset()
+    settleMock.mockReset()
+    unsettleMock.mockReset()
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -613,6 +624,56 @@ describe('CarpoolView', () => {
 
     expect(wrapper.find('[data-testid="carpool-pending-launch"]').exists()).toBe(false)
     expect(pendingLaunchMock).not.toHaveBeenCalled()
+  })
+
+  // 结算单未冻结时是实时预览（金额还会随用量走），车主能看到"确认结算"；
+  // 冻结后换成"已结算"提示，结算按钮消失。
+  it('offers settling on a live preview and shows the frozen banner afterwards', async () => {
+    const car = makeCarpool({ id: 10, status: 'active', memberRole: 'owner' })
+    listCarpools.mockResolvedValue([car])
+
+    const live = {
+      carpoolId: 10, status: 'active', weeklyLimitUsd: 2400, seatFeeCny: 400, usagePoolCny: 1000,
+      reserveRatio: 0.8, memberCount: 2, fullView: true, members: [],
+      settled: false, canSettle: true, settleBlockedFor: '',
+    }
+    settlementMock.mockResolvedValue(live)
+    settleMock.mockResolvedValue({ ...live, settled: true, canSettle: false, settleBlockedFor: 'already_settled', settledAt: '2026-08-01T00:00:00Z' })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'carpool.actions.settlement').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-settlement-live"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('carpool.settlement.livePreview')
+
+    await findButton(wrapper, 'carpool.settlement.settle').trigger('click')
+    await flushPromises()
+
+    expect(settleMock).toHaveBeenCalledWith(10)
+    expect(wrapper.find('[data-testid="carpool-settlement-frozen"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="carpool-settlement-live"]').exists()).toBe(false)
+  })
+
+  // 撤销结算只对 admin 出现——普通车主结算错了要找管理员。
+  it('shows the undo-settlement action only to admins', async () => {
+    const car = makeCarpool({ id: 10, status: 'active', memberRole: 'owner' })
+    listCarpools.mockResolvedValue([car])
+    settlementMock.mockResolvedValue({
+      carpoolId: 10, status: 'active', weeklyLimitUsd: 2400, seatFeeCny: 400, usagePoolCny: 1000,
+      reserveRatio: 0.8, memberCount: 2, fullView: true, members: [],
+      settled: true, canSettle: false, settleBlockedFor: 'already_settled', settledAt: '2026-08-01T00:00:00Z',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.settlement').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-settlement-frozen"]').exists()).toBe(true)
+    expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.settlement.unsettle'))).toBe(false)
   })
 
   // 连点两辆车的"邀请"：先发的请求后回来时不能覆盖对话框，

@@ -100,6 +100,9 @@ export default {
       alreadyJoined: 'You are already on this car.',
       forbidden: 'You are not allowed to perform this action.',
       notFound: 'This carpool no longer exists or was cancelled.',
+      alreadySettled: 'The settlement is already frozen. Ask an administrator to undo it if it needs recomputing.',
+      notSettled: 'This carpool has not been settled yet.',
+      notSettleable: 'The carpool must be launched before it can be settled.',
       inviteInvalid: 'This invite link is invalid or expired. Ask the owner for a new one.',
       nameConflict: 'A carpool with this name is already recruiting or running. Pick another name.',
       launchNotReady: 'Total declared quota is outside the launchable band; the car cannot launch yet.',
@@ -235,7 +238,14 @@ export default {
       fullView: 'All {count} members',
       usageDelta: 'Usage refund/top-up',
       seatFeeDelta: 'Seat fee refund/top-up',
-      loadFailed: 'Failed to load the settlement'
+      loadFailed: 'Failed to load the settlement',
+      livePreview: 'Live preview: these amounts keep moving with usage. They are only fixed once the settlement is confirmed.',
+      settle: 'Confirm settlement',
+      settleSuccess: 'Settlement frozen; the amounts no longer change',
+      frozenAt: 'Settled at {time}; amounts are frozen',
+      unsettle: 'Undo settlement',
+      unsettleSuccess: 'Settlement undone; back to live preview',
+      blockedNotLaunched: 'The carpool must be launched before it can be settled'
     },
     admin: {
       locked: 'Joining has been closed',

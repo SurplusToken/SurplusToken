@@ -735,6 +735,48 @@
               {{ settlementData.fullView ? t('carpool.settlement.fullView', { count: settlementData.memberCount }) : t('carpool.settlement.selfOnly') }}
             </span>
           </div>
+
+          <!--
+            冻结 vs 实时：未结算时表里的数字会随用量继续走，车主拿它收款就会
+            出现"我按 A 收的、他看到的是 B"。结算把这一份钉死。
+          -->
+          <div
+            v-if="settlementData.settled"
+            data-testid="carpool-settlement-frozen"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
+          >
+            <span>
+              {{ t('carpool.settlement.frozenAt', { time: formatDateTime(settlementData.settledAt || '') }) }}
+            </span>
+            <button
+              v-if="authStore.isAdmin"
+              type="button"
+              class="btn btn-ghost h-7 px-2 py-1 text-xs"
+              :disabled="settleePending"
+              @click="unsettleCarpool"
+            >
+              {{ t('carpool.settlement.unsettle') }}
+            </button>
+          </div>
+          <div
+            v-else
+            data-testid="carpool-settlement-live"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+          >
+            <span>{{ t('carpool.settlement.livePreview') }}</span>
+            <button
+              v-if="settlementData.canSettle"
+              type="button"
+              class="btn btn-primary h-7 px-3 py-1 text-xs"
+              :disabled="settleePending"
+              @click="settleCarpool"
+            >
+              {{ t('carpool.settlement.settle') }}
+            </button>
+            <span v-else-if="settlementData.settleBlockedFor === 'not_launched'">
+              {{ t('carpool.settlement.blockedNotLaunched') }}
+            </span>
+          </div>
           <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-600">
             <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
               <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700 dark:text-dark-300">
@@ -870,6 +912,8 @@ const detailDialogOpen = ref(false)
 const settlementDialogOpen = ref(false)
 const settlementLoading = ref(false)
 const settlementData = ref<CarpoolSettlement | null>(null)
+const settlementTarget = ref<Carpool | null>(null)
+const settleePending = ref(false)
 const selectedCarpool = ref<Carpool | null>(null)
 const selectedInviteToken = ref('')
 const joinTarget = ref<Carpool | null>(null)
@@ -898,6 +942,9 @@ function carpoolErrorMessages(): Record<string, string> {
     CARPOOL_ALREADY_JOINED: t('carpool.errors.alreadyJoined'),
     CARPOOL_FORBIDDEN: t('carpool.errors.forbidden'),
     CARPOOL_NOT_FOUND: t('carpool.errors.notFound'),
+    CARPOOL_ALREADY_SETTLED: t('carpool.errors.alreadySettled'),
+    CARPOOL_NOT_SETTLED: t('carpool.errors.notSettled'),
+    CARPOOL_NOT_SETTLEABLE: t('carpool.errors.notSettleable'),
     CARPOOL_INVITE_INVALID: t('carpool.errors.inviteInvalid'),
     CARPOOL_NAME_CONFLICT: t('carpool.errors.nameConflict'),
     CARPOOL_LAUNCH_NOT_READY: t('carpool.errors.launchNotReady'),
@@ -1492,6 +1539,7 @@ async function openSettlement(carpool: Carpool): Promise<void> {
   settlementDialogOpen.value = true
   settlementLoading.value = true
   settlementData.value = null
+  settlementTarget.value = carpool
   try {
     settlementData.value = await carpoolAPI.settlement(carpool.id)
   } catch (error) {
@@ -1499,6 +1547,39 @@ async function openSettlement(carpool: Carpool): Promise<void> {
     appStore.showError(carpoolError(error, 'carpool.settlement.loadFailed'))
   } finally {
     settlementLoading.value = false
+  }
+}
+
+// 冻结结算单：之后所有人读到的都是这一份，车主可以按它收退款。
+async function settleCarpool(): Promise<void> {
+  const target = settlementTarget.value
+  if (!target || settleePending.value) return
+  settleePending.value = true
+  try {
+    settlementData.value = await carpoolAPI.settle(target.id)
+    appStore.showSuccess(t('carpool.settlement.settleSuccess'))
+    await loadCarpools()
+  } catch (error) {
+    appStore.showError(carpoolError(error))
+  } finally {
+    settleePending.value = false
+  }
+}
+
+// 撤销结算（仅 admin）：回到实时预览，可以重新结算。
+async function unsettleCarpool(): Promise<void> {
+  const target = settlementTarget.value
+  if (!target || settleePending.value) return
+  settleePending.value = true
+  try {
+    await carpoolAPI.unsettle(target.id)
+    settlementData.value = await carpoolAPI.settlement(target.id)
+    appStore.showSuccess(t('carpool.settlement.unsettleSuccess'))
+    await loadCarpools()
+  } catch (error) {
+    appStore.showError(carpoolError(error))
+  } finally {
+    settleePending.value = false
   }
 }
 

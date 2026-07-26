@@ -261,11 +261,14 @@ func TestCarpoolFillDerivedMetrics(t *testing.T) {
 }
 
 type carpoolRepoStub struct {
-	carpool    *Carpool
-	rows       []CarpoolSettlementMemberRow
-	joinErr    error
-	joinCall   int
-	joinResult *CarpoolMutationResult
+	carpool        *Carpool
+	rows           []CarpoolSettlementMemberRow
+	joinErr        error
+	joinCall       int
+	joinResult     *CarpoolMutationResult
+	settledMembers []CarpoolSettlementMember
+	settleErr      error
+	cleared        bool
 }
 
 func (s *carpoolRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -298,6 +301,14 @@ func (s *carpoolRepoStub) Confirm(ctx context.Context, carpoolID, ownerUserID in
 }
 func (s *carpoolRepoStub) Unconfirm(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error) {
 	panic("unexpected call")
+}
+func (s *carpoolRepoStub) PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []CarpoolSettlementMember) error {
+	s.settledMembers = members
+	return s.settleErr
+}
+func (s *carpoolRepoStub) ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error {
+	s.cleared = true
+	return nil
 }
 func (s *carpoolRepoStub) ListPendingLaunch(ctx context.Context) ([]CarpoolPendingLaunch, error) {
 	panic("unexpected call")
@@ -385,6 +396,119 @@ func TestJoinRejectsNonPositiveDeclaration(t *testing.T) {
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
 	}
 	require.Zero(t, stub.joinCall, "非法申报不应触达 repo 层")
+}
+
+// 结算冻结：SettleCarpool 必须写全车（不受调用者可见性裁剪影响），
+// 否则普通成员或裁剪后的视图会把别人的账落掉。
+func TestSettleCarpoolFreezesEveryMember(t *testing.T) {
+	carpool, rows := settlementFixture()
+	stub := &carpoolRepoStub{carpool: carpool, rows: rows}
+	svc := NewCarpoolService(stub, nil, nil, nil)
+
+	settlement, err := svc.SettleCarpool(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.NotNil(t, settlement)
+	require.Len(t, stub.settledMembers, 2, "结算必须覆盖全车成员")
+	// 落库的金额就是实时算出来的那一份
+	require.InDelta(t, 192, stub.settledMembers[1].FloorUsageUSD, 1e-9)
+	require.InDelta(t, 200, stub.settledMembers[0].SeatFeeFinalCNY, 1e-9)
+}
+
+// 已结算的车重复结算被拒；未发车的车不能结算。
+func TestSettleCarpoolGuards(t *testing.T) {
+	carpool, rows := settlementFixture()
+
+	settledAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	alreadySettled := *carpool
+	alreadySettled.SettledAt = &settledAt
+	_, err := NewCarpoolService(&carpoolRepoStub{carpool: &alreadySettled, rows: rows}, nil, nil, nil).
+		SettleCarpool(context.Background(), 7, 11, false)
+	require.ErrorIs(t, err, ErrCarpoolAlreadySettled)
+
+	recruiting := *carpool
+	recruiting.Status = "recruiting"
+	_, err = NewCarpoolService(&carpoolRepoStub{carpool: &recruiting, rows: rows}, nil, nil, nil).
+		SettleCarpool(context.Background(), 7, 11, false)
+	require.ErrorIs(t, err, ErrCarpoolNotSettleable)
+
+	// 非车主非 admin 不能结算
+	_, err = NewCarpoolService(&carpoolRepoStub{carpool: carpool, rows: rows}, nil, nil, nil).
+		SettleCarpool(context.Background(), 7, 99, false)
+	require.ErrorIs(t, err, ErrCarpoolForbidden)
+}
+
+// 已结算的车读结算单必须返回冻结快照，而不是随用量继续漂移的实时值。
+// 这正是 settled_at 存在的理由：车主按 A 收的钱，别人第二天不能读到 B。
+func TestGetSettlementReturnsFrozenSnapshot(t *testing.T) {
+	carpool, rows := settlementFixture()
+	settledAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	settled := *carpool
+	settled.SettledAt = &settledAt
+
+	// 冻结时记的是 120，之后用量涨到了 999
+	rows[1].ActualUsageUSD = 999
+	rows[1].Frozen = &CarpoolSettlementFrozenRow{
+		FloorUsageUSD:    192,
+		ActualUsageUSD:   120,
+		BillableUsageUSD: 192,
+		UsageShareCNY:    490,
+		SeatFeeCNY:       200,
+		TotalDeltaCNY:    -90,
+	}
+
+	settlement, err := NewCarpoolService(&carpoolRepoStub{carpool: &settled, rows: rows}, nil, nil, nil).
+		GetSettlement(context.Background(), 7, 11, true)
+	require.NoError(t, err)
+	require.True(t, settlement.Settled)
+	require.Equal(t, &settledAt, settlement.SettledAt)
+	require.False(t, settlement.CanSettle)
+	require.Equal(t, "already_settled", settlement.SettleBlockedFor)
+
+	frozen := settlement.Members[1]
+	require.InDelta(t, 120, frozen.ActualUsageUSD, 1e-9, "必须是冻结值，不是涨到 999 的实时值")
+	require.InDelta(t, 192, frozen.BillableUsageUSD, 1e-9)
+	require.InDelta(t, 490, frozen.UsageFinalShareCNY, 1e-9)
+	require.InDelta(t, -90, frozen.TotalDeltaCNY, 1e-9)
+	require.True(t, frozen.FloorTriggered, "实际 120 < 地板 192，冻结后仍应显示触发地板")
+
+	// 没有快照的那一行保留实时值，不伪造历史
+	require.InDelta(t, 200, settlement.Members[0].ActualUsageUSD, 1e-9)
+}
+
+// 未结算时是实时预览，且车主/admin 能看到"可以结算"。
+func TestGetSettlementUnsettledIsLivePreview(t *testing.T) {
+	carpool, rows := settlementFixture()
+	svc := NewCarpoolService(&carpoolRepoStub{carpool: carpool, rows: rows}, nil, nil, nil)
+
+	settlement, err := svc.GetSettlement(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.False(t, settlement.Settled)
+	require.Nil(t, settlement.SettledAt)
+	require.True(t, settlement.CanSettle)
+	require.Empty(t, settlement.SettleBlockedFor)
+
+	// 普通成员看不到结算按钮
+	memberRole := "member"
+	c := *carpool
+	c.MemberRole = &memberRole
+	settlement, err = NewCarpoolService(&carpoolRepoStub{carpool: &c, rows: rows}, nil, nil, nil).
+		GetSettlement(context.Background(), 7, 12, false)
+	require.NoError(t, err)
+	require.False(t, settlement.CanSettle)
+	require.Equal(t, "forbidden", settlement.SettleBlockedFor)
+}
+
+// 撤销结算仅 admin。
+func TestUnsettleCarpoolRequiresAdmin(t *testing.T) {
+	carpool, rows := settlementFixture()
+	stub := &carpoolRepoStub{carpool: carpool, rows: rows}
+	svc := NewCarpoolService(stub, nil, nil, nil)
+
+	require.ErrorIs(t, svc.UnsettleCarpool(context.Background(), 7, 11, false), ErrCarpoolForbidden)
+	require.False(t, stub.cleared)
+
+	require.NoError(t, svc.UnsettleCarpool(context.Background(), 7, 99, true))
+	require.True(t, stub.cleared)
 }
 
 // 申报下限：低于 CarpoolMinDeclaredWeeklyQuotaUSD 直接拒绝。

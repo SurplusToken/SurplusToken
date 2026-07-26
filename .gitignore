@@ -137,6 +137,7 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/CARPOOL_QUOTA_RESERVATION_DESIGN_CN.md
 !docs/legal/
 !docs/legal/*.md
 .serena/

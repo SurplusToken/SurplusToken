@@ -363,6 +363,41 @@ func (h *CarpoolHandler) Settlement(c *gin.Context) {
 	response.Success(c, settlement)
 }
 
+// Settle 冻结结算单（车主或 admin）：把当下的金额写死，之后读到的就是这份快照。
+func (h *CarpoolHandler) Settle(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	settlement, err := h.service.SettleCarpool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, settlement)
+}
+
+// Unsettle 撤销结算（仅 admin）：结算算错了得有个受控的改回路径。
+func (h *CarpoolHandler) Unsettle(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	if response.ErrorFrom(c, h.service.UnsettleCarpool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))) {
+		return
+	}
+	response.Success(c, gin.H{"message": "ok"})
+}
+
 func (h *CarpoolHandler) Cancel(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {

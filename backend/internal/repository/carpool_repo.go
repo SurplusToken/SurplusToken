@@ -709,11 +709,15 @@ SELECT group_qr_code, group_qr_code_content_type FROM carpools WHERE id = $1`, c
 func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
 	// 带上邮箱/用户名：结算单里只有 #userId 的话，车主没法把每一行对应到
 	// 微信群里的真人去收款/退款。可见性由 service 层控制（仅 owner/admin 全量）。
+	// 末尾一组 settled_* 是结算冻结快照（migration 191），未结算时全为 NULL。
 	rows, err := r.db.QueryContext(ctx, `
 SELECT m.user_id, COALESCE(u.email, ''), COALESCE(u.username, ''),
     m.role, m.declared_weekly_quota_usd, COALESCE(m.prepaid_amount_cny, 0),
     COALESCE(m.quoted_prepaid_amount_cny, m.prepaid_amount_cny, 0),
-    COALESCE(s.monthly_usage_usd, 0), s.starts_at, s.expires_at
+    COALESCE(s.monthly_usage_usd, 0), s.starts_at, s.expires_at,
+    m.settled_at, m.settled_floor_usage_usd, m.settled_actual_usage_usd,
+    m.settled_billable_usage_usd, m.settled_usage_share_cny,
+    m.settled_seat_fee_cny, m.settled_total_delta_cny
 FROM carpool_members m
 LEFT JOIN users u ON u.id = m.user_id
 LEFT JOIN user_subscriptions s ON s.id = m.subscription_id
@@ -727,11 +731,14 @@ ORDER BY m.id`, carpoolID)
 	items := make([]service.CarpoolSettlementMemberRow, 0)
 	for rows.Next() {
 		var item service.CarpoolSettlementMemberRow
-		var startsAt, expiresAt sql.NullTime
+		var startsAt, expiresAt, settledAt sql.NullTime
+		var floorUsage, actualUsage, billableUsage, usageShare, seatFee, totalDelta sql.NullFloat64
 		if err := rows.Scan(&item.UserID, &item.Email, &item.Username,
 			&item.Role, &item.DeclaredWeeklyQuotaUSD,
 			&item.PrepaidAmountCNY, &item.QuotedPrepaidCNY,
-			&item.ActualUsageUSD, &startsAt, &expiresAt); err != nil {
+			&item.ActualUsageUSD, &startsAt, &expiresAt,
+			&settledAt, &floorUsage, &actualUsage,
+			&billableUsage, &usageShare, &seatFee, &totalDelta); err != nil {
 			return nil, fmt.Errorf("scan carpool settlement member: %w", err)
 		}
 		if startsAt.Valid {
@@ -740,12 +747,130 @@ ORDER BY m.id`, carpoolID)
 		if expiresAt.Valid {
 			item.PeriodEnd = &expiresAt.Time
 		}
+		// 快照要求 settled_at 与全部金额列都在——缺任何一列都按"未冻结"处理，
+		// 宁可显示实时值，也不要拼出一份半真半假的账单。
+		if settledAt.Valid && floorUsage.Valid && actualUsage.Valid && billableUsage.Valid &&
+			usageShare.Valid && seatFee.Valid && totalDelta.Valid {
+			item.Frozen = &service.CarpoolSettlementFrozenRow{
+				FloorUsageUSD:    floorUsage.Float64,
+				ActualUsageUSD:   actualUsage.Float64,
+				BillableUsageUSD: billableUsage.Float64,
+				UsageShareCNY:    usageShare.Float64,
+				SeatFeeCNY:       seatFee.Float64,
+				TotalDeltaCNY:    totalDelta.Float64,
+			}
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate carpool settlement members: %w", err)
 	}
 	return items, nil
+}
+
+// PersistSettlement 冻结结算单：在一个事务里给车打上 settled_at 并写入每位成员的
+// 金额快照。车行的 `settled_at IS NULL` 是幂等守卫——两个人同时点"结算"时，
+// 后到的那个拿到 ErrCarpoolAlreadySettled，不会覆盖已经冻结的账单。
+func (r *carpoolRepository) PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []service.CarpoolSettlementMember) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin carpool settle: %w", err)
+	}
+	defer tx.Rollback()
+
+	var status string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load carpool for settle: %w", err)
+	}
+	if status != "active" && status != "ended" {
+		return service.ErrCarpoolNotSettleable
+	}
+
+	res, err := tx.ExecContext(ctx, `
+UPDATE carpools SET settled_at = NOW(), settled_by_user_id = $2, updated_at = NOW()
+WHERE id = $1 AND settled_at IS NULL`, carpoolID, actorUserID)
+	if err != nil {
+		return fmt.Errorf("mark carpool settled: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read carpool settle result: %w", err)
+	}
+	if affected == 0 {
+		return service.ErrCarpoolAlreadySettled
+	}
+
+	for _, member := range members {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET settled_at = NOW(), settled_by_user_id = $3,
+    settled_floor_usage_usd = $4, settled_actual_usage_usd = $5,
+    settled_billable_usage_usd = $6, settled_usage_share_cny = $7,
+    settled_seat_fee_cny = $8, settled_total_delta_cny = $9, updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2 AND status IN ('joined', 'active')`,
+			carpoolID, member.UserID, actorUserID,
+			member.FloorUsageUSD, member.ActualUsageUSD, member.BillableUsageUSD,
+			member.UsageFinalShareCNY, member.SeatFeeFinalCNY, member.TotalDeltaCNY); err != nil {
+			return fmt.Errorf("freeze carpool settlement for member %d: %w", member.UserID, err)
+		}
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "settled"); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit carpool settle: %w", err)
+	}
+	return nil
+}
+
+// ClearSettlement 撤销结算：清空车与全部成员上的冻结字段，结算单回到实时预览。
+func (r *carpoolRepository) ClearSettlement(ctx context.Context, carpoolID, actorUserID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin carpool unsettle: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+UPDATE carpools SET settled_at = NULL, settled_by_user_id = NULL, updated_at = NOW()
+WHERE id = $1 AND settled_at IS NOT NULL`, carpoolID)
+	if err != nil {
+		return fmt.Errorf("clear carpool settled marker: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read carpool unsettle result: %w", err)
+	}
+	if affected == 0 {
+		// 车不存在或本来就没结算，两种情况都不该静默成功。
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM carpools WHERE id = $1)`, carpoolID).Scan(&exists); err != nil {
+			return fmt.Errorf("check carpool for unsettle: %w", err)
+		}
+		if !exists {
+			return service.ErrCarpoolNotFound
+		}
+		return service.ErrCarpoolNotSettled
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET settled_at = NULL, settled_by_user_id = NULL,
+    settled_floor_usage_usd = NULL, settled_actual_usage_usd = NULL,
+    settled_billable_usage_usd = NULL, settled_usage_share_cny = NULL,
+    settled_seat_fee_cny = NULL, settled_total_delta_cny = NULL, updated_at = NOW()
+WHERE carpool_id = $1`, carpoolID); err != nil {
+		return fmt.Errorf("clear carpool member settlement: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "unsettled"); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit carpool unsettle: %w", err)
+	}
+	return nil
 }
 
 // GetRecentWeeklyUsageStats 聚合本人最近 7 天的用量（USD）与有记录的天数，
@@ -957,7 +1082,8 @@ SELECT
     (SELECT COALESCE(SUM(declared_member.declared_weekly_quota_usd), 0)
      FROM carpool_members declared_member
      WHERE declared_member.carpool_id = c.id AND declared_member.status IN ('joined', 'active')),
-    c.launch_notified_at, c.confirmed_at, (c.group_qr_code IS NOT NULL)
+    c.launch_notified_at, c.confirmed_at, (c.group_qr_code IS NOT NULL),
+    c.settled_at, c.settled_by_user_id
 FROM carpools c
 LEFT JOIN users u ON u.id = c.owner_user_id
 LEFT JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL`
@@ -969,9 +1095,9 @@ type carpoolScanner interface {
 func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	var item service.Carpool
 	var ownerUserID, groupID sql.NullInt64
-	var capacity sql.NullInt64
+	var capacity, settledByUserID sql.NullInt64
 	var groupName, memberRole sql.NullString
-	var scheduledStartAt, launchedAt, launchNotifiedAt, confirmedAt sql.NullTime
+	var scheduledStartAt, launchedAt, launchNotifiedAt, confirmedAt, settledAt sql.NullTime
 	err := scanner.Scan(
 		&item.ID, &item.Name, &item.Description, &item.Organizer,
 		&ownerUserID, &item.Platform, &item.PlanType, &item.CarType, &item.Level,
@@ -981,6 +1107,7 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 		&item.WeeklyLimitUSD, &item.SeatFeeCNY, &item.UsagePoolCNY, &item.ReserveRatio,
 		&item.LaunchMinRatio, &item.LaunchMaxRatio, &item.DeclaredTotalUSD,
 		&launchNotifiedAt, &confirmedAt, &item.HasGroupQRCode,
+		&settledAt, &settledByUserID,
 	)
 	if err != nil {
 		return nil, err
@@ -1011,6 +1138,12 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 	}
 	if confirmedAt.Valid {
 		item.ConfirmedAt = &confirmedAt.Time
+	}
+	if settledAt.Valid {
+		item.SettledAt = &settledAt.Time
+	}
+	if settledByUserID.Valid {
+		item.SettledByUserID = &settledByUserID.Int64
 	}
 	return &item, nil
 }

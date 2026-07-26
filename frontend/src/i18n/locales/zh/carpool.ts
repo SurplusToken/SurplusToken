@@ -100,6 +100,9 @@ export default {
       alreadyJoined: '你已经在这辆车上了',
       forbidden: '你没有权限执行这个操作',
       notFound: '拼车不存在或已被取消',
+      alreadySettled: '结算单已经冻结过了，需要重算请联系管理员撤销结算',
+      notSettled: '这辆车还没有结算',
+      notSettleable: '发车后才能结算',
       inviteInvalid: '邀请链接无效或已过期，请向车主索取新链接',
       nameConflict: '已有同名的车在招募或运行中，请换一个名字',
       launchNotReady: '总申报额度不在发车区间内，暂时不能发车',
@@ -235,7 +238,14 @@ export default {
       fullView: '全车 {count} 名成员',
       usageDelta: '用量退/补',
       seatFeeDelta: '席位费退/补',
-      loadFailed: '加载结算单失败'
+      loadFailed: '加载结算单失败',
+      livePreview: '实时预览：下方金额会随用量继续变化，确认结算后才会固定下来。',
+      settle: '确认结算',
+      settleSuccess: '结算单已冻结，金额不再变化',
+      frozenAt: '已于 {time} 结算，金额已冻结',
+      unsettle: '撤销结算',
+      unsettleSuccess: '已撤销结算，回到实时预览',
+      blockedNotLaunched: '发车后才能结算'
     },
     admin: {
       locked: '已停止新成员上车',
