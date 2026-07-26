@@ -976,9 +976,9 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 	if len(members) == 0 {
 		return 0, nil, service.ErrCarpoolLaunchNotReady
 	}
-	if len(members) > service.CarpoolMaxMembers {
-		return 0, nil, service.ErrCarpoolFull
-	}
+	// 这里刻意不再校验成员数上限。上限的执行点是 Join（防止车继续变大）；
+	// 发车时再拦一道，只会把"升级前就已超编、且成员都已按报价付过钱"的车
+	// 永久卡死——人和钱一起困在里面，正是本轮在修的那类死胡同。
 	if len(skipped) > 0 {
 		if _, err := tx.ExecContext(ctx, `
 UPDATE carpool_members SET status = 'left', left_at = NOW(),
