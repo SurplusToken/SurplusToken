@@ -34,6 +34,9 @@ interface CarpoolResponse {
   has_group_qr_code: boolean
   launch_notified_at?: string
   confirmed_at?: string
+  // 自定义规则车（含平台升级前建立的老车）：不走申报制，按 rule_note 人工结算
+  pricing_model?: string
+  rule_note?: string
   // 额度预约制参数（设计文档 §3）
   weekly_limit_usd: number
   seat_fee_cny: number
@@ -75,6 +78,8 @@ export interface Carpool {
   hasGroupQrCode: boolean
   launchNotifiedAt?: string
   confirmedAt?: string
+  pricingModel: string
+  ruleNote: string
   weeklyLimitUsd: number
   seatFeeCny: number
   usagePoolCny: number
@@ -162,6 +167,10 @@ export interface CarpoolSettlement {
   settledByUserId?: number
   canSettle: boolean
   settleBlockedFor: string
+  // 自定义规则车：members 只带实际用量，金额字段全为零（不适用，而非算出来是 0）
+  manualSettlement: boolean
+  pricingModel: string
+  ruleNote: string
 }
 
 interface CarpoolMutationResponse {
@@ -218,6 +227,9 @@ interface CarpoolSettlementResponse {
   settled_by_user_id?: number
   can_settle?: boolean
   settle_blocked_for?: string
+  manual_settlement?: boolean
+  pricing_model?: string
+  rule_note?: string
 }
 
 function mapCarpool(item: CarpoolResponse): Carpool {
@@ -248,6 +260,8 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     hasGroupQrCode: !!item.has_group_qr_code,
     launchNotifiedAt: item.launch_notified_at,
     confirmedAt: item.confirmed_at,
+    pricingModel: item.pricing_model || 'quota',
+    ruleNote: item.rule_note || '',
     weeklyLimitUsd: item.weekly_limit_usd,
     seatFeeCny: item.seat_fee_cny,
     usagePoolCny: item.usage_pool_cny,
@@ -278,6 +292,9 @@ function mapSettlement(data: CarpoolSettlementResponse): CarpoolSettlement {
     settledByUserId: data.settled_by_user_id,
     canSettle: !!data.can_settle,
     settleBlockedFor: data.settle_blocked_for || '',
+    manualSettlement: !!data.manual_settlement,
+    pricingModel: data.pricing_model || 'quota',
+    ruleNote: data.rule_note || '',
     members: (data.members || []).map((member) => ({
       userId: member.user_id,
       email: member.email,

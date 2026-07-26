@@ -186,19 +186,25 @@ SELECT carpool_id FROM carpool_invites WHERE token_hash = $1`, *inviteHash).Scan
 		}
 	}
 
-	var status, visibility string
+	var status, visibility, pricingModel string
 	var locked bool
 	var weeklyLimitUSD, launchMinRatio, launchMaxRatio, seatFeeCNY, usagePoolCNY float64
 	err = tx.QueryRowContext(ctx, `
-SELECT status, visibility, join_locked_at IS NOT NULL,
+SELECT status, visibility, join_locked_at IS NOT NULL, COALESCE(pricing_model, 'quota'),
     weekly_limit_usd, launch_min_ratio, launch_max_ratio, seat_fee_cny, usage_pool_cny
-FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &locked,
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status, &visibility, &locked, &pricingModel,
 		&weeklyLimitUSD, &launchMinRatio, &launchMaxRatio, &seatFeeCNY, &usagePoolCNY)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrCarpoolNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load carpool for join: %w", err)
+	}
+	// 自定义规则车不接新成员：它们不走申报制，进来的人会拿到一份按额度预约制
+	// 记账的成员行；而升级前遗留的招募中老车 Σ申报 恒为 0、永远达不到发车区间，
+	// 让人再交预付进去等于往开不走的车里扔钱。
+	if pricingModel != service.CarpoolPricingQuota {
+		return nil, service.ErrCarpoolCustomRuleClosed
 	}
 
 	// 车行已锁，此时才锁邀请行——有效性（撤销/过期/用完）在锁下复核一次，
@@ -1083,7 +1089,8 @@ SELECT
      FROM carpool_members declared_member
      WHERE declared_member.carpool_id = c.id AND declared_member.status IN ('joined', 'active')),
     c.launch_notified_at, c.confirmed_at, (c.group_qr_code IS NOT NULL),
-    c.settled_at, c.settled_by_user_id
+    c.settled_at, c.settled_by_user_id,
+    COALESCE(c.pricing_model, 'quota'), COALESCE(c.rule_note, '')
 FROM carpools c
 LEFT JOIN users u ON u.id = c.owner_user_id
 LEFT JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL`
@@ -1108,6 +1115,7 @@ func scanCarpool(scanner carpoolScanner) (*service.Carpool, error) {
 		&item.LaunchMinRatio, &item.LaunchMaxRatio, &item.DeclaredTotalUSD,
 		&launchNotifiedAt, &confirmedAt, &item.HasGroupQRCode,
 		&settledAt, &settledByUserID,
+		&item.PricingModel, &item.RuleNote,
 	)
 	if err != nil {
 		return nil, err

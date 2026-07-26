@@ -103,6 +103,7 @@ export default {
       alreadySettled: 'The settlement is already frozen. Ask an administrator to undo it if it needs recomputing.',
       notSettled: 'This carpool has not been settled yet.',
       notSettleable: 'The carpool must be launched before it can be settled.',
+      customRuleClosed: 'This carpool runs under separately agreed terms and no longer accepts new members. Please join a new one.',
       inviteInvalid: 'This invite link is invalid or expired. Ask the owner for a new one.',
       nameConflict: 'A carpool with this name is already recruiting or running. Pick another name.',
       launchNotReady: 'Total declared quota is outside the launchable band; the car cannot launch yet.',
@@ -116,6 +117,12 @@ export default {
       qrCodeInvalid: 'The QR code must be a png / jpeg / webp image under 2MB.',
       ownerCannotLeave: 'Owners cannot leave; cancel the whole carpool instead.',
       notMember: 'You are not a member of this carpool.'
+    },
+    // Custom-rule carpools: settled manually against rule_note rather than by the
+    // quota reservation model. Every carpool predating the switch is one of these.
+    customRule: {
+      badge: 'Custom rules',
+      noNote: 'This carpool runs under separately agreed terms; declarations, reserves and automatic refunds do not apply.'
     },
     wechat: {
       adminLabel: 'Admin WeChat',
@@ -238,6 +245,8 @@ export default {
       usageDelta: 'Usage refund/top-up',
       seatFeeDelta: 'Seat fee refund/top-up',
       loadFailed: 'Failed to load the settlement',
+      manualTitle: 'This carpool is settled manually under its own rules',
+      manualHint: 'Only each member\'s actual usage is listed, for the owner to split according to the rules above. The platform does not compute reserves or refunds here.',
       livePreview: 'Live preview: these amounts keep moving with usage. They are only fixed once the settlement is confirmed.',
       settle: 'Confirm settlement',
       settleSuccess: 'Settlement frozen; the amounts no longer change',

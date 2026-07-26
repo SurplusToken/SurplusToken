@@ -25,7 +25,20 @@ const (
 
 	CarpoolVisibilityPublic     = "public"
 	CarpoolVisibilityInviteOnly = "invite_only"
+
+	// CarpoolPricingQuota 是额度预约制（设计文档 §3/§4），新车默认。
+	CarpoolPricingQuota = "quota"
+	// CarpoolPricingCustom 是自定义规则车：不适用申报/保底/自动退补，
+	// 按 rule_note 写明的规则人工结算。平台升级前建立的老车全部属于此类
+	// （migration 192），管理员协商后开的特殊车也走这里。
+	CarpoolPricingCustom = "custom"
 )
+
+// IsQuotaModel 报告本车是否走额度预约制。非额度制的车不参与申报、保底、
+// 公共池与自动退补计算——那套数学对它们没有意义，硬算出来的是假账。
+func (c *Carpool) IsQuotaModel() bool {
+	return c == nil || c.PricingModel == "" || c.PricingModel == CarpoolPricingQuota
+}
 
 var (
 	ErrCarpoolNotFound       = infraerrors.NotFound("CARPOOL_NOT_FOUND", "carpool not found")
@@ -58,6 +71,9 @@ var (
 	ErrCarpoolFull                = infraerrors.Conflict("CARPOOL_FULL", "carpool has reached its member limit")
 	// 自定义规则咨询限流。
 	ErrCarpoolInterestTooFrequent = infraerrors.TooManyRequests("CARPOOL_INTEREST_TOO_FREQUENT", "custom rule enquiry was submitted recently; please wait before retrying")
+
+	// 自定义规则车（migration 192）：不走申报/保底那套，也不接新成员。
+	ErrCarpoolCustomRuleClosed = infraerrors.Conflict("CARPOOL_CUSTOM_RULE_CLOSED", "this carpool runs under custom rules and no longer accepts new members")
 
 	// 结算落库（migration 191）。
 	ErrCarpoolAlreadySettled = infraerrors.Conflict("CARPOOL_ALREADY_SETTLED", "carpool settlement is already frozen")
@@ -129,6 +145,11 @@ type Carpool struct {
 	SettledByUserID *int64     `json:"settled_by_user_id,omitempty"`
 	HasGroupQRCode  bool       `json:"has_group_qr_code"`
 	AdminWechat     string     `json:"admin_wechat"`
+
+	// PricingModel 区分额度预约制（quota）与自定义规则车（custom，人工结算）。
+	// RuleNote 是自定义规则车的规则说明，展示给成员看。
+	PricingModel string `json:"pricing_model"`
+	RuleNote     string `json:"rule_note,omitempty"`
 
 	// 额度预约制参数（设计文档 §3）
 	WeeklyLimitUSD float64 `json:"weekly_limit_usd"`
@@ -362,6 +383,12 @@ type CarpoolSettlement struct {
 	SettledByUserID  *int64     `json:"settled_by_user_id,omitempty"`
 	CanSettle        bool       `json:"can_settle"`         // 调用者此刻能否执行结算
 	SettleBlockedFor string     `json:"settle_blocked_for"` // 不能结算的原因（前端提示用）
+
+	// ManualSettlement 为 true 时本车按 RuleNote 写明的规则人工结算：
+	// Members 只带实际用量，全部金额字段为零（不是"算出来是 0"，是"不适用"）。
+	ManualSettlement bool   `json:"manual_settlement"`
+	PricingModel     string `json:"pricing_model"`
+	RuleNote         string `json:"rule_note,omitempty"`
 }
 
 type CarpoolRepository interface {
@@ -445,11 +472,22 @@ func (s *CarpoolService) ResolveInvite(ctx context.Context, userID int64, token 
 }
 
 // fillCarpoolPresentation 补充响应展示字段：派生指标 + 硬编码管理员微信号。
+//
+// 自定义规则车不算派生指标：剩余可预约额度 / Plus 等价 / 均价 都是额度预约制
+// 的概念，对它们而言分母和分子都不成立（成员申报恒为 0），算出来只会在卡片上
+// 显示 "0 / 2400"、"均价 ¥0" 这种误导性数字。
 func fillCarpoolPresentation(c *Carpool) {
 	if c == nil {
 		return
 	}
-	c.FillDerivedMetrics()
+	if c.IsQuotaModel() {
+		c.FillDerivedMetrics()
+	} else {
+		c.DeclaredTotalUSD = 0
+		c.RemainingJoinableUSD = 0
+		c.PlusEquivalents = 0
+		c.AvgPriceCNY = 0
+	}
 	c.AdminWechat = CarpoolAdminWechatID
 }
 
@@ -814,8 +852,19 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 		Settled:         item.SettledAt != nil,
 		SettledAt:       item.SettledAt,
 		SettledByUserID: item.SettledByUserID,
+		PricingModel:    item.PricingModel,
+		RuleNote:        item.RuleNote,
 	}
 	settlement.CanSettle, settlement.SettleBlockedFor = settleAvailability(item, isAdmin, isOwner, len(rows))
+
+	// 自定义规则车只出用量，不出退补：地板/保底/变动池分摊这套数学是额度预约制
+	// 的，套到成员申报恒为 0 的老车上，会凭空算出每人几百块的"补款"。用量本身
+	// 仍然给——那正是车主按自己那套规则手工分账最需要的东西。
+	if !item.IsQuotaModel() {
+		settlement.ManualSettlement = true
+		settlement.Members = manualSettlementMembers(rows, actorUserID, settlement.FullView)
+		return settlement, nil, nil
+	}
 
 	inputs := make([]CarpoolSettlementMemberInput, 0, len(rows))
 	for _, row := range rows {
@@ -859,11 +908,33 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 	return settlement, members, nil
 }
 
+// manualSettlementMembers 为自定义规则车生成"只有用量"的结算行：
+// 金额字段全部留零，避免前端把它们当成真实退补渲染出来。
+func manualSettlementMembers(rows []CarpoolSettlementMemberRow, actorUserID int64, fullView bool) []CarpoolSettlementMember {
+	members := make([]CarpoolSettlementMember, 0, len(rows))
+	for _, row := range rows {
+		if !fullView && row.UserID != actorUserID {
+			continue
+		}
+		members = append(members, CarpoolSettlementMember{
+			UserID:         row.UserID,
+			Email:          row.Email,
+			Username:       row.Username,
+			Role:           row.Role,
+			ActualUsageUSD: row.ActualUsageUSD,
+		})
+	}
+	return members
+}
+
 // settleAvailability 返回调用者此刻能否结算，以及不能的原因（供前端直接提示）。
 func settleAvailability(item *Carpool, isAdmin, isOwner bool, memberCount int) (bool, string) {
 	switch {
 	case !isAdmin && !isOwner:
 		return false, "forbidden"
+	case !item.IsQuotaModel():
+		// 自定义规则车没有可冻结的自动结算结果，人工对账。
+		return false, "manual_settlement"
 	case item.SettledAt != nil:
 		return false, "already_settled"
 	case !carpoolSettleable(item.Status):

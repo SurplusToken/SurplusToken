@@ -158,12 +158,37 @@
                 </div>
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
-              <span class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200">
+              <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义 -->
+              <span
+                v-if="isQuotaCar(carpool)"
+                class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
+              >
                 {{ t('carpool.fields.weeklyLimitBadge', { limit: formatUsd(carpool.weeklyLimitUsd) }) }}
+              </span>
+              <span
+                v-else
+                class="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+              >
+                {{ t('carpool.customRule.badge') }}
               </span>
             </div>
 
-            <div class="mt-4">
+            <!--
+              自定义规则车（含平台升级前建立的老车）不走申报制：额度进度、
+              剩余可预约、Plus 等价、均价对它们都不成立，硬渲染只会显示
+              "0 / 2400"、"均价 ¥0" 这种误导数字。改为直接展示规则说明。
+            -->
+            <div
+              v-if="!isQuotaCar(carpool)"
+              data-testid="carpool-custom-rule"
+              class="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300"
+            >
+              <div class="font-medium">{{ t('carpool.customRule.badge') }}</div>
+              <p v-if="carpool.ruleNote" class="mt-1">{{ carpool.ruleNote }}</p>
+              <p v-else class="mt-1">{{ t('carpool.customRule.noNote') }}</p>
+            </div>
+
+            <div v-else class="mt-4">
               <div class="mb-2 flex items-center justify-between text-xs">
                 <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.quotaProgress') }}</span>
                 <span class="text-gray-500 dark:text-dark-300">
@@ -193,21 +218,23 @@
             </div>
 
             <dl class="mt-4 grid grid-cols-3 gap-x-4 gap-y-3 text-sm">
-              <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
-                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.plusEquivalents') }}</dt>
-                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDecimal(carpool.plusEquivalents) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPrice') }}</dt>
-                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
-                  {{ formatCny(carpool.avgPriceCny) }}
-                  <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPriceUnit') }}</span>
-                </dd>
-              </div>
+              <template v-if="isQuotaCar(carpool)">
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
+                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.plusEquivalents') }}</dt>
+                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDecimal(carpool.plusEquivalents) }}</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPrice') }}</dt>
+                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
+                    {{ formatCny(carpool.avgPriceCny) }}
+                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPriceUnit') }}</span>
+                  </dd>
+                </div>
+              </template>
               <div>
                 <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.organizer') }}</dt>
                 <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.organizer }}</dd>
@@ -737,11 +764,26 @@
           </div>
 
           <!--
+            自定义规则车按 rule_note 人工结算：后端只回实际用量，金额字段全为零
+            （是"不适用"而非"算出来是 0"）。这里明确说明，并隐藏退补列，避免
+            把老车按新定价的假账渲染出来。
+          -->
+          <div
+            v-if="settlementData.manualSettlement"
+            data-testid="carpool-settlement-manual"
+            class="rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300"
+          >
+            <div class="font-medium">{{ t('carpool.settlement.manualTitle') }}</div>
+            <p v-if="settlementData.ruleNote" class="mt-1">{{ settlementData.ruleNote }}</p>
+            <p class="mt-1">{{ t('carpool.settlement.manualHint') }}</p>
+          </div>
+
+          <!--
             冻结 vs 实时：未结算时表里的数字会随用量继续走，车主拿它收款就会
             出现"我按 A 收的、他看到的是 B"。结算把这一份钉死。
           -->
           <div
-            v-if="settlementData.settled"
+            v-else-if="settlementData.settled"
             data-testid="carpool-settlement-frozen"
             class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
           >
@@ -782,11 +824,13 @@
               <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700 dark:text-dark-300">
                 <tr>
                   <th class="px-3 py-2 text-left font-medium">{{ t('carpool.settlement.member') }}</th>
-                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.declared') }}</th>
+                  <th v-if="!settlementData.manualSettlement" class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.declared') }}</th>
                   <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.actual') }}</th>
-                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.billable') }}</th>
-                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.prepaid') }}</th>
-                  <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.delta') }}</th>
+                  <template v-if="!settlementData.manualSettlement">
+                    <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.billable') }}</th>
+                    <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.prepaid') }}</th>
+                    <th class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.delta') }}</th>
+                  </template>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
@@ -804,23 +848,25 @@
                     </div>
                     <div class="text-[11px] text-gray-400 dark:text-dark-400">#{{ member.userId }}</div>
                   </td>
-                  <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.declaredWeeklyQuotaUsd) }}</td>
+                  <td v-if="!settlementData.manualSettlement" class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.declaredWeeklyQuotaUsd) }}</td>
                   <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.actualUsageUsd) }}</td>
-                  <td class="px-3 py-2 text-right font-mono">
-                    {{ formatDecimal(member.billableUsageUsd) }}
-                    <span v-if="member.floorTriggered" class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                      {{ t('carpool.settlement.floorBadge') }}
-                    </span>
-                  </td>
-                  <td class="px-3 py-2 text-right font-mono">{{ formatCny(member.prepaidAmountCny) }}</td>
-                  <td class="px-3 py-2 text-right font-mono font-semibold" :class="deltaClass(member.totalDeltaCny)">
-                    {{ deltaLabel(member.totalDeltaCny) }}
-                  </td>
+                  <template v-if="!settlementData.manualSettlement">
+                    <td class="px-3 py-2 text-right font-mono">
+                      {{ formatDecimal(member.billableUsageUsd) }}
+                      <span v-if="member.floorTriggered" class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                        {{ t('carpool.settlement.floorBadge') }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2 text-right font-mono">{{ formatCny(member.prepaidAmountCny) }}</td>
+                    <td class="px-3 py-2 text-right font-mono font-semibold" :class="deltaClass(member.totalDeltaCny)">
+                      {{ deltaLabel(member.totalDeltaCny) }}
+                    </td>
+                  </template>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.settlement.deltaNote') }}</p>
+          <p v-if="!settlementData.manualSettlement" class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.settlement.deltaNote') }}</p>
         </template>
       </div>
     </BaseDialog>
@@ -955,6 +1001,7 @@ function carpoolErrorMessages(): Record<string, string> {
     CARPOOL_ALREADY_SETTLED: t('carpool.errors.alreadySettled'),
     CARPOOL_NOT_SETTLED: t('carpool.errors.notSettled'),
     CARPOOL_NOT_SETTLEABLE: t('carpool.errors.notSettleable'),
+    CARPOOL_CUSTOM_RULE_CLOSED: t('carpool.errors.customRuleClosed'),
     CARPOOL_INVITE_INVALID: t('carpool.errors.inviteInvalid'),
     CARPOOL_NAME_CONFLICT: t('carpool.errors.nameConflict'),
     CARPOOL_LAUNCH_NOT_READY: t('carpool.errors.launchNotReady'),
@@ -1182,7 +1229,17 @@ function launchRatioPercent(ratio: number): number {
   return Math.round(ratio * 100)
 }
 
+// isQuotaCar 报告是否为额度预约制的车。自定义规则车（含平台升级前建立的老车）
+// 不参与申报/保底/公共池那套，展示与操作都要走另一条分支。
+function isQuotaCar(carpool: Pick<Carpool, 'pricingModel'>): boolean {
+  return !carpool.pricingModel || carpool.pricingModel === 'quota'
+}
+
 function canJoin(carpool: Carpool): boolean {
+  // 自定义规则车不接新成员（后端同样拒绝）：它们不走申报制，而升级前遗留的
+  // 招募中老车 Σ申报 恒为 0、永远达不到发车区间，再放人进去就是往开不走的
+  // 车里交预付。
+  if (!isQuotaCar(carpool)) return false
   return carpool.status === 'recruiting' && !carpool.joinLocked && carpool.remainingJoinableUsd > 0
 }
 

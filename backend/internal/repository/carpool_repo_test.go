@@ -83,6 +83,7 @@ func carpoolDetailRow() *sqlmock.Rows {
 		"launch_min_ratio", "launch_max_ratio", "declared_total",
 		"launch_notified_at", "confirmed_at", "has_group_qr_code",
 		"settled_at", "settled_by_user_id",
+		"pricing_model", "rule_note",
 	}).AddRow(
 		int64(7), "weekend-car", "test", "owner", int64(11), "openai", "openai_pro",
 		"small", 1, nil, 9, 130.0, 750.0,
@@ -92,6 +93,7 @@ func carpoolDetailRow() *sqlmock.Rows {
 		0.95, 1.05, 2250.0,
 		nil, nil, true,
 		nil, nil,
+		"quota", "",
 	)
 }
 
@@ -107,8 +109,8 @@ func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)
@@ -149,8 +151,8 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)
@@ -189,8 +191,8 @@ func TestJoinCarpoolRejectsDeclarationOverHardCap(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)

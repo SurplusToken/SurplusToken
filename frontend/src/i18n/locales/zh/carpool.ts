@@ -103,6 +103,7 @@ export default {
       alreadySettled: '结算单已经冻结过了，需要重算请联系管理员撤销结算',
       notSettled: '这辆车还没有结算',
       notSettleable: '发车后才能结算',
+      customRuleClosed: '这辆车按单独约定的规则运行，不再接受新成员，请上新车',
       inviteInvalid: '邀请链接无效或已过期，请向车主索取新链接',
       nameConflict: '已有同名的车在招募或运行中，请换一个名字',
       launchNotReady: '总申报额度不在发车区间内，暂时不能发车',
@@ -116,6 +117,12 @@ export default {
       qrCodeInvalid: '群二维码需为 png / jpeg / webp 且不超过 2MB',
       ownerCannotLeave: '车主不能下车，只能取消整辆车',
       notMember: '你不在这辆车上'
+    },
+    // 自定义规则车：不走额度预约制，按 rule_note 写明的规则人工结算。
+    // 平台升级前建立的老车全部属于此类。
+    customRule: {
+      badge: '自定义规则',
+      noNote: '本车按单独约定的规则运行，不适用额度预约制的申报、保底与自动退补。'
     },
     wechat: {
       adminLabel: '管理员微信',
@@ -238,6 +245,8 @@ export default {
       usageDelta: '用量退/补',
       seatFeeDelta: '席位费退/补',
       loadFailed: '加载结算单失败',
+      manualTitle: '本车按自定义规则人工结算',
+      manualHint: '下方只列出各成员的实际用量，供车主按上述规则分账；平台不代为计算保底与退补。',
       livePreview: '实时预览：下方金额会随用量继续变化，确认结算后才会固定下来。',
       settle: '确认结算',
       settleSuccess: '结算单已冻结，金额不再变化',

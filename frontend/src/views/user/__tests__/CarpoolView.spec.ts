@@ -138,6 +138,8 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     remainingJoinableUsd: 1320,
     plusEquivalents: 10,
     avgPriceCny: 90,
+    pricingModel: 'quota',
+    ruleNote: '',
     ...overrides,
   }
 }
@@ -674,6 +676,76 @@ describe('CarpoolView', () => {
 
     expect(wrapper.find('[data-testid="carpool-settlement-frozen"]').exists()).toBe(true)
     expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.settlement.unsettle'))).toBe(false)
+  })
+
+  // 自定义规则车（含平台升级前建立的老车）：展示规则说明，不渲染额度进度与
+  // 均价——它们的成员申报恒为 0，硬渲染出来就是 "0 / 2400"、"均价 ¥0"。
+  it('renders the rule note instead of a quota bar for custom-rule carpools', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      status: 'active',
+      memberRole: 'member',
+      pricingModel: 'custom',
+      ruleNote: '旧版席位规则：共 5 席，基础费 ¥130/席。',
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const box = wrapper.get('[data-testid="carpool-custom-rule"]')
+    expect(box.text()).toContain('carpool.customRule.badge')
+    expect(box.text()).toContain('基础费 ¥130/席')
+    expect(wrapper.text()).not.toContain('carpool.fields.quotaProgress')
+    expect(wrapper.text()).not.toContain('carpool.fields.avgPrice')
+    expect(wrapper.text()).not.toContain('carpool.fields.remainingJoinable')
+  })
+
+  // 自定义规则车不接新成员：升级前遗留的招募中老车永远达不到发车区间，
+  // 再放人进去就是往开不走的车里交预付。
+  it('never offers joining a custom-rule carpool', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10, status: 'recruiting', memberRole: null, pricingModel: 'custom',
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.actions.join'))).toBe(false)
+  })
+
+  // 人工结算：只列实际用量，不出退补列。
+  it('shows a usage-only settlement for custom-rule carpools', async () => {
+    const car = makeCarpool({ id: 10, status: 'active', memberRole: 'owner', pricingModel: 'custom' })
+    listCarpools.mockResolvedValue([car])
+    settlementMock.mockResolvedValue({
+      carpoolId: 10, status: 'active', weeklyLimitUsd: 2400, seatFeeCny: 400, usagePoolCny: 1000,
+      reserveRatio: 0.8, memberCount: 1, fullView: true,
+      members: [{
+        userId: 12, role: 'member', declaredWeeklyQuotaUsd: 0, floorUsageUsd: 0,
+        actualUsageUsd: 123.4, billableUsageUsd: 0, floorTriggered: false,
+        prepaidAmountCny: 0, quotedPrepaidCny: 0, usagePrepaidCny: 0, usageFinalShareCny: 0,
+        usageDeltaCny: 0, seatFeePrepaidCny: 0, seatFeeFinalCny: 0, seatFeeDeltaCny: 0, totalDeltaCny: 0,
+      }],
+      settled: false, canSettle: false, settleBlockedFor: 'manual_settlement',
+      manualSettlement: true, pricingModel: 'custom', ruleNote: '旧版席位规则：共 5 席。',
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.settlement').trigger('click')
+    await flushPromises()
+
+    const banner = wrapper.get('[data-testid="carpool-settlement-manual"]')
+    expect(banner.text()).toContain('carpool.settlement.manualTitle')
+    expect(banner.text()).toContain('旧版席位规则')
+    // 退补相关的列与提示一律不出现
+    expect(wrapper.text()).not.toContain('carpool.settlement.delta')
+    expect(wrapper.text()).not.toContain('carpool.settlement.prepaid')
+    expect(wrapper.text()).not.toContain('carpool.settlement.deltaNote')
+    // 但用量要在
+    expect(wrapper.text()).toContain('carpool.settlement.actual')
+    // 也不该出现"确认结算"入口
+    expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.settlement.settle'))).toBe(false)
   })
 
   // 连点两辆车的"邀请"：先发的请求后回来时不能覆盖对话框，
