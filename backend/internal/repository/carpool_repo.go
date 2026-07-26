@@ -796,9 +796,10 @@ func (r *carpoolRepository) PersistSettlement(ctx context.Context, carpoolID, ac
 		return service.ErrCarpoolNotSettleable
 	}
 
+	actor := systemActor(actorUserID)
 	res, err := tx.ExecContext(ctx, `
 UPDATE carpools SET settled_at = NOW(), settled_by_user_id = $2, updated_at = NOW()
-WHERE id = $1 AND settled_at IS NULL`, carpoolID, actorUserID)
+WHERE id = $1 AND settled_at IS NULL`, carpoolID, actor)
 	if err != nil {
 		return fmt.Errorf("mark carpool settled: %w", err)
 	}
@@ -817,13 +818,13 @@ UPDATE carpool_members SET settled_at = NOW(), settled_by_user_id = $3,
     settled_billable_usage_usd = $6, settled_usage_share_cny = $7,
     settled_seat_fee_cny = $8, settled_total_delta_cny = $9, updated_at = NOW()
 WHERE carpool_id = $1 AND user_id = $2 AND status IN ('joined', 'active')`,
-			carpoolID, member.UserID, actorUserID,
+			carpoolID, member.UserID, actor,
 			member.FloorUsageUSD, member.ActualUsageUSD, member.BillableUsageUSD,
 			member.UsageFinalShareCNY, member.SeatFeeFinalCNY, member.TotalDeltaCNY); err != nil {
 			return fmt.Errorf("freeze carpool settlement for member %d: %w", member.UserID, err)
 		}
 	}
-	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "settled"); err != nil {
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actor, "settled"); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -870,7 +871,7 @@ UPDATE carpool_members SET settled_at = NULL, settled_by_user_id = NULL,
 WHERE carpool_id = $1`, carpoolID); err != nil {
 		return fmt.Errorf("clear carpool member settlement: %w", err)
 	}
-	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "unsettled"); err != nil {
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, systemActor(actorUserID), "unsettled"); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1051,6 +1052,18 @@ VALUES ($1, $2, $3, $4)`, carpoolID, actorUserID, hash, hint)
 		return fmt.Errorf("create carpool invite: %w", err)
 	}
 	return nil
+}
+
+// systemActor 把"系统自动执行"的 actorUserID(0) 转成 NULL。
+//
+// carpool_events.actor_user_id 和 carpools.settled_by_user_id 都指向 users(id)，
+// 写 0 会直接违反外键、整个事务回滚。期末自动结算就是以 actorUserID=0 调用的，
+// 不转换的话每一轮巡检都会失败。
+func systemActor(actorUserID int64) any {
+	if actorUserID <= 0 {
+		return nil
+	}
+	return actorUserID
 }
 
 func insertCarpoolEvent(ctx context.Context, tx *sql.Tx, carpoolID int64, actorUserID any, action string) error {

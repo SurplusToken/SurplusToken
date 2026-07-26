@@ -76,3 +76,39 @@ func TestCarpoolWeeklyWindowDriftedTolerance(t *testing.T) {
 	require.False(t, CarpoolWeeklyWindowDrifted(time.Time{}, base))
 	require.False(t, CarpoolWeeklyWindowDrifted(base, time.Time{}))
 }
+
+// 上游并不总是报 7 天窗口：生产数据里有账号报 30 天（月度套餐）。
+// 把 30 天当成"一周"会让全车周用量整月不重置，成员撞到保底后卡一个月。
+func TestCarpoolUpstreamWindowRejectsNonWeeklyLength(t *testing.T) {
+	now := time.Now()
+	mk := func(minutes float64) *CarpoolUpstreamWindow {
+		end := now.Add(time.Hour)
+		return &CarpoolUpstreamWindow{
+			Start:      end.Add(-time.Duration(minutes) * time.Minute),
+			End:        end,
+			ObservedAt: now,
+		}
+	}
+
+	require.True(t, mk(10080).Fresh(now), "10080 分钟 = 7 天，正常周窗口")
+	require.False(t, mk(43800).Fresh(now), "43800 分钟 = 30.4 天，月度套餐，不能当一周")
+	require.False(t, mk(43200).Fresh(now), "43200 分钟 = 30 天，同上")
+	require.False(t, mk(60).Fresh(now), "1 小时太短，多半是脏数据")
+
+	// 边界
+	require.True(t, mk(24*60).Fresh(now), "1 天为下界，含")
+	require.True(t, mk(14*24*60).Fresh(now), "14 天为上界，含")
+	require.False(t, mk(24*60-1).Fresh(now))
+	require.False(t, mk(14*24*60+1).Fresh(now))
+}
+
+// 长度不合格时目标窗口退回本地 7 天网格，全车依然一致。
+func TestCarpoolWeeklyWindowTargetFallsBackOnMonthlyWindow(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	prev := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	monthly := upstreamWindow(now.AddDate(0, 0, -30), 30*24*time.Hour, now)
+
+	target, fromUpstream := CarpoolWeeklyWindowTarget(prev, monthly, now)
+	require.False(t, fromUpstream)
+	require.Equal(t, CarpoolWeeklyWindowGridStart(prev, now), target)
+}

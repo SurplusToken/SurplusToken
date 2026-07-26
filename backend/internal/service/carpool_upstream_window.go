@@ -13,6 +13,15 @@ const (
 	// 清空全车用量。
 	CarpoolUpstreamWindowMaxAge = 36 * time.Hour
 
+	// CarpoolUpstreamWindowMinLength / MaxLength 界定"这看起来像一个周窗口"。
+	//
+	// 上游的 codex_7d_* 并不总是 7 天：生产数据里就有账号报 43800 分钟
+	// （30.4 天）和 43200 分钟（30 天）——那是月度套餐，不是周套餐。把 30 天
+	// 当成一周会让 weekly_window_start 退到一个月前，全车的周用量整月不重置，
+	// 成员撞到保底后会被卡一个月。超出这个区间就不采信，退回本地 7 天网格。
+	CarpoolUpstreamWindowMinLength = 24 * time.Hour
+	CarpoolUpstreamWindowMaxLength = 14 * 24 * time.Hour
+
 	// CarpoolUpstreamWindowTolerance 是判定"窗口起点变了"的容差。
 	//
 	// 上游给的是 reset-after-seconds（整秒），我们用本地时钟加出绝对时刻，
@@ -41,6 +50,12 @@ func (w *CarpoolUpstreamWindow) Fresh(now time.Time) bool {
 		return false
 	}
 	if !w.End.After(w.Start) {
+		return false
+	}
+	// 长度得像个周窗口。月度套餐的账号会报 30 天，拿它当"一周"会让全车
+	// 的周用量整月不重置（见常量注释）。
+	length := w.End.Sub(w.Start)
+	if length < CarpoolUpstreamWindowMinLength || length > CarpoolUpstreamWindowMaxLength {
 		return false
 	}
 	return now.Sub(w.ObservedAt) <= CarpoolUpstreamWindowMaxAge
