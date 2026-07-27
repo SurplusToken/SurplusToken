@@ -760,6 +760,44 @@ func (s *CarpoolService) GetGroupQRCode(ctx context.Context, carpoolID, actorUse
 	return s.repo.GetGroupQRCode(ctx, carpoolID)
 }
 
+// CarpoolRosterMember 是上车弹窗里的"车上还有谁、各自申报多少"。
+// 刻意不带邮箱：邮箱只在结算单里对车主/admin 开放（见 CarpoolSettlementMemberRow），
+// 上车前的透明度不需要到能直接联系到本人的程度。
+type CarpoolRosterMember struct {
+	UserID                 int64   `json:"user_id"`
+	Username               string  `json:"username"`
+	Role                   string  `json:"role"`
+	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
+}
+
+// GetRoster 返回车上现有成员及各自申报额度，供上车前参考。
+// 可见性直接复用群二维码那道闸：能扫码进这个微信群的人就能看到同车成员——
+// 两者是同一个信任边界（成员/车主/admin，或公开且招募中的车，或持有指向本车的邀请），
+// 再单开一套规则只会多一个可能对不上的口子。
+func (s *CarpoolService) GetRoster(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteToken string) ([]CarpoolRosterMember, error) {
+	item, err := s.repo.GetByID(ctx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if !s.canViewGroupQRCode(ctx, item, actorUserID, isAdmin, inviteToken) {
+		return nil, ErrCarpoolForbidden
+	}
+	rows, err := s.repo.ListSettlementMembers(ctx, carpoolID)
+	if err != nil {
+		return nil, err
+	}
+	roster := make([]CarpoolRosterMember, 0, len(rows))
+	for _, row := range rows {
+		roster = append(roster, CarpoolRosterMember{
+			UserID:                 row.UserID,
+			Username:               row.Username,
+			Role:                   row.Role,
+			DeclaredWeeklyQuotaUSD: row.DeclaredWeeklyQuotaUSD,
+		})
+	}
+	return roster, nil
+}
+
 func (s *CarpoolService) canViewGroupQRCode(ctx context.Context, item *Carpool, actorUserID int64, isAdmin bool, inviteToken string) bool {
 	if item == nil {
 		return false

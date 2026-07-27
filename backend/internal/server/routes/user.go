@@ -259,6 +259,7 @@ func RegisterUserRoutes(
 			carpools.POST("/:id/confirm", h.Carpool.Confirm)
 			carpools.POST("/:id/unconfirm", h.Carpool.Unconfirm)
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
+			carpools.GET("/:id/roster", h.Carpool.Roster)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)

@@ -275,6 +275,26 @@ func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
 	c.Data(http.StatusOK, contentType, data)
 }
 
+// Roster 返回车上现有成员与各自申报额度，供上车弹窗展示：
+// 让人在填申报额度之前就知道席位费要跟几个人分、别人分别报了多少。
+func (h *CarpoolHandler) Roster(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	members, err := h.service.GetRoster(c.Request.Context(), id,
+		subject.UserID, isCarpoolAdmin(c), c.Query("token"))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, members)
+}
+
 // Unconfirm 撤回确认（confirmed → recruiting）：车主或 admin。
 // 给"等 admin 启动"这段状态一个出口，避免车连人带钱无限挂起。
 func (h *CarpoolHandler) Unconfirm(c *gin.Context) {

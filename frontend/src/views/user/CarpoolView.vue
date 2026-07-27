@@ -224,14 +224,21 @@
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
                 </div>
                 <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.plusEquivalents') }}</dt>
-                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDecimal(carpool.plusEquivalents) }}</dd>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.effectiveRate') }}</dt>
+                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
+                    {{ formatRate(carEffectiveRate(carpool)) }}
+                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.fields.effectiveRateHint', { usd: formatDecimal(carUsdPerCny(carpool)) }) }}
+                    </span>
+                  </dd>
                 </div>
                 <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPrice') }}</dt>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
-                    {{ formatCny(carpool.avgPriceCny) }}
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">{{ t('carpool.fields.avgPriceUnit') }}</span>
+                    {{ formatCny(carpool.seatFeeCny + carpool.usagePoolCny) }}
+                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.fields.carMonthlyFeeUnit', { seat: formatCny(carpool.seatFeeCny), pool: formatCny(carpool.usagePoolCny) }) }}
+                    </span>
                   </dd>
                 </div>
               </template>
@@ -549,7 +556,16 @@
         <div class="flex items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
           <div>
             <div class="font-semibold text-gray-900 dark:text-white">{{ joinTarget.name }}</div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.fields.members', { count: joinTarget.memberCount }) }}</div>
+            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+              {{ t('carpool.fields.members', { count: joinTarget.memberCount }) }}
+              <span class="text-gray-400 dark:text-dark-400">
+                · {{ t('carpool.joinDialog.seatShareHint', {
+                  total: formatCny(joinTarget.seatFeeCny),
+                  people: joinHeadcount,
+                  each: formatCny(joinSeatShare),
+                }) }}
+              </span>
+            </div>
           </div>
           <span :class="['badge', statusBadgeClass(joinTarget)]">{{ statusLabel(joinTarget) }}</span>
         </div>
@@ -560,6 +576,43 @@
           <p v-if="recommendationLoading" class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
           <p v-else-if="recommendation" class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ recommendation.message }}</p>
           <p v-else-if="recommendationFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.recommendationFailed') }}</p>
+        </div>
+
+        <!-- 车上还有谁、各自报了多少：申报额度是在跟这些人分同一个池子，
+             看不到别人的申报就只能凭空猜自己该报多少。 -->
+        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.joinDialog.rosterTitle') }}</span>
+            <span v-if="!joinRosterLoading && !joinRosterFailed" class="shrink-0 text-gray-400 dark:text-dark-400">
+              {{ t('carpool.joinDialog.rosterSummary', { count: joinRoster.length, total: formatUsd(joinRosterTotal) }) }}
+            </span>
+          </div>
+          <p v-if="joinRosterLoading" class="mt-2 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.rosterLoading') }}</p>
+          <p v-else-if="joinRosterFailed" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.rosterFailed') }}</p>
+          <p v-else-if="joinRoster.length === 0" class="mt-2 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.rosterEmpty') }}</p>
+          <ul v-else class="mt-2 space-y-1" data-testid="carpool-join-roster">
+            <li v-for="member in joinRoster" :key="member.userId" class="flex items-center justify-between gap-2 text-xs">
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate text-gray-700 dark:text-dark-200">
+                  {{ member.username || t('carpool.joinDialog.rosterAnonymous', { id: member.userId }) }}
+                </span>
+                <span
+                  v-if="member.role === 'owner'"
+                  class="shrink-0 rounded bg-gray-100 px-1 text-[10px] text-gray-500 dark:bg-dark-700 dark:text-dark-300"
+                >
+                  {{ t('carpool.joinDialog.rosterOwner') }}
+                </span>
+              </span>
+              <span class="shrink-0 font-medium text-gray-600 dark:text-dark-200">{{ formatUsd(member.declaredWeeklyQuotaUsd) }}</span>
+            </li>
+            <li
+              v-if="joinForm.declaredQuota && joinForm.declaredQuota > 0"
+              class="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 pt-1 text-xs dark:border-dark-600"
+            >
+              <span class="text-primary-600 dark:text-primary-400">{{ t('carpool.joinDialog.rosterYou') }}</span>
+              <span class="font-medium text-primary-600 dark:text-primary-400">{{ formatUsd(joinForm.declaredQuota) }}</span>
+            </li>
+          </ul>
         </div>
 
         <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
@@ -610,27 +663,32 @@
           <div>
             <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
             <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinPrepaid) }}</div>
-          </div>
-          <!-- 显示"你的"折算单价而非全车均价：申报越小的人单价越高，
-               拿均价当报价对轻度用户是系统性低估。 -->
-          <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewYourPrice') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
-              {{ joinUnitPrice > 0 ? formatCny(joinUnitPrice) : '—' }}
-            </div>
+            <!-- 席位费和用量池的分摊口径不同（人头 vs 申报占比），
+                 合成一个数字看不出多来一个人能省多少。 -->
             <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
-              {{ t('carpool.joinDialog.yourPriceUnit') }}
+              {{ t('carpool.joinDialog.prepaidBreakdown', { seat: formatCny(joinSeatShare), pool: formatCny(joinPoolShare) }) }}
+            </div>
+          </div>
+          <!-- 显示"你的"倍率而非全车平均：申报越小的人越贵，
+               拿平均当报价对轻度用户是系统性低估。 -->
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewEffectiveRate') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatRate(joinEffectiveRate) }}</div>
+            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
+              {{ joinUsdPerCny > 0
+                ? t('carpool.joinDialog.effectiveRateUnit', { usd: formatDecimal(joinUsdPerCny) })
+                : t('carpool.joinDialog.effectiveRateBasis') }}
             </div>
           </div>
         </div>
         <p
-          v-if="joinUnitPriceRatio > 1.2"
+          v-if="joinRateRatio > 1.2"
           class="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
         >
-          {{ t('carpool.joinDialog.priceAboveAverage', {
-            yours: formatCny(joinUnitPrice),
-            average: formatCny(joinTarget.avgPriceCny),
-            times: formatDecimal(joinUnitPriceRatio),
+          {{ t('carpool.joinDialog.rateAboveAverage', {
+            yours: formatRate(joinEffectiveRate),
+            average: formatRate(carEffectiveRate(joinTarget)),
+            times: formatDecimal(joinRateRatio),
           }) }}
         </p>
 
@@ -897,6 +955,7 @@ import carpoolAPI, {
   type CarpoolVisibility,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
+  type CarpoolRosterMember,
   type PendingLaunchCarpool,
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
@@ -908,8 +967,11 @@ const FORCE_LAUNCH_MIN_RATIO = 0.8
 
 // 与后端 CarpoolMinDeclaredWeeklyQuotaUSD 对齐：申报下限（美元/周）。
 const MIN_DECLARED_USD = 20
-// 与后端 CarpoolPlusAccountsPerCar 对齐：整车周限额等于多少个 Plus。
-const PLUS_ACCOUNTS_PER_CAR = 20
+// 一个计费周期按 31 天算：申报是"每周"额度，周期内可用额度 = 申报 × 31 / 7。
+// "相当于几个 Plus"要求用户先知道一个 Plus 值多少额度；等效倍率不用——
+// 付多少钱换多少官方额度，直接相除即可（付 ¥1 拿到 $8 就是 0.125，不折汇率）。
+const BILLING_PERIOD_DAYS = 31
+const DAYS_PER_WEEK = 7
 
 // 与后端 CarpoolAdminWechatID 对齐：创建/上车前必须添加的管理员微信号。
 const ADMIN_WECHAT = 'Charlemartingale'
@@ -980,12 +1042,18 @@ const qrCodeUrls = ref<Record<number, string>>({})
 const recommendation = ref<DeclarationRecommendation | null>(null)
 const recommendationLoading = ref(false)
 const recommendationFailed = ref(false)
+const joinRoster = ref<CarpoolRosterMember[]>([])
+const joinRosterLoading = ref(false)
+const joinRosterFailed = ref(false)
+const joinRosterTotal = computed(() => joinRoster.value.reduce((sum, item) => sum + item.declaredWeeklyQuotaUsd, 0))
 const confirmAction = ref<ConfirmAction | null>(null)
 const carpools = ref<Carpool[]>([])
 const pendingLaunches = ref<PendingLaunchCarpool[]>([])
 const overduePendingCount = computed(() => pendingLaunches.value.filter((item) => item.overdue).length)
 // 申报推荐是异步回填金额输入框的，用序号丢弃过期响应（见 openJoin）。
 let recommendationSeq = 0
+// 花名册同样要丢弃过期响应：连点两辆车会把 A 车的成员显示在 B 车的弹窗里。
+let rosterSeq = 0
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -1095,11 +1163,21 @@ const joinFloorQuota = computed(() => {
   if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
   return joinTarget.value.reserveRatio * joinForm.declaredQuota
 })
+// 预付拆成两块：席位费按人头均摊（跟车上现有几个人直接相关），
+// 用量池按申报占比分摊。合成一个数字就看不出"多少钱是席位费"。
+const joinHeadcount = computed(() => (joinTarget.value ? joinTarget.value.memberCount + 1 : 1))
+const joinSeatShare = computed(() => (
+  joinTarget.value ? joinTarget.value.seatFeeCny / Math.max(1, joinHeadcount.value) : 0
+))
+const joinPoolShare = computed(() => {
+  const car = joinTarget.value
+  const declared = joinForm.declaredQuota
+  if (!car || !declared || declared <= 0 || car.weeklyLimitUsd <= 0) return 0
+  return car.usagePoolCny * declared / car.weeklyLimitUsd
+})
 const joinPrepaid = computed(() => {
   if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
-  const car = joinTarget.value
-  const seatShare = car.seatFeeCny / Math.max(1, car.memberCount + 1)
-  return seatShare + (car.weeklyLimitUsd > 0 ? car.usagePoolCny * joinForm.declaredQuota / car.weeklyLimitUsd : 0)
+  return joinSeatShare.value + joinPoolShare.value
 })
 const joinExceedsRemaining = computed(() => (
   !!joinTarget.value && !!joinForm.declaredQuota && joinForm.declaredQuota > joinTarget.value.remainingJoinableUsd + 1e-9
@@ -1107,22 +1185,37 @@ const joinExceedsRemaining = computed(() => (
 const joinBelowFloor = computed(() => (
   joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinForm.declaredQuota < MIN_DECLARED_USD
 ))
-// 你的折算单价：这一位成员自己付的钱 ÷ 他自己折算的 Plus 数。
-// 全车"均价"对轻度用户是误导——席位费按人头均摊、变动池按申报分摊，
-// 申报越小的人单价越高（设计文档自己举过"实际单价可能是均价两倍"的例子）。
-const joinUnitPrice = computed(() => {
-  const car = joinTarget.value
+// 等效倍率：这一位成员付的钱相当于官方价的几倍。
+// 分母是一个计费周期（31 天）内他能用的额度 = 申报 × 31 / 7。
+// 用"你的"而不是全车平均——席位费按人头均摊、用量池按申报分摊，
+// 申报越小的人越贵（设计文档举过"实际单价可能是均价两倍"的例子）。
+const joinPeriodQuotaUsd = computed(() => {
   const declared = joinForm.declaredQuota
-  if (!car || !declared || declared <= 0 || car.weeklyLimitUsd <= 0) return 0
-  const plusEquivalent = declared / (car.weeklyLimitUsd / PLUS_ACCOUNTS_PER_CAR)
-  if (plusEquivalent <= 0) return 0
-  return joinPrepaid.value / plusEquivalent
+  if (!declared || declared <= 0) return 0
+  return declared * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
 })
-// 与全车均价的偏离倍数，> 1 说明这位用户比平均更贵。
-const joinUnitPriceRatio = computed(() => {
-  const avg = joinTarget.value?.avgPriceCny || 0
-  if (avg <= 0 || joinUnitPrice.value <= 0) return 0
-  return joinUnitPrice.value / avg
+// 等效倍率 = 付出的人民币 ÷ 拿到的官方额度（美元）。
+const joinEffectiveRate = computed(() => (
+  joinPeriodQuotaUsd.value > 0 ? joinPrepaid.value / joinPeriodQuotaUsd.value : 0
+))
+// 倒数：¥1 换到多少官方额度。小数倍率不好念，这个更直观。
+const joinUsdPerCny = computed(() => (joinEffectiveRate.value > 0 ? 1 / joinEffectiveRate.value : 0))
+// 整车口径的同一个指标，用于卡片展示和"你比平均贵多少"的对比。
+function carEffectiveRate(carpool: Carpool): number {
+  const periodQuota = carpool.weeklyLimitUsd * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
+  if (periodQuota <= 0) return 0
+  return (carpool.seatFeeCny + carpool.usagePoolCny) / periodQuota
+}
+function carUsdPerCny(carpool: Carpool): number {
+  const rate = carEffectiveRate(carpool)
+  return rate > 0 ? 1 / rate : 0
+}
+// 与全车平均倍率的偏离，> 1 说明这位用户比平均更贵。
+const joinRateRatio = computed(() => {
+  const car = joinTarget.value
+  if (!car || joinEffectiveRate.value <= 0) return 0
+  const avg = carEffectiveRate(car)
+  return avg > 0 ? joinEffectiveRate.value / avg : 0
 })
 const joinFormValid = computed(() => (
   !!joinForm.declaredQuota && joinForm.declaredQuota > 0
@@ -1347,6 +1440,12 @@ function formatDecimal(value: number): string {
   return new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 1 }).format(value)
 }
 
+// 倍率是 0.0x 量级，formatDecimal 的 1 位小数会把它全部压成 "0"。
+function formatRate(value: number): string {
+  if (!(value > 0)) return '—'
+  return `${new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 3 }).format(value)}×`
+}
+
 function formatDate(value: string): string {
   if (!value) return '-'
   return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
@@ -1517,6 +1616,24 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
         // 二维码加载失败不阻塞上车流程
       })
   }
+  joinRoster.value = []
+  joinRosterFailed.value = false
+  joinRosterLoading.value = true
+  const rosterRequest = ++rosterSeq
+  carpoolAPI.roster(carpool.id, inviteToken || undefined)
+    .then((members) => {
+      if (rosterRequest !== rosterSeq) return
+      joinRoster.value = members
+    })
+    .catch(() => {
+      // 花名册只是参考信息，加载失败不该挡住上车。
+      if (rosterRequest !== rosterSeq) return
+      joinRosterFailed.value = true
+    })
+    .finally(() => {
+      if (rosterRequest !== rosterSeq) return
+      joinRosterLoading.value = false
+    })
   recommendation.value = null
   recommendationFailed.value = false
   recommendationLoading.value = true

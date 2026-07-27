@@ -375,6 +375,33 @@ export async function groupQrCode(id: number, inviteToken?: string): Promise<Blo
   return data
 }
 
+// 车上现有成员与各自申报额度。私密车同样要带邀请 token（后端与二维码共用一道闸）。
+export interface CarpoolRosterMember {
+  userId: number
+  username: string
+  role: CarpoolRole
+  declaredWeeklyQuotaUsd: number
+}
+
+interface CarpoolRosterMemberResponse {
+  user_id: number
+  username: string
+  role: CarpoolRole
+  declared_weekly_quota_usd: number
+}
+
+export async function roster(id: number, inviteToken?: string): Promise<CarpoolRosterMember[]> {
+  const { data } = await apiClient.get<CarpoolRosterMemberResponse[]>(`/carpools/${id}/roster`, {
+    params: inviteToken ? { token: inviteToken } : undefined,
+  })
+  return (data || []).map((item) => ({
+    userId: item.user_id,
+    username: item.username || '',
+    role: item.role,
+    declaredWeeklyQuotaUsd: item.declared_weekly_quota_usd || 0,
+  }))
+}
+
 // 撤回确认（confirmed → recruiting）：车主或 admin，给"等管理员启动"这段状态一个出口。
 export async function unconfirm(id: number): Promise<Carpool> {
   const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/unconfirm`)
@@ -482,6 +509,7 @@ export default {
   unconfirm,
   pendingLaunch,
   groupQrCode,
+  roster,
   launch,
   declarationRecommendation,
   notifyCustomRuleInterest,
