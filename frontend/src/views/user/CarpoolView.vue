@@ -1073,7 +1073,13 @@ const filteredCarpools = computed(() => {
   const showCancelled = statusFilter.value === 'cancelled'
   return carpools.value
     .filter((item) => showCancelled || item.status !== 'cancelled')
-    .filter((item) => activeTab.value === 'plaza' ? item.visibility === 'public' : item.memberRole !== null)
+    // 「我的拼车」= 我还在车上，或者我是车主。后者不能省：发车时申报为 0 的
+    // 车主会被置成 'left'（launchCarpool 跳过零申报成员），而 member_role 现在
+    // 排除了 'left'，只按 memberRole 过滤会让车主看不见自己发起的车、也就没法
+    // 取消它。
+    .filter((item) => activeTab.value === 'plaza'
+      ? item.visibility === 'public'
+      : item.memberRole !== null || item.ownerUserId === authStore.user?.id)
     .filter((item) => !statusFilter.value || item.status === statusFilter.value)
     .filter((item) => !query || item.name.toLowerCase().includes(query) || item.organizer.toLowerCase().includes(query))
 })

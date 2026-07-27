@@ -726,6 +726,39 @@ describe('CarpoolView', () => {
     expect(wrapper.text()).not.toContain('cancelled-car')
   })
 
+  // 下车之后必须能重新上车。此前 member_role 子查询不排除 status='left'，
+  // 前端一直以为用户还在车上：「已上车」不消失、「上车」按钮不出现、
+  // 车也退不出「我的拼车」——而后端其实一直允许重新上车。
+  it('offers joining again after the member has left', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'left-car', status: 'recruiting', memberRole: null }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.actions.join'))).toBe(true)
+    expect(wrapper.text()).not.toContain('carpool.actions.joined')
+  })
+
+  // 车主即使没有成员行也要能在「我的拼车」里看到自己的车：发车时申报为 0 的
+  // 车主会被置成 'left'，memberRole 因此为 null，只按 memberRole 过滤会让他
+  // 看不见自己发起的车、也就没法取消它。
+  it('keeps an owned carpool in my-carpools even without a member row', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'owned-car', status: 'recruiting', memberRole: null, ownerUserId: 1 }),
+      makeCarpool({ id: 11, name: 'stranger-car', status: 'recruiting', memberRole: null, ownerUserId: 999 }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.mine').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('owned-car')
+    expect(wrapper.text()).not.toContain('stranger-car')
+  })
+
   // 自定义规则车（含平台升级前建立的老车）：展示规则说明，不渲染额度进度与
   // 均价——它们的成员申报恒为 0，硬渲染出来就是 "0 / 2400"、"均价 ¥0"。
   it('renders the rule note instead of a quota bar for custom-rule carpools', async () => {

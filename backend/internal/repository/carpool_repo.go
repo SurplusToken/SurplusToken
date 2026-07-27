@@ -1092,8 +1092,14 @@ SELECT
     c.base_fee_cny, c.usage_pool_cny_per_account, c.visibility, c.status,
     (c.join_locked_at IS NOT NULL OR c.status = 'confirmed'), c.scheduled_start_at, c.launched_at,
     c.group_id, g.name,
+    -- 只认还在车上的成员身份。下车后 status='left'，若不排除，前端会一直以为
+    -- 用户还在车上：「已上车」不消失、「上车」按钮不出现、车也退不出「我的拼车」，
+    -- 而后端其实允许重新上车（Join 只拒绝 joined/active）。
+    -- 取消整车会把成员置成 'cancelled'，那个要保留，否则已取消的车会从成员的
+    -- 历史里彻底消失。
     (SELECT current_member.role FROM carpool_members current_member
      WHERE current_member.carpool_id = c.id AND current_member.user_id = $1
+       AND current_member.status <> 'left'
      LIMIT 1),
     c.created_at,
     c.weekly_limit_usd, c.seat_fee_cny, c.usage_pool_cny, c.reserve_ratio,
