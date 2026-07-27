@@ -79,7 +79,7 @@ func writeMemberSection(b *strings.Builder, m CarpoolSettlementMember) {
 		fmt.Fprintf(b, `<tr style="background:#fafafa"><td><b>月度合计</b></td><td align="right">—</td>`+
 			`<td align="right"><b>%.2f</b></td><td align="right"><b>%.2f</b></td></tr>`,
 			m.ActualUsageUSD, m.BillableUsageUSD)
-		b.WriteString(`</table>`)
+		_, _ = b.WriteString(`</table>`)
 	} else {
 		// 没有分周期台账（发车早于台账功能）：口径不同，必须说明白，
 		// 否则收款方会以为这是按周算出来的。
