@@ -245,14 +245,14 @@ type getUserResponse struct {
 	} `json:"user"`
 }
 
-// kasmUsername derives the per-SurplusAI-user Kasm username, namespaced by
-// environment when seedNamespace is set (surplus-<ns>-u<id> vs surplus-u<id>) so
-// prod and staging don't share Kasm users (and thus sessions).
-func (c *KasmClient) kasmUsername(surplusUserID int64) string {
+// kasmUsername derives the per-SurplusAI-user/per-account Kasm username,
+// namespaced by environment when seedNamespace is set. Including the account
+// ID isolates browser profiles and login state between account-pool accounts.
+func (c *KasmClient) kasmUsername(surplusUserID, accountID int64) string {
 	if c.seedNamespace != "" {
-		return fmt.Sprintf("surplus-%s-u%d@kasm.local", c.seedNamespace, surplusUserID)
+		return fmt.Sprintf("surplus-%s-u%d-a%d@kasm.local", c.seedNamespace, surplusUserID, accountID)
 	}
-	return fmt.Sprintf("surplus-u%d@kasm.local", surplusUserID)
+	return fmt.Sprintf("surplus-u%d-a%d@kasm.local", surplusUserID, accountID)
 }
 
 // usernamePrefix is the common prefix of every Kasm username this deployment owns
@@ -287,14 +287,14 @@ func (c *KasmClient) SeedAccountValue(accountID int64) string {
 	return fmt.Sprintf("%d", accountID)
 }
 
-// EnsureKasmUser returns the Kasm user_id for the given SurplusAI user, creating
-// the Kasm user (surplus-u<id>@kasm.local) on first use. Each SurplusAI user maps
-// to exactly one Kasm user so each person only sees their own session.
-func (c *KasmClient) EnsureKasmUser(ctx context.Context, surplusUserID int64) (string, error) {
+// EnsureKasmUser returns the Kasm user_id for the given SurplusAI user and
+// account, creating the account-scoped Kasm user on first use. Each pair maps
+// to exactly one Kasm user so browser login state cannot leak between accounts.
+func (c *KasmClient) EnsureKasmUser(ctx context.Context, surplusUserID, accountID int64) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("kasm client not configured")
 	}
-	username := c.kasmUsername(surplusUserID)
+	username := c.kasmUsername(surplusUserID, accountID)
 
 	// Try to look the user up first (get_user errors with "Invalid Request" when missing).
 	var existing getUserResponse

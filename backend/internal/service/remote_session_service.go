@@ -206,7 +206,7 @@ func (s *RemoteSessionService) Setup(ctx context.Context, surplusUserID, account
 	// would refuse to start / corrupt the profile).
 	s.destroyUserSessions(ctx, account.ID, surplusUserID)
 
-	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID)
+	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID, account.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func (s *RemoteSessionService) allocate(ctx context.Context, surplusUserID, acco
 		return &RemoteSessionResult{Status: RemoteSessionStatusQueued, Position: over + 1}, nil
 	}
 
-	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID)
+	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +396,7 @@ func (s *RemoteSessionService) Disconnect(ctx context.Context, surplusUserID, ac
 	if kasmID == "" {
 		return infraerrors.BadRequest("REMOTE_SESSION_KASM_ID_REQUIRED", "kasm_id is required")
 	}
-	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID)
+	kasmUserID, err := s.kasm.EnsureKasmUser(ctx, surplusUserID, accountID)
 	if err != nil {
 		return err
 	}
