@@ -67,6 +67,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		accountExpirySvc,
 		proxyExpirySvc,
 		subscriptionExpirySvc,
+		service.NewCarpoolSettlementScheduler(nil, time.Second),
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
 		&service.BatchImageCleanupService{},

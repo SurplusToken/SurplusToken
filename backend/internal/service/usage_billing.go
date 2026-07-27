@@ -157,6 +157,11 @@ type UsageBillingApplyResult struct {
 	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
 	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
 	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
+	// CarpoolCommonsDelta 是本次订阅计费越过保底、应计入组级公共池计数器的增量
+	// （nil = 非拼车订阅或未越界）。由计费同事务内的 UPDATE...RETURNING 精确算得，
+	// 调用方在提交成功后 best-effort 累加到 Redis 计数器（post-commit，见
+	// BillingCacheService.AddCarpoolCommonsUsage）。
+	CarpoolCommonsDelta *CarpoolCommonsUsageDelta
 }
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.

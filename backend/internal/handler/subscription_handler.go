@@ -154,8 +154,9 @@ func (h *SubscriptionHandler) GetSummary(c *gin.Context) {
 			if sub.Group.DailyLimitUSD != nil {
 				item.DailyLimitUSD = *sub.Group.DailyLimitUSD
 			}
-			if sub.Group.WeeklyLimitUSD != nil {
-				item.WeeklyLimitUSD = *sub.Group.WeeklyLimitUSD
+			// 优先订阅级周限额（拼车保底+公共池），为空回退组级
+			if limit := sub.EffectiveWeeklyLimit(sub.Group); limit != nil {
+				item.WeeklyLimitUSD = *limit
 			}
 			if sub.Group.MonthlyLimitUSD != nil {
 				item.MonthlyLimitUSD = *sub.Group.MonthlyLimitUSD

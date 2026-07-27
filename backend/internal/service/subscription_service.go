@@ -55,6 +55,86 @@ type SubscriptionService struct {
 	subCacheJitter int // 抖动百分比
 
 	maintenanceQueue *SubscriptionMaintenanceQueue
+
+	// upstreamWindows 提供拼车组绑定账号的上游周窗口（可选注入）。
+	// 未注入时拼车周窗口退回本地 7 天网格，行为与注入前一致。
+	upstreamWindows CarpoolUpstreamWindowSource
+
+	// cycleRecorder 落库已关闭的拼车计费周期（可选注入）。
+	// 未注入时不记台账，结算退回按月整体算地板。
+	cycleRecorder CarpoolBillingCycleRecorder
+}
+
+// SetCarpoolBillingCycleRecorder 注入计费周期台账（wire 组装时调用）。
+func (s *SubscriptionService) SetCarpoolBillingCycleRecorder(rec CarpoolBillingCycleRecorder) {
+	if s == nil {
+		return
+	}
+	s.cycleRecorder = rec
+}
+
+// recordClosedCarpoolCycle 在周窗口推进前，把即将被清零的那一周落成台账。
+//
+// 这是唯一能拿到"这一周实际用了多少"的时刻——weekly_usage_usd 下一行就被置零。
+// 不落库，月末就算不出 Σ max(周实际, 周保底)，只能退回按月整体算地板，而那会让
+// 超用的周补贴没用满的周（见 migration 193 的说明）。
+//
+// 失败只记日志不阻断：窗口推进关系到用户能不能继续用，不能因为台账写失败就卡住。
+// 漏记的周期在结算时会被识别（周期数对不上覆盖天数），单据上会标出来。
+func (s *SubscriptionService) recordClosedCarpoolCycle(ctx context.Context, sub *UserSubscription, cycleEnd time.Time) {
+	if s == nil || s.cycleRecorder == nil || sub == nil {
+		return
+	}
+	if !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
+		return // 非拼车订阅不记台账
+	}
+	// 只传订阅 ID：用量等数值由仓储层直接读订阅行，绝不用这里的内存快照——
+	// ValidateAndCheckLimits 已经把 sub.WeeklyUsageUSD 在内存里清零了。
+	if err := s.cycleRecorder.RecordCycle(ctx, sub.ID, cycleEnd); err != nil {
+		log.Printf("[subscription] ALERT: record carpool billing cycle failed sub=%d start=%s: %v",
+			sub.ID, sub.WeeklyWindowStart.Format(time.RFC3339), err)
+	}
+}
+
+// SetCarpoolUpstreamWindowSource 注入上游周窗口查询器（wire 组装时调用）。
+func (s *SubscriptionService) SetCarpoolUpstreamWindowSource(src CarpoolUpstreamWindowSource) {
+	if s == nil {
+		return
+	}
+	s.upstreamWindows = src
+}
+
+// carpoolWeeklyWindowTarget 返回拼车订阅此刻应处的周窗口起点，以及是否采信了上游。
+// 上游不可用/陈旧/查询失败时退回本地 7 天网格（降级后全车依然一致）。
+func (s *SubscriptionService) carpoolWeeklyWindowTarget(ctx context.Context, sub *UserSubscription) (time.Time, bool) {
+	if sub == nil || sub.WeeklyWindowStart == nil {
+		return time.Time{}, false
+	}
+	var upstream *CarpoolUpstreamWindow
+	if s.upstreamWindows != nil {
+		w, err := s.upstreamWindows.GroupUpstreamWeeklyWindow(ctx, sub.GroupID)
+		if err != nil {
+			log.Printf("[subscription] ALERT: read upstream carpool window failed group=%d: %v (falling back to local grid)", sub.GroupID, err)
+		} else {
+			upstream = w
+		}
+	}
+	return CarpoolWeeklyWindowTarget(*sub.WeeklyWindowStart, upstream, time.Now())
+}
+
+// carpoolWeeklyWindowDrifted 报告拼车订阅的周窗口是否已经偏离目标窗口。
+//
+// 这是"上游在我们的 7 天到点之前/之后重置了"的检测点：只看时间差是发现不了的，
+// 必须拿上游那条外部事实来比。
+func (s *SubscriptionService) carpoolWeeklyWindowDrifted(ctx context.Context, sub *UserSubscription) bool {
+	if sub == nil || !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
+		return false
+	}
+	target, fromUpstream := s.carpoolWeeklyWindowTarget(ctx, sub)
+	if !fromUpstream {
+		return false
+	}
+	return CarpoolWeeklyWindowDrifted(*sub.WeeklyWindowStart, target)
 }
 
 // NewSubscriptionService 创建订阅服务
@@ -393,6 +473,43 @@ func appendSubscriptionNotes(existingNotes, newNotes string) string {
 }
 
 // createSubscription 创建新订阅（内部方法）
+// subscriptionHistoryLookup 是可选能力：查出该 (user, group) 最近一条订阅（含已撤销的）。
+// 做成可选接口而不是塞进 UserSubscriptionRepository，是因为后者被大量测试桩实现，
+// 而这里只需要生产仓储具备该能力；不具备时继承逻辑安全地退化为不做任何事。
+type subscriptionHistoryLookup interface {
+	GetLatestIncludingDeletedByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error)
+}
+
+// inheritQuotaOverrides 从同一 (user, group) 最近一条订阅（含已撤销的）继承订阅级
+// 限额覆盖字段。
+//
+// 撤销订阅是软删除，而 ExistsByUserIDAndGroupID 看不到软删行，所以"撤销 + 重新分配"
+// 会走 Create 新建一行。对拼车成员来说，这一行没有 weekly_reserved_usd 就意味着：
+// 保底额度消失、用量不再计入组级公共池计数器，而个人上限回落到分组级的整车周限额
+// ——一个人可以独占全车额度，且对公共池完全隐形。继承是就地可做、不跨层的修法。
+// 查询失败或没有历史行时保持原样（新订阅按分组级限额），不阻塞分配。
+func (s *SubscriptionService) inheritQuotaOverrides(ctx context.Context, sub *UserSubscription) {
+	if sub == nil || s.userSubRepo == nil {
+		return
+	}
+	lookup, ok := s.userSubRepo.(subscriptionHistoryLookup)
+	if !ok {
+		return
+	}
+	previous, err := lookup.GetLatestIncludingDeletedByUserIDAndGroupID(ctx, sub.UserID, sub.GroupID)
+	if err != nil || previous == nil {
+		return
+	}
+	if sub.WeeklyLimitUSD == nil && previous.WeeklyLimitUSD != nil {
+		limit := *previous.WeeklyLimitUSD
+		sub.WeeklyLimitUSD = &limit
+	}
+	if sub.WeeklyReservedUSD == nil && previous.WeeklyReservedUSD != nil {
+		reserved := *previous.WeeklyReservedUSD
+		sub.WeeklyReservedUSD = &reserved
+	}
+}
+
 func (s *SubscriptionService) createSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, error) {
 	validityDays := input.ValidityDays
 	if validityDays <= 0 {
@@ -423,6 +540,7 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 	if input.AssignedBy > 0 {
 		sub.AssignedBy = &input.AssignedBy
 	}
+	s.inheritQuotaOverrides(ctx, sub)
 
 	if err := s.userSubRepo.Create(ctx, sub); err != nil {
 		return nil, err
@@ -893,8 +1011,34 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 		needsInvalidateCache = true
 	}
 
-	// 周窗口重置（7天）
-	if sub.NeedsWeeklyReset() {
+	// 周窗口重置。
+	//
+	// 拼车订阅的"一周"应当等于上游 OpenAI 的一周：上游按自己的节奏重置，
+	// 与我们发车那天锚定的 7 天网格未必对得上。所以这里不再只看"过了 7 天"，
+	// 而是算出目标窗口起点再比对——两个方向的漂移都能纠正：
+	//   上游提前重置 → 本地计时器没响，但目标窗口已前移，跟着重置；
+	//   上游推后重置 → 本地 7 天到点，但目标窗口没动，保持不变，避免全车
+	//                  拿着新保底去撞一个尚未重置的上游账号。
+	// 上游数据缺失或陈旧时目标退回本地 7 天网格，行为与原来一致。
+	if sub.HasWeeklyReserve() && sub.WeeklyWindowStart != nil {
+		target, fromUpstream := s.carpoolWeeklyWindowTarget(ctx, sub)
+		shouldReset := CarpoolWeeklyWindowDrifted(*sub.WeeklyWindowStart, target)
+		if !fromUpstream {
+			// 降级路径：维持原语义，只在本地 7 天到点后吸附网格。
+			shouldReset = sub.NeedsWeeklyReset() && !target.Equal(*sub.WeeklyWindowStart)
+		}
+		if shouldReset {
+			expectedWindowStart := sub.WeeklyWindowStart
+			// 先把这一周落成台账，再清零——顺序反了就永远拿不到该周用量。
+			s.recordClosedCarpoolCycle(ctx, sub, target)
+			if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, target); err != nil {
+				return err
+			}
+			sub.WeeklyWindowStart = &target
+			sub.WeeklyUsageUSD = 0
+			needsInvalidateCache = true
+		}
+	} else if sub.NeedsWeeklyReset() {
 		expectedWindowStart := sub.WeeklyWindowStart
 		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
 			return err
@@ -968,9 +1112,10 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 }
 
 // ValidateAndCheckLimits 合并验证+限额检查（中间件热路径专用）
-// 仅做内存检查，不触发 DB 写入。调用方必须在放行请求前同步完成窗口维护。
+// 除拼车公共池计数器读取（Redis GET）外仅做内存检查，不触发 DB 写入。
+// 调用方必须在放行请求前同步完成窗口维护。
 // 返回 needsMaintenance 表示是否需要执行窗口维护并回读数据库快照。
-func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, group *Group) (needsMaintenance bool, err error) {
+func (s *SubscriptionService) ValidateAndCheckLimits(ctx context.Context, sub *UserSubscription, group *Group) (needsMaintenance bool, err error) {
 	// 1. 验证订阅状态
 	if sub.Status == SubscriptionStatusExpired {
 		return false, ErrSubscriptionExpired
@@ -989,6 +1134,11 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 		needsMaintenance = true
 	}
 	if sub.NeedsWeeklyReset() {
+		sub.WeeklyUsageUSD = 0
+		needsMaintenance = true
+	} else if s.carpoolWeeklyWindowDrifted(ctx, sub) {
+		// 上游在我们的 7 天到点之前就重置了：本地计时器还没响，但那一周
+		// 事实上已经翻篇。不在这里跟上就会拿上一周的用量继续挡用户。
 		sub.WeeklyUsageUSD = 0
 		needsMaintenance = true
 	}
@@ -1011,7 +1161,24 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 		return needsMaintenance, ErrMonthlyLimitExceeded
 	}
 
+	// 4. 拼车组级公共池硬约束（设计文档 §4.2 v3.2）：
+	//    周用量 < 保底 r → 无条件放行（保底硬保证，不读计数器）；
+	//    周用量 ≥ r → 全车超额之和（组级计数器）必须 < 公共池容量 C。
+	if err := s.checkCarpoolCommons(ctx, sub); err != nil {
+		return needsMaintenance, err
+	}
+
 	return needsMaintenance, nil
+}
+
+// checkCarpoolCommons 通过 BillingCacheService 注入的计数器执行公共池预检查。
+// 计数器未注入（billingCacheService/counter 为 nil）或读取失败时 fail-open：
+// 保底硬保证不依赖计数器，公共池强制降级不阻塞保底内用量。
+func (s *SubscriptionService) checkCarpoolCommons(ctx context.Context, sub *UserSubscription) error {
+	if s == nil || s.billingCacheService == nil {
+		return nil
+	}
+	return s.billingCacheService.checkCarpoolCommonsEligibility(ctx, sub, sub.WeeklyUsageUSD)
 }
 
 // DoWindowMaintenance 异步执行窗口维护（激活+重置）
@@ -1137,9 +1304,9 @@ func (s *SubscriptionService) calculateProgress(sub *UserSubscription, group *Gr
 		}
 	}
 
-	// 周进度
-	if group.HasWeeklyLimit() && sub.WeeklyWindowStart != nil {
-		limit := *group.WeeklyLimitUSD
+	// 周进度（订阅级限额覆盖优先于分组级限额）
+	if weeklyLimit := sub.EffectiveWeeklyLimit(group); weeklyLimit != nil && *weeklyLimit > 0 && sub.WeeklyWindowStart != nil {
+		limit := *weeklyLimit
 		resetsAt := sub.WeeklyWindowStart.Add(7 * 24 * time.Hour)
 		progress.Weekly = &UsageWindowProgress{
 			LimitUSD:        limit,

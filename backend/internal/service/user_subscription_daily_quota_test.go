@@ -199,7 +199,7 @@ func TestValidateAndCheckLimits_DailyCardDoesNotAllowSecondQuotaAfterMidnight(t 
 	}
 	svc := NewSubscriptionService(groupRepoNoop{}, userSubRepoNoop{}, nil, nil, nil)
 
-	needsMaintenance, err := svc.ValidateAndCheckLimits(sub, group)
+	needsMaintenance, err := svc.ValidateAndCheckLimits(context.Background(), sub, group)
 
 	require.False(t, needsMaintenance, "日卡跨过日窗口后不应触发 daily reset 维护")
 	require.True(t, errors.Is(err, ErrDailyLimitExceeded))

@@ -69,6 +69,19 @@ func (UserSubscription) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),
 
+		// 订阅级周限额覆盖（拼车额度预约制）：NULL 时回退到 group.weekly_limit_usd。
+		field.Float("weekly_limit_usd").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+
+		// 拼车保底额度 r = reserve_ratio×申报（公共池硬约束）：NULL 表示非拼车订阅，
+		// 限额行为与既有语义完全一致。用量 < r 无条件放行；≥ r 部分计入组级公共池计数器。
+		field.Float("weekly_reserved_usd").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+
 		field.Int64("assigned_by").
 			Optional().
 			Nillable(),

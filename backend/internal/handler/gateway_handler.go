@@ -1587,7 +1587,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 				"weekly_usage_usd":    subscription.WeeklyUsageUSD,
 				"monthly_usage_usd":   subscription.MonthlyUsageUSD,
 				"daily_limit_usd":     apiKey.Group.DailyLimitUSD,
-				"weekly_limit_usd":    apiKey.Group.WeeklyLimitUSD,
+				"weekly_limit_usd":    subscription.EffectiveWeeklyLimit(apiKey.Group),
 				"monthly_limit_usd":   apiKey.Group.MonthlyLimitUSD,
 				"weekly_window_start": subscription.WeeklyWindowStart,
 				"expires_at":          subscription.ExpiresAt,
@@ -1650,9 +1650,9 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 		remainingValues = append(remainingValues, remaining)
 	}
 
-	// 检查周限额
-	if group.HasWeeklyLimit() {
-		remaining := *group.WeeklyLimitUSD - sub.WeeklyUsageUSD
+	// 检查周限额（订阅级覆盖优先）
+	if weeklyLimit := sub.EffectiveWeeklyLimit(group); weeklyLimit != nil && *weeklyLimit > 0 {
+		remaining := *weeklyLimit - sub.WeeklyUsageUSD
 		if remaining <= 0 {
 			return 0
 		}

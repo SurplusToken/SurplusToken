@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -20,20 +22,76 @@ func NewCarpoolHandler(carpoolService *service.CarpoolService) *CarpoolHandler {
 }
 
 type createCarpoolRequest struct {
-	Name             string `json:"name" binding:"required"`
-	Description      string `json:"description"`
-	CarType          string `json:"car_type" binding:"required"`
-	Level            int    `json:"level" binding:"required"`
-	Visibility       string `json:"visibility" binding:"required"`
-	ScheduledStartAt string `json:"scheduled_start_at" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	// car_type/level 已废弃（保留兼容），额度池参数为空时使用默认值（设计文档 §3）。
+	CarType          string  `json:"car_type"`
+	Level            int     `json:"level"`
+	Visibility       string  `json:"visibility" binding:"required"`
+	ScheduledStartAt string  `json:"scheduled_start_at" binding:"required"`
+	WeeklyLimitUSD   float64 `json:"weekly_limit_usd"`
+	SeatFeeCNY       float64 `json:"seat_fee_cny"`
+	UsagePoolCNY     float64 `json:"usage_pool_cny"`
+	ReserveRatio     float64 `json:"reserve_ratio"`
+	LaunchMinRatio   float64 `json:"launch_min_ratio"`
+	LaunchMaxRatio   float64 `json:"launch_max_ratio"`
+	// DeclaredWeeklyQuotaUSD 是 owner 本人的申报（可选，0 = owner 仅发起不占额度）。
+	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
+	// 两项强制确认：已添加管理员微信（true）+ 群二维码（base64/data URL，≤2MB）。
+	AddedAdminWechat bool   `json:"added_admin_wechat"`
+	GroupQRCode      string `json:"group_qr_code"`
 }
 
 type carpoolInviteRequest struct {
-	Token string `json:"token" binding:"required"`
+	Token                  string  `json:"token" binding:"required"`
+	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
+	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
+	JoinedWechatGroup bool `json:"joined_wechat_group"`
+}
+
+type carpoolJoinRequest struct {
+	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
+	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
+	JoinedWechatGroup bool `json:"joined_wechat_group"`
+}
+
+type carpoolLaunchRequest struct {
+	Force bool `json:"force"`
 }
 
 type carpoolJoinLockRequest struct {
 	Locked *bool `json:"locked" binding:"required"`
+}
+
+type carpoolCustomRuleInterestRequest struct {
+	// Note 是可选的用户备注，随通知邮件一并发给 admin。
+	Note string `json:"note"`
+}
+
+// CustomRuleInterest 自定义规则咨询入口：登录用户点击后给全部 admin 发提示邮件；
+// SMTP 未配置或发送失败优雅降级，接口照常返回成功。
+//
+// 每用户冷却在派发前同步检查（超频返回 429），邮件本身异步发送——这个入口会给
+// 全部 admin 逐一发信，同步发会把 SMTP 往返挂在请求上，也把限流之外的放大面留给调用方。
+func (h *CarpoolHandler) CustomRuleInterest(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	var req carpoolCustomRuleInterestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 允许空 body（note 可选）。
+		req = carpoolCustomRuleInterestRequest{}
+	}
+	if response.ErrorFrom(c, h.service.ReserveInterestSlot(subject.UserID)) {
+		return
+	}
+	// 脱离请求生命周期但保留 trace 等请求值：请求返回后邮件仍需发完。
+	ctx := context.WithoutCancel(c.Request.Context())
+	userID, note := subject.UserID, req.Note
+	go h.service.NotifyCustomRuleInterest(ctx, userID, note)
+	response.Success(c, gin.H{"message": "ok"})
 }
 
 func (h *CarpoolHandler) List(c *gin.Context) {
@@ -65,13 +123,22 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "scheduled_start_at must use YYYY-MM-DD")
 		return
 	}
-	result, err := h.service.Create(c.Request.Context(), subject.UserID, service.CreateCarpoolInput{
-		Name:             req.Name,
-		Description:      req.Description,
-		CarType:          req.CarType,
-		Level:            req.Level,
-		Visibility:       req.Visibility,
-		ScheduledStartAt: &start,
+	result, err := h.service.Create(c.Request.Context(), subject.UserID, isCarpoolAdmin(c), service.CreateCarpoolInput{
+		Name:                   req.Name,
+		Description:            req.Description,
+		CarType:                req.CarType,
+		Level:                  req.Level,
+		Visibility:             req.Visibility,
+		ScheduledStartAt:       &start,
+		WeeklyLimitUSD:         req.WeeklyLimitUSD,
+		SeatFeeCNY:             req.SeatFeeCNY,
+		UsagePoolCNY:           req.UsagePoolCNY,
+		ReserveRatio:           req.ReserveRatio,
+		LaunchMinRatio:         req.LaunchMinRatio,
+		LaunchMaxRatio:         req.LaunchMaxRatio,
+		DeclaredWeeklyQuotaUSD: req.DeclaredWeeklyQuotaUSD,
+		AddedAdminWechat:       req.AddedAdminWechat,
+		GroupQRCode:            req.GroupQRCode,
 	})
 	if response.ErrorFrom(c, err) {
 		return
@@ -119,7 +186,12 @@ func (h *CarpoolHandler) Join(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.Join(c.Request.Context(), id, subject.UserID)
+	var req carpoolJoinRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "declared_weekly_quota_usd is required")
+		return
+	}
+	result, err := h.service.Join(c.Request.Context(), id, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
 	if response.ErrorFrom(c, err) {
 		return
 	}
@@ -134,14 +206,196 @@ func (h *CarpoolHandler) JoinByInvite(c *gin.Context) {
 	}
 	var req carpoolInviteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid carpool invite")
+		response.BadRequest(c, "token and declared_weekly_quota_usd are required")
 		return
 	}
-	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID)
+	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
 	if response.ErrorFrom(c, err) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// Leave 下车：仅 recruiting 状态的普通成员；申报额度即时释放，幂等。
+func (h *CarpoolHandler) Leave(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Leave(c.Request.Context(), id, subject.UserID)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// Confirm 车主确认发车（两段确认第一段）：仅 owner、recruiting、Σ申报在发车区间内。
+func (h *CarpoolHandler) Confirm(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Confirm(c.Request.Context(), id, subject.UserID)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// GroupQRCode 返回车辆微信群二维码图片。可见性由 service 层判定：
+// admin/车主/成员始终可读；招募中的 public 车对登录用户开放；招募中的
+// invite_only 车必须带 ?token=<邀请码>。
+func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	data, contentType, err := h.service.GetGroupQRCode(c.Request.Context(), id,
+		subject.UserID, isCarpoolAdmin(c), c.Query("token"))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	// private：二维码是按调用者身份授权的，不能进共享缓存（CDN/代理）。
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Data(http.StatusOK, contentType, data)
+}
+
+// Unconfirm 撤回确认（confirmed → recruiting）：车主或 admin。
+// 给"等 admin 启动"这段状态一个出口，避免车连人带钱无限挂起。
+func (h *CarpoolHandler) Unconfirm(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Unconfirm(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// PendingLaunch 列出全部等待管理员启动的车（仅 admin）。
+func (h *CarpoolHandler) PendingLaunch(c *gin.Context) {
+	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	items, err := h.service.ListPendingLaunch(c.Request.Context(), isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, items)
+}
+
+// Launch 管理员启动发车（两段确认第二段）：仅 admin；正常发车要求车已 confirmed，
+// force=true 为降档发车（要求 recruiting 且 Σ申报≥80%×周限额，跳过确认流程）。
+func (h *CarpoolHandler) Launch(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	var req carpoolLaunchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 允许空 body（等价于 force=false）。
+		req = carpoolLaunchRequest{}
+	}
+	result, err := h.service.Launch(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c), req.Force)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// DeclarationRecommendation 申报推荐（设计文档 §4.1）：基于本人最近 7 天用量。
+func (h *CarpoolHandler) DeclarationRecommendation(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	rec, err := h.service.GetDeclarationRecommendation(c.Request.Context(), subject.UserID)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, rec)
+}
+
+// Settlement 月度结算单（设计文档 §4.5）：成员仅见自己，owner/admin 见全车。
+func (h *CarpoolHandler) Settlement(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	settlement, err := h.service.GetSettlement(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, settlement)
+}
+
+// Settle 冻结结算单（车主或 admin）：把当下的金额写死，之后读到的就是这份快照。
+func (h *CarpoolHandler) Settle(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	settlement, err := h.service.SettleCarpool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, settlement)
+}
+
+// Unsettle 撤销结算（仅 admin）：结算算错了得有个受控的改回路径。
+func (h *CarpoolHandler) Unsettle(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	if response.ErrorFrom(c, h.service.UnsettleCarpool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))) {
+		return
+	}
+	response.Success(c, gin.H{"message": "ok"})
 }
 
 func (h *CarpoolHandler) Cancel(c *gin.Context) {

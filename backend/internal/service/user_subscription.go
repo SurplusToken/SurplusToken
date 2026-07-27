@@ -21,6 +21,16 @@ type UserSubscription struct {
 	WeeklyUsageUSD  float64
 	MonthlyUsageUSD float64
 
+	// WeeklyLimitUSD 是订阅级周限额覆盖（拼车额度预约制）。
+	// nil 表示未设置，限额检查回退到分组级 group.WeeklyLimitUSD。
+	WeeklyLimitUSD *float64
+
+	// WeeklyReservedUSD 是拼车保底额度 r（公共池硬约束，设计文档 §4.2）。
+	// nil 表示非拼车订阅，限额行为与既有语义完全一致。
+	// 当周用量 < r 时无条件放行（保底硬保证）；≥ r 的部分计入组级公共池计数器，
+	// 全车超额之和达到公共池容量 C 后拒绝新的公共池消耗。
+	WeeklyReservedUSD *float64
+
 	AssignedBy *int64
 	AssignedAt time.Time
 	Notes      string
@@ -134,10 +144,49 @@ func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64)
 }
 
 func (s *UserSubscription) CheckWeeklyLimit(group *Group, additionalCost float64) bool {
-	if !group.HasWeeklyLimit() {
+	limit := s.EffectiveWeeklyLimit(group)
+	if limit == nil {
 		return true
 	}
-	return s.WeeklyUsageUSD+additionalCost <= *group.WeeklyLimitUSD
+	return s.WeeklyUsageUSD+additionalCost <= *limit
+}
+
+// EffectiveWeeklyLimit 返回生效的周限额：订阅级覆盖优先，否则回退分组级限额。
+// 两者都未设置时返回 nil（不限量）。
+func (s *UserSubscription) EffectiveWeeklyLimit(group *Group) *float64 {
+	if s.WeeklyLimitUSD != nil {
+		return s.WeeklyLimitUSD
+	}
+	if group != nil && group.HasWeeklyLimit() {
+		return group.WeeklyLimitUSD
+	}
+	return nil
+}
+
+// HasWeeklyReserve 报告本订阅是否为拼车额度预约订阅（写入了保底额度 r）。
+// 仅这类订阅参与组级公共池计数；其余订阅限额行为与既有语义一致。
+func (s *UserSubscription) HasWeeklyReserve() bool {
+	return s != nil && s.WeeklyReservedUSD != nil
+}
+
+// CarpoolSharedPoolCapacityUSD 返回本订阅所在车的公共池容量 C。
+// 发车时 weekly_limit_usd = r + C（个人绝对上限），故 C = 周限额 − 保底；
+// 全车成员按同一公式写入，各自派生出相同的 C。字段缺失或差值非正时返回 0
+// （调用方据此跳过公共池检查）。
+func (s *UserSubscription) CarpoolSharedPoolCapacityUSD() float64 {
+	if s == nil || s.WeeklyReservedUSD == nil || s.WeeklyLimitUSD == nil {
+		return 0
+	}
+	if capacity := *s.WeeklyLimitUSD - *s.WeeklyReservedUSD; capacity > 0 {
+		return capacity
+	}
+	return 0
+}
+
+// NeedsCarpoolCommonsCheck 报告本次预检查是否需要读组级公共池计数器：
+// 仅当周用量已达到保底 r（后续请求将消耗公共池）时才需要。
+func (s *UserSubscription) NeedsCarpoolCommonsCheck(weeklyUsage float64) bool {
+	return s.HasWeeklyReserve() && weeklyUsage >= *s.WeeklyReservedUSD
 }
 
 func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float64) bool {

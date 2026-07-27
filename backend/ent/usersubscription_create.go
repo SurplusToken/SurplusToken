@@ -189,6 +189,34 @@ func (_c *UserSubscriptionCreate) SetNillableMonthlyUsageUsd(v *float64) *UserSu
 	return _c
 }
 
+// SetWeeklyLimitUsd sets the "weekly_limit_usd" field.
+func (_c *UserSubscriptionCreate) SetWeeklyLimitUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetWeeklyLimitUsd(v)
+	return _c
+}
+
+// SetNillableWeeklyLimitUsd sets the "weekly_limit_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableWeeklyLimitUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetWeeklyLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (_c *UserSubscriptionCreate) SetWeeklyReservedUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetWeeklyReservedUsd(v)
+	return _c
+}
+
+// SetNillableWeeklyReservedUsd sets the "weekly_reserved_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableWeeklyReservedUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetWeeklyReservedUsd(*v)
+	}
+	return _c
+}
+
 // SetAssignedBy sets the "assigned_by" field.
 func (_c *UserSubscriptionCreate) SetAssignedBy(v int64) *UserSubscriptionCreate {
 	_c.mutation.SetAssignedBy(v)
@@ -472,6 +500,14 @@ func (_c *UserSubscriptionCreate) createSpec() (*UserSubscription, *sqlgraph.Cre
 	if value, ok := _c.mutation.MonthlyUsageUsd(); ok {
 		_spec.SetField(usersubscription.FieldMonthlyUsageUsd, field.TypeFloat64, value)
 		_node.MonthlyUsageUsd = value
+	}
+	if value, ok := _c.mutation.WeeklyLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldWeeklyLimitUsd, field.TypeFloat64, value)
+		_node.WeeklyLimitUsd = &value
+	}
+	if value, ok := _c.mutation.WeeklyReservedUsd(); ok {
+		_spec.SetField(usersubscription.FieldWeeklyReservedUsd, field.TypeFloat64, value)
+		_node.WeeklyReservedUsd = &value
 	}
 	if value, ok := _c.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)
@@ -798,6 +834,54 @@ func (u *UserSubscriptionUpsert) AddMonthlyUsageUsd(v float64) *UserSubscription
 	return u
 }
 
+// SetWeeklyLimitUsd sets the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsert) SetWeeklyLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldWeeklyLimitUsd, v)
+	return u
+}
+
+// UpdateWeeklyLimitUsd sets the "weekly_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateWeeklyLimitUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldWeeklyLimitUsd)
+	return u
+}
+
+// AddWeeklyLimitUsd adds v to the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsert) AddWeeklyLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldWeeklyLimitUsd, v)
+	return u
+}
+
+// ClearWeeklyLimitUsd clears the value of the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsert) ClearWeeklyLimitUsd() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldWeeklyLimitUsd)
+	return u
+}
+
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsert) SetWeeklyReservedUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldWeeklyReservedUsd, v)
+	return u
+}
+
+// UpdateWeeklyReservedUsd sets the "weekly_reserved_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateWeeklyReservedUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldWeeklyReservedUsd)
+	return u
+}
+
+// AddWeeklyReservedUsd adds v to the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsert) AddWeeklyReservedUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldWeeklyReservedUsd, v)
+	return u
+}
+
+// ClearWeeklyReservedUsd clears the value of the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsert) ClearWeeklyReservedUsd() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldWeeklyReservedUsd)
+	return u
+}
+
 // SetAssignedBy sets the "assigned_by" field.
 func (u *UserSubscriptionUpsert) SetAssignedBy(v int64) *UserSubscriptionUpsert {
 	u.Set(usersubscription.FieldAssignedBy, v)
@@ -1119,6 +1203,62 @@ func (u *UserSubscriptionUpsertOne) AddMonthlyUsageUsd(v float64) *UserSubscript
 func (u *UserSubscriptionUpsertOne) UpdateMonthlyUsageUsd() *UserSubscriptionUpsertOne {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetWeeklyLimitUsd sets the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) SetWeeklyLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetWeeklyLimitUsd(v)
+	})
+}
+
+// AddWeeklyLimitUsd adds v to the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) AddWeeklyLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddWeeklyLimitUsd(v)
+	})
+}
+
+// UpdateWeeklyLimitUsd sets the "weekly_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateWeeklyLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateWeeklyLimitUsd()
+	})
+}
+
+// ClearWeeklyLimitUsd clears the value of the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) ClearWeeklyLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearWeeklyLimitUsd()
+	})
+}
+
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertOne) SetWeeklyReservedUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetWeeklyReservedUsd(v)
+	})
+}
+
+// AddWeeklyReservedUsd adds v to the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertOne) AddWeeklyReservedUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddWeeklyReservedUsd(v)
+	})
+}
+
+// UpdateWeeklyReservedUsd sets the "weekly_reserved_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateWeeklyReservedUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateWeeklyReservedUsd()
+	})
+}
+
+// ClearWeeklyReservedUsd clears the value of the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertOne) ClearWeeklyReservedUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearWeeklyReservedUsd()
 	})
 }
 
@@ -1617,6 +1757,62 @@ func (u *UserSubscriptionUpsertBulk) AddMonthlyUsageUsd(v float64) *UserSubscrip
 func (u *UserSubscriptionUpsertBulk) UpdateMonthlyUsageUsd() *UserSubscriptionUpsertBulk {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetWeeklyLimitUsd sets the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetWeeklyLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetWeeklyLimitUsd(v)
+	})
+}
+
+// AddWeeklyLimitUsd adds v to the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddWeeklyLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddWeeklyLimitUsd(v)
+	})
+}
+
+// UpdateWeeklyLimitUsd sets the "weekly_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateWeeklyLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateWeeklyLimitUsd()
+	})
+}
+
+// ClearWeeklyLimitUsd clears the value of the "weekly_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) ClearWeeklyLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearWeeklyLimitUsd()
+	})
+}
+
+// SetWeeklyReservedUsd sets the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetWeeklyReservedUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetWeeklyReservedUsd(v)
+	})
+}
+
+// AddWeeklyReservedUsd adds v to the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddWeeklyReservedUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddWeeklyReservedUsd(v)
+	})
+}
+
+// UpdateWeeklyReservedUsd sets the "weekly_reserved_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateWeeklyReservedUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateWeeklyReservedUsd()
+	})
+}
+
+// ClearWeeklyReservedUsd clears the value of the "weekly_reserved_usd" field.
+func (u *UserSubscriptionUpsertBulk) ClearWeeklyReservedUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearWeeklyReservedUsd()
 	})
 }
 

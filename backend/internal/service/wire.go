@@ -307,6 +307,17 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	return svc
 }
 
+// ProvideCarpoolSettlementScheduler 创建并启动拼车期末结算巡检。
+//
+// 15 分钟一跳：订阅到期时刻各车不同，按天扫会让账单最多晚一天才出。
+// 扫描只查"已到期且未结算"的车，正常情况下一辆都没有，高频不构成负担。
+func ProvideCarpoolSettlementScheduler(carpoolService *CarpoolService, lockCache LeaderLockCache, db *sql.DB) *CarpoolSettlementScheduler {
+	svc := NewCarpoolSettlementScheduler(carpoolService, CarpoolSettlementInterval)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
 // ProvideTimingWheelService creates and starts TimingWheelService
 func ProvideTimingWheelService() (*TimingWheelService, error) {
 	svc, err := NewTimingWheelService()
@@ -666,8 +677,11 @@ func ProvideBillingCacheService(
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	carpoolCommons CarpoolCommonsCounter,
 ) *BillingCacheService {
-	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc := NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	svc.SetCarpoolCommonsCounter(carpoolCommons)
+	return svc
 }
 
 // ProvideAPIKeyService wires APIKeyService and connects rate-limit cache invalidation.
