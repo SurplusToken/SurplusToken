@@ -39,7 +39,7 @@ func BuildCarpoolSettlementEmail(carpool *Carpool, settlement *CarpoolSettlement
 		writeMemberSection(&b, m)
 	}
 
-	b.WriteString(`<hr><p style="color:#888;font-size:12px">` +
+	_, _ = b.WriteString(`<hr><p style="color:#888;font-size:12px">` +
 		`计入月消费 = max(该周期实际用量, ` + fmt.Sprintf("%.0f%%", carpool.ReserveRatio*100) + `×申报额)，逐周期计算后求和。<br>` +
 		`变动池按各人计费用量占全车比例分摊；席位费按发车人数均摊。</p>`)
 	return subject, b.String()
@@ -63,8 +63,8 @@ func writeMemberSection(b *strings.Builder, m CarpoolSettlementMember) {
 	if m.CycleBased && len(m.Cycles) > 0 {
 		fmt.Fprintf(b, `<p>共 <b>%d</b> 个计费周期，其中 %d 个周期实际用量不足申报的保底、按保底计入。</p>`,
 			m.CycleCount, m.FloorCycles)
-		b.WriteString(`<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">`)
-		b.WriteString(`<tr style="background:#f5f5f5">` +
+		_, _ = b.WriteString(`<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">`)
+		_, _ = b.WriteString(`<tr style="background:#f5f5f5">` +
 			`<th>计费周期</th><th>申报额 (USD)</th><th>实际用量 (USD)</th><th>计入月消费 (USD)</th></tr>`)
 		for _, c := range m.Cycles {
 			floored := c.ActualUsageUSD <= c.ReservedUSD

@@ -71,7 +71,7 @@ func (r *carpoolRepository) Create(ctx context.Context, ownerUserID int64, input
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool create: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var groupNameExists bool
 	if err := tx.QueryRowContext(ctx, `
@@ -133,7 +133,7 @@ func (r *carpoolRepository) CreateInvite(ctx context.Context, carpoolID, actorUs
 	if err != nil {
 		return fmt.Errorf("begin carpool invite create: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -170,7 +170,7 @@ func (r *carpoolRepository) Join(ctx context.Context, carpoolID, userID int64, d
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool join: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// 锁顺序约定：carpools → carpool_invites（父表在前）。Cancel 走的就是这个顺序，
 	// 本函数原来反着来（先锁邀请行再锁车行），两条路径并发时构成 AB-BA 死锁。
@@ -525,7 +525,7 @@ ORDER BY c.confirmed_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list pending launch carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.CarpoolPendingLaunch, 0)
 	for rows.Next() {

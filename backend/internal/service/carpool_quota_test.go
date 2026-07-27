@@ -149,9 +149,10 @@ func TestComputeCarpoolSettlementMembersMatchesAppendixA4(t *testing.T) {
 	inputs := make([]CarpoolSettlementMemberInput, 0, 10)
 	for i := 0; i < 10; i++ {
 		actual := 200.0
-		if i == 0 {
+		switch i {
+		case 0:
 			actual = 120 // A 虚报
-		} else if i == 9 {
+		case 9:
 			actual = 360 // B 超用
 		}
 		inputs = append(inputs, CarpoolSettlementMemberInput{

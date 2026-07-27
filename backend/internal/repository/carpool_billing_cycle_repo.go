@@ -74,7 +74,7 @@ ORDER BY user_id, cycle_start`, carpoolID, nullableTime(from), nullableTime(to))
 	if err != nil {
 		return nil, fmt.Errorf("list carpool billing cycles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.CarpoolBillingCycle, 0)
 	for rows.Next() {
