@@ -30,7 +30,7 @@ ORDER BY c.created_at DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.Carpool, 0)
 	for rows.Next() {
@@ -331,7 +331,7 @@ func (r *carpoolRepository) Leave(ctx context.Context, carpoolID, userID int64) 
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool leave: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -410,7 +410,7 @@ func (r *carpoolRepository) Confirm(ctx context.Context, carpoolID, ownerUserID 
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool confirm: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var carpoolOwner sql.NullInt64
 	var status string
@@ -471,7 +471,7 @@ func (r *carpoolRepository) Unconfirm(ctx context.Context, carpoolID, actorUserI
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool unconfirm: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -556,7 +556,7 @@ func (r *carpoolRepository) Launch(ctx context.Context, carpoolID, actorUserID i
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool launch: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var status string
 	var params carpoolLaunchParams
@@ -623,7 +623,7 @@ func (r *carpoolRepository) Cancel(ctx context.Context, carpoolID, actorUserID i
 	if err != nil {
 		return fmt.Errorf("begin carpool cancel: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -705,7 +705,7 @@ ORDER BY c.created_at DESC`, viewerUserID)
 	if err != nil {
 		return nil, fmt.Errorf("list all carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.Carpool, 0)
 	for rows.Next() {
@@ -1128,7 +1128,7 @@ ORDER BY m.id`, carpoolID)
 	if err != nil {
 		return nil, fmt.Errorf("list carpool settlement members: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.CarpoolSettlementMemberRow, 0)
 	for rows.Next() {
@@ -1178,7 +1178,7 @@ func (r *carpoolRepository) PersistSettlement(ctx context.Context, carpoolID, ac
 	if err != nil {
 		return fmt.Errorf("begin carpool settle: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var status string
 	err = tx.QueryRowContext(ctx, `SELECT status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status)
@@ -1235,7 +1235,7 @@ func (r *carpoolRepository) ClearSettlement(ctx context.Context, carpoolID, acto
 	if err != nil {
 		return fmt.Errorf("begin carpool unsettle: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx, `
 UPDATE carpools SET settled_at = NULL, settled_by_user_id = NULL, updated_at = NOW()
@@ -1592,7 +1592,7 @@ ORDER BY c.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list expired unsettled carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	ids := make([]int64, 0)
 	for rows.Next() {
