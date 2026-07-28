@@ -128,7 +128,9 @@ export default {
     wechat: {
       adminLabel: '管理员微信',
       scanToJoin: '扫码加入群聊',
-      copied: '管理员微信号已复制'
+      copied: '管理员微信号已复制',
+      replaceQr: '更换二维码',
+      qrReplaced: '群二维码已更换'
     },
     createDialog: {
       title: '发起新拼车',
@@ -149,7 +151,7 @@ export default {
       contactHint: '发车由管理员人工执行，发起前请先添加管理员微信，并上传微信群二维码供成员扫码入群。',
       addedAdmin: '我已添加管理员微信 {wechat}',
       qrLabel: '群聊二维码',
-      qrHint: '支持 png / jpeg / webp，大小不超过 2MB',
+      qrHint: '支持 png / jpeg / webp，大小不超过 2MB。请先用微信「面对面建群」建好一人小群、拉管理员入群，再上传该群的二维码',
       qrInvalidType: '仅支持 png / jpeg / webp 格式图片',
       qrTooLarge: '图片大小不能超过 2MB'
     },
@@ -304,7 +306,10 @@ export default {
         groupQr: '群二维码',
         qrOpen: '查看大图',
         qrLoading: '二维码加载中…',
-        qrFailed: '二维码加载失败，点击重试'
+        qrFailed: '二维码加载失败，点击重试',
+        qrReplace: '更换',
+        qrUpload: '上传二维码',
+        qrReplaced: '群二维码已更换'
       },
       editDialog: {
         title: '编辑拼车'
@@ -329,6 +334,9 @@ export default {
           title: '取消拼车',
           message: '取消「{name}」后邀请链接失效，已预约的额度全部释放。',
           success: '拼车已取消'
+        },
+        cancelActive: {
+          message: '「{name}」已发车：取消后全员订阅立即失效、不可恢复。已产生的用量与退补款请走结算流程线下处理。确定取消？'
         }
       },
       autoUnconfirmed: '操作已生效。总申报跌破发车线，这辆车已自动退回招募中，并已邮件通知车主。',

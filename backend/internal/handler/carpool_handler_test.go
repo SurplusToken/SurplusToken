@@ -92,6 +92,9 @@ func (s *carpoolHandlerRepoStub) SetJoinLocked(ctx context.Context, carpoolID, a
 func (s *carpoolHandlerRepoStub) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
 	return s.qrData, s.qrType, s.qrErr
 }
+func (s *carpoolHandlerRepoStub) SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error {
+	panic("unexpected call")
+}
 func (s *carpoolHandlerRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
 	panic("unexpected call")
 }
@@ -221,9 +224,9 @@ func TestCarpoolGroupQRCode(t *testing.T) {
 			carpool: publicRecruitingCarpool(), qrData: pngBytes, qrType: "image/png"}, "")
 		require.Equal(t, http.StatusOK, recorder.Code)
 		require.Equal(t, "image/png", recorder.Header().Get("Content-Type"))
-		require.Contains(t, recorder.Header().Get("Cache-Control"), "max-age")
-		// 二维码按调用者身份授权，不能进共享缓存。
-		require.Contains(t, recorder.Header().Get("Cache-Control"), "private")
+		// 二维码按调用者身份授权，不能进共享缓存；且不能给浏览器长缓存——
+		// 换码后的重取必须回源，否则用户看到的还是旧码。
+		require.Equal(t, "private, no-cache", recorder.Header().Get("Cache-Control"))
 		require.Equal(t, pngBytes, recorder.Body.Bytes())
 	})
 

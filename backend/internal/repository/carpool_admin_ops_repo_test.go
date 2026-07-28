@@ -148,3 +148,112 @@ func TestUpdateMemberQuotaKeepsConfirmedWhenStillInBand(t *testing.T) {
 	require.False(t, result.AutoUnconfirmed)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// 管理员取消已发车的车：成员订阅必须一并软删——车没了人还能继续用额度是最贵的那种bug。
+func TestCancelActiveCarpoolAsAdminTearsDownSubscriptions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "status"}).AddRow(int64(11), "active"))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE carpools SET status = 'cancelled', join_locked_at = NOW(), cancelled_at = NOW(),")).
+		WithArgs(int64(7), int64(99)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE user_subscriptions SET deleted_at = NOW()")).
+		WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE carpool_members SET status = 'cancelled', updated_at = NOW() WHERE carpool_id = $1 AND status IN ('joined', 'active')")).
+		WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE carpool_invites SET revoked_at")).
+		WithArgs(int64(7), int64(99)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO carpool_events").
+		WithArgs(int64(7), int64(99), "cancelled").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Cancel(context.Background(), 7, 99, true))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 已发车的车对车主也是全锁：散车等于停掉别人的真订阅，只能管理员来做。
+func TestCancelActiveCarpoolForbiddenForOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "status"}).AddRow(int64(11), "active"))
+	mock.ExpectRollback()
+
+	err = repo.Cancel(context.Background(), 7, 11, false)
+	require.ErrorIs(t, err, service.ErrCarpoolUnavailable)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 车主可以换自己车的群二维码（群过期/换群不必整车重建）。
+func TestSetGroupQRCodeAsOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "status"}).AddRow(int64(11), "active"))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE carpools SET group_qr_code = $2, group_qr_code_content_type = $3,")).
+		WithArgs(int64(7), []byte{0x89, 0x50, 0x4E, 0x47}, "image/png").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO carpool_events").
+		WithArgs(int64(7), int64(11), "qr_code_replaced").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.SetGroupQRCode(context.Background(), 7, 11, false, []byte{0x89, 0x50, 0x4E, 0x47}, "image/png"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 既不是车主也不是 admin → 403。
+func TestSetGroupQRCodeForbiddenForNonOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "status"}).AddRow(int64(11), "recruiting"))
+	mock.ExpectRollback()
+
+	err = repo.SetGroupQRCode(context.Background(), 7, 55, false, []byte{0x89}, "image/png")
+	require.ErrorIs(t, err, service.ErrCarpoolForbidden)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 已取消/已结束的车群已散，换码没有意义。
+func TestSetGroupQRCodeRejectsEndedCarpool(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "status"}).AddRow(int64(11), "ended"))
+	mock.ExpectRollback()
+
+	err = repo.SetGroupQRCode(context.Background(), 7, 99, true, []byte{0x89}, "image/png")
+	require.ErrorIs(t, err, service.ErrCarpoolUnavailable)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

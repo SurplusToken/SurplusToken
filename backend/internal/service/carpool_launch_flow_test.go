@@ -39,6 +39,9 @@ type launchFlowRepoStub struct {
 	transferredTo     int64
 	carpoolByID       *Carpool
 	settlementMembers []CarpoolSettlementMemberRow
+	qrReplaceData     []byte
+	qrReplaceType     string
+	qrReplaceErr      error
 }
 
 func (s *launchFlowRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -105,6 +108,11 @@ func (s *launchFlowRepoStub) SetJoinLocked(ctx context.Context, carpoolID, actor
 }
 func (s *launchFlowRepoStub) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
 	panic("unexpected call")
+}
+func (s *launchFlowRepoStub) SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error {
+	s.qrReplaceData = data
+	s.qrReplaceType = contentType
+	return s.qrReplaceErr
 }
 func (s *launchFlowRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error) {
 	if s.settlementMembers == nil {

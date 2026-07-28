@@ -521,6 +521,9 @@ func TestCancelConfirmedCarpoolRequiresAdmin(t *testing.T) {
 	mock2.ExpectExec(regexp.QuoteMeta("UPDATE carpools SET status = 'cancelled'")).
 		WithArgs(int64(7), int64(99)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock2.ExpectExec(regexp.QuoteMeta("UPDATE user_subscriptions SET deleted_at = NOW()")).
+		WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock2.ExpectExec(regexp.QuoteMeta("UPDATE carpool_members SET status = 'cancelled'")).
 		WithArgs(int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 3))

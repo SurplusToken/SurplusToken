@@ -128,7 +128,9 @@ export default {
     wechat: {
       adminLabel: 'Admin WeChat',
       scanToJoin: 'Scan to join the WeChat group',
-      copied: 'Admin WeChat ID copied'
+      copied: 'Admin WeChat ID copied',
+      replaceQr: 'Replace QR code',
+      qrReplaced: 'Group QR code replaced'
     },
     createDialog: {
       title: 'Start a new carpool',
@@ -149,7 +151,7 @@ export default {
       contactHint: 'Launches are performed manually by the admin. Add the admin on WeChat first, then upload the WeChat group QR code so members can join the group.',
       addedAdmin: 'I have added the admin on WeChat ({wechat})',
       qrLabel: 'Group QR code',
-      qrHint: 'png / jpeg / webp only, up to 2MB',
+      qrHint: 'png / jpeg / webp only, up to 2MB. Create a one-person group via WeChat "Face-to-face group", invite the admin, then upload that group\'s QR code',
       qrInvalidType: 'Only png, jpeg, or webp images are supported',
       qrTooLarge: 'Image must be 2MB or smaller'
     },
@@ -304,7 +306,10 @@ export default {
         groupQr: 'Group QR code',
         qrOpen: 'Open full size',
         qrLoading: 'Loading QR code…',
-        qrFailed: 'Failed to load QR code, click to retry'
+        qrFailed: 'Failed to load QR code, click to retry',
+        qrReplace: 'Replace',
+        qrUpload: 'Upload QR code',
+        qrReplaced: 'Group QR code replaced'
       },
       editDialog: {
         title: 'Edit carpool'
@@ -329,6 +334,9 @@ export default {
           title: 'Cancel carpool',
           message: 'Cancelling "{name}" invalidates invite links and releases every reserved quota.',
           success: 'Carpool cancelled'
+        },
+        cancelActive: {
+          message: '"{name}" has launched: cancelling immediately revokes every member\'s subscription and cannot be undone. Handle usage and refunds through the settlement flow offline. Cancel anyway?'
         }
       },
       autoUnconfirmed: 'Done. Total declaration fell below the launch line, so this carpool went back to recruiting and the owner has been emailed.',

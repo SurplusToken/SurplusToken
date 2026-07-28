@@ -345,6 +345,9 @@ func (s *carpoolRepoStub) SetJoinLocked(ctx context.Context, carpoolID, actorUse
 func (s *carpoolRepoStub) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
 	panic("unexpected call")
 }
+func (s *carpoolRepoStub) SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error {
+	panic("unexpected call")
+}
 func (s *carpoolRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error) {
 	return s.rows, nil
 }

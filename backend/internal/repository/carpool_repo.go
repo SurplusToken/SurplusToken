@@ -30,7 +30,7 @@ ORDER BY c.created_at DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.Carpool, 0)
 	for rows.Next() {
@@ -331,7 +331,7 @@ func (r *carpoolRepository) Leave(ctx context.Context, carpoolID, userID int64) 
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool leave: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -410,7 +410,7 @@ func (r *carpoolRepository) Confirm(ctx context.Context, carpoolID, ownerUserID 
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool confirm: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var carpoolOwner sql.NullInt64
 	var status string
@@ -471,7 +471,7 @@ func (r *carpoolRepository) Unconfirm(ctx context.Context, carpoolID, actorUserI
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool unconfirm: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -556,7 +556,7 @@ func (r *carpoolRepository) Launch(ctx context.Context, carpoolID, actorUserID i
 	if err != nil {
 		return nil, fmt.Errorf("begin carpool launch: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var status string
 	var params carpoolLaunchParams
@@ -623,7 +623,7 @@ func (r *carpoolRepository) Cancel(ctx context.Context, carpoolID, actorUserID i
 	if err != nil {
 		return fmt.Errorf("begin carpool cancel: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerUserID sql.NullInt64
 	var status string
@@ -637,8 +637,8 @@ func (r *carpoolRepository) Cancel(ctx context.Context, carpoolID, actorUserID i
 	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
 		return service.ErrCarpoolForbidden
 	}
-	// confirmed 全锁：仅 admin 可强制取消；其余入口仅 recruiting/starting 可取消。
-	if status == "confirmed" {
+	// confirmed/active 全锁：仅 admin 可强制取消；其余入口仅 recruiting/starting 可取消。
+	if status == "confirmed" || status == "active" {
 		if !isAdmin {
 			return service.ErrCarpoolUnavailable
 		}
@@ -651,7 +651,15 @@ UPDATE carpools SET status = 'cancelled', join_locked_at = NOW(), cancelled_at =
 WHERE id = $1`, carpoolID, actorUserID); err != nil {
 		return fmt.Errorf("cancel carpool: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE carpool_members SET status = 'cancelled', updated_at = NOW() WHERE carpool_id = $1 AND status = 'joined'`, carpoolID); err != nil {
+	// 已发车的车成员持有真订阅：散车必须一并软删订阅，否则车没了人还能继续用额度。
+	if _, err := tx.ExecContext(ctx, `
+UPDATE user_subscriptions SET deleted_at = NOW()
+WHERE deleted_at IS NULL AND id IN (
+    SELECT subscription_id FROM carpool_members
+    WHERE carpool_id = $1 AND subscription_id IS NOT NULL)`, carpoolID); err != nil {
+		return fmt.Errorf("cancel carpool member subscriptions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE carpool_members SET status = 'cancelled', updated_at = NOW() WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID); err != nil {
 		return fmt.Errorf("cancel carpool members: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE carpool_invites SET revoked_at = NOW(), revoked_by_user_id = $2, updated_at = NOW() WHERE carpool_id = $1 AND revoked_at IS NULL`, carpoolID, actorUserID); err != nil {
@@ -697,7 +705,7 @@ ORDER BY c.created_at DESC`, viewerUserID)
 	if err != nil {
 		return nil, fmt.Errorf("list all carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.Carpool, 0)
 	for rows.Next() {
@@ -1059,6 +1067,47 @@ SELECT group_qr_code, group_qr_code_content_type FROM carpools WHERE id = $1`, c
 	return data, contentType.String, nil
 }
 
+// SetGroupQRCode 更换群二维码：车主或 admin（与 CreateInvite 同一道权限闸，在锁内
+// 复核，避免车主在并发转让后还能改）。已取消/已结束的车群已散，换码没有意义。
+func (r *carpoolRepository) SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin carpool set qr code: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load carpool for set qr code: %w", err)
+	}
+	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
+		return service.ErrCarpoolForbidden
+	}
+	if status == "cancelled" || status == "ended" {
+		return service.ErrCarpoolUnavailable
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET group_qr_code = $2, group_qr_code_content_type = $3,
+    version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID, data, contentType); err != nil {
+		return fmt.Errorf("set carpool group qr code: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "qr_code_replaced"); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit carpool set qr code: %w", err)
+	}
+	return nil
+}
+
 func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
 	// 带上邮箱/用户名：结算单里只有 #userId 的话，车主没法把每一行对应到
 	// 微信群里的真人去收款/退款。可见性由 service 层控制（仅 owner/admin 全量）。
@@ -1079,7 +1128,7 @@ ORDER BY m.id`, carpoolID)
 	if err != nil {
 		return nil, fmt.Errorf("list carpool settlement members: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := make([]service.CarpoolSettlementMemberRow, 0)
 	for rows.Next() {
@@ -1129,7 +1178,7 @@ func (r *carpoolRepository) PersistSettlement(ctx context.Context, carpoolID, ac
 	if err != nil {
 		return fmt.Errorf("begin carpool settle: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var status string
 	err = tx.QueryRowContext(ctx, `SELECT status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status)
@@ -1186,7 +1235,7 @@ func (r *carpoolRepository) ClearSettlement(ctx context.Context, carpoolID, acto
 	if err != nil {
 		return fmt.Errorf("begin carpool unsettle: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx, `
 UPDATE carpools SET settled_at = NULL, settled_by_user_id = NULL, updated_at = NOW()
@@ -1310,7 +1359,7 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 	for rows.Next() {
 		var m member
 		if err := rows.Scan(&m.id, &m.userID, &m.declared); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, nil, fmt.Errorf("scan launching carpool member: %w", err)
 		}
 		if m.declared <= 0 {
@@ -1321,7 +1370,7 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 		members = append(members, m)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return 0, nil, fmt.Errorf("iterate launching carpool members: %w", err)
 	}
 	if err := rows.Close(); err != nil {
@@ -1543,7 +1592,7 @@ ORDER BY c.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list expired unsettled carpools: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	ids := make([]int64, 0)
 	for rows.Next() {

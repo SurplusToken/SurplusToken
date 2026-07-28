@@ -18,6 +18,7 @@ const {
   launchMock,
   cancelMock,
   groupQrCodeMock,
+  replaceGroupQrCodeMock,
 } = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showWarning: vi.fn(),
@@ -33,6 +34,7 @@ const {
   launchMock: vi.fn(),
   cancelMock: vi.fn(),
   groupQrCodeMock: vi.fn(),
+  replaceGroupQrCodeMock: vi.fn(),
 }))
 
 vi.mock('@/api/carpools', () => ({
@@ -48,6 +50,7 @@ vi.mock('@/api/carpools', () => ({
     launch: launchMock,
     cancel: cancelMock,
     groupQrCode: groupQrCodeMock,
+    replaceGroupQrCode: replaceGroupQrCodeMock,
   },
 }))
 
@@ -386,5 +389,58 @@ describe('admin CarpoolsView', () => {
     await findButton(wrapper, 'common.close').trigger('click')
     await flushPromises()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-qr')
+  })
+})
+
+describe('cancel active and QR replace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    adminOverviewMock.mockResolvedValue([])
+    rosterMock.mockResolvedValue([])
+    URL.createObjectURL = vi.fn(() => 'blob:mock-qr')
+    URL.revokeObjectURL = vi.fn()
+  })
+
+  // 已发车的车也要能取消（后端仅放行 admin，并会软删全员订阅）——
+  // 但确认文案必须单独说透「订阅立即失效、不可恢复」。
+  it('offers cancel for an active carpool with a stronger warning', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, status: 'active' })])
+    cancelMock.mockResolvedValue(undefined)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.cancel').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.adminPage.confirm.cancelActive.message')
+
+    await findButton(wrapper, 'common.confirm').trigger('click')
+    await flushPromises()
+    expect(cancelMock).toHaveBeenCalledWith(1)
+  })
+
+  // 管理员在成员弹窗里换群二维码：换完要重取（旧的 object URL 吊销）。
+  it('replaces the group QR code from the members dialog', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, status: 'recruiting', hasGroupQrCode: true })])
+    rosterMock.mockResolvedValue([])
+    groupQrCodeMock.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    replaceGroupQrCodeMock.mockResolvedValue(undefined)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    const input = wrapper.find('input[type="file"]')
+    const file = new File(['x'], 'qr.png', { type: 'image/png' })
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    // FileReader 的 onload 是宏任务，flushPromises 一轮不一定等得到
+    await new Promise((r) => setTimeout(r, 20))
+    await flushPromises()
+
+    expect(replaceGroupQrCodeMock).toHaveBeenCalledWith(1, expect.stringMatching(/^data:image\/png/))
+    // 打开弹窗取了一次，换完又重取了一次
+    expect(groupQrCodeMock).toHaveBeenCalledTimes(2)
   })
 })

@@ -16,6 +16,7 @@ const {
   leaveMock,
   confirmMock,
   groupQrCodeMock,
+  replaceGroupQrCodeMock,
   rosterMock,
   recommendationMock,
   notifyCustomRuleInterestMock,
@@ -38,6 +39,7 @@ const {
   leaveMock: vi.fn(),
   confirmMock: vi.fn(),
   groupQrCodeMock: vi.fn(),
+  replaceGroupQrCodeMock: vi.fn(),
   rosterMock: vi.fn(),
   recommendationMock: vi.fn(),
   notifyCustomRuleInterestMock: vi.fn(),
@@ -63,6 +65,7 @@ vi.mock('@/api/carpools', () => ({
     unconfirm: unconfirmMock,
     pendingLaunch: pendingLaunchMock,
     groupQrCode: groupQrCodeMock,
+    replaceGroupQrCode: replaceGroupQrCodeMock,
     roster: rosterMock,
     launch: launchMock,
     declarationRecommendation: recommendationMock,
@@ -152,6 +155,8 @@ function mountView() {
     global: {
       stubs: {
         AppLayout: { template: '<div><slot /></div>' },
+        // shallowMount 会把 Teleport 桩成空壳，放大层需要它渲染出插槽内容
+        Teleport: { template: '<div class="teleport-stub"><slot /></div>' },
         BaseDialog: {
           name: 'BaseDialog',
           props: ['show', 'title', 'width'],
@@ -910,5 +915,71 @@ describe('CarpoolView', () => {
     expect(link).toContain('token-b')
     expect(link).not.toContain('token-a')
     expect(wrapper.text()).toContain('car-b')
+  })
+})
+
+describe('group QR zoom and owner replace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listCarpools.mockResolvedValue([])
+    groupQrCodeMock.mockResolvedValue(new Blob(['qr'], { type: 'image/png' }))
+    URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
+    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
+  })
+
+  // 二维码缩略图必须能点开大图：用户要拿手机扫，14px 的图扫不出来。
+  it('zooms the group QR code on click and closes on backdrop click', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, hasGroupQrCode: true })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const thumb = wrapper.find('img.cursor-zoom-in')
+    expect(thumb.exists()).toBe(true)
+    await thumb.trigger('click')
+    await flushPromises()
+
+    const zoomed = wrapper.find('.teleport-stub img')
+    expect(zoomed.exists()).toBe(true)
+    expect(zoomed.attributes('src')).toBe('blob:qr')
+
+    await wrapper.find('.teleport-stub .fixed.inset-0').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.teleport-stub img').exists()).toBe(false)
+  })
+
+  // 车主在详情弹窗里能换群二维码；普通成员看不到这个入口（后端也只放行车主/admin）。
+  it('lets the owner replace the group QR code from the detail dialog', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, hasGroupQrCode: true, memberRole: 'owner' })])
+    replaceGroupQrCodeMock.mockResolvedValue(undefined)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    await findButton(wrapper, 'carpool.wechat.replaceQr').trigger('click')
+    const input = wrapper.find('input[type="file"]')
+    expect(input.exists()).toBe(true)
+
+    const file = new File(['x'], 'qr.png', { type: 'image/png' })
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    // FileReader 的 onload 是宏任务，flushPromises 一轮不一定等得到
+    await new Promise((r) => setTimeout(r, 20))
+    await flushPromises()
+
+    expect(replaceGroupQrCodeMock).toHaveBeenCalledWith(10, expect.stringMatching(/^data:image\/png/))
+  })
+
+  it('hides the replace entry from non-owner members', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, hasGroupQrCode: true, memberRole: 'member' })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().includes('carpool.wechat.replaceQr'))).toBe(false)
   })
 })
