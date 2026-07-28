@@ -34,6 +34,8 @@ interface CarpoolResponse {
   has_group_qr_code: boolean
   launch_notified_at?: string
   confirmed_at?: string
+  // 结算冻结时间。管理总览用它标出「已结束但还没结算」的车。
+  settled_at?: string
   // 自定义规则车（含平台升级前建立的老车）：不走申报制，按 rule_note 人工结算
   pricing_model?: string
   rule_note?: string
@@ -78,6 +80,7 @@ export interface Carpool {
   hasGroupQrCode: boolean
   launchNotifiedAt?: string
   confirmedAt?: string
+  settledAt?: string
   pricingModel: string
   ruleNote: string
   weeklyLimitUsd: number
@@ -260,6 +263,7 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     hasGroupQrCode: !!item.has_group_qr_code,
     launchNotifiedAt: item.launch_notified_at,
     confirmedAt: item.confirmed_at,
+    settledAt: item.settled_at,
     pricingModel: item.pricing_model || 'quota',
     ruleNote: item.rule_note || '',
     weeklyLimitUsd: item.weekly_limit_usd,
@@ -375,6 +379,84 @@ export async function groupQrCode(id: number, inviteToken?: string): Promise<Blo
   return data
 }
 
+// 车上现有成员与各自申报额度。私密车同样要带邀请 token（后端与二维码共用一道闸）。
+export interface CarpoolRosterMember {
+  userId: number
+  username: string
+  // 仅管理员可见（后端只对 admin 输出）
+  email?: string
+  role: CarpoolRole
+  declaredWeeklyQuotaUsd: number
+}
+
+interface CarpoolRosterMemberResponse {
+  user_id: number
+  username: string
+  email?: string
+  role: CarpoolRole
+  declared_weekly_quota_usd: number
+}
+
+export async function roster(id: number, inviteToken?: string): Promise<CarpoolRosterMember[]> {
+  const { data } = await apiClient.get<CarpoolRosterMemberResponse[]>(`/carpools/${id}/roster`, {
+    params: inviteToken ? { token: inviteToken } : undefined,
+  })
+  return (data || []).map((item) => ({
+    userId: item.user_id,
+    username: item.username || '',
+    email: item.email || undefined,
+    role: item.role,
+    declaredWeeklyQuotaUsd: item.declared_weekly_quota_usd || 0,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// 管理端。权限在后端按 isAdmin 判定，前端只负责不给非管理员渲染入口。
+// ---------------------------------------------------------------------------
+
+// 全部拼车（含私密、已取消、已结束）。用户侧的 list 只返回「公开未取消 + 我是成员」，
+// 管理员照样看不到别人的私密车，所以总览必须走这个单独的口子。
+export async function adminOverview(): Promise<Carpool[]> {
+  const { data } = await apiClient.get<CarpoolResponse[]>('/carpools/admin/overview')
+  return (data || []).map(mapCarpool)
+}
+
+// 发车前把某位成员移出车。后端会释放其申报额度；若因此跌破发车线，
+// 车会自动退回招募中（响应里的 auto_unconfirmed 为 true）。
+export async function removeMember(id: number, userId: number): Promise<{ carpool: Carpool; autoUnconfirmed: boolean }> {
+  const { data } = await apiClient.post<CarpoolMutationResponse & { auto_unconfirmed?: boolean }>(
+    `/carpools/${id}/members/${userId}/remove`)
+  return { carpool: mapCarpool(data.carpool), autoUnconfirmed: !!data.auto_unconfirmed }
+}
+
+// 代改成员申报额度：有人报错时不必「下车再上车」，中间座位可能被别人抢走。
+export async function updateMemberQuota(id: number, userId: number, declaredWeeklyQuotaUsd: number): Promise<{ carpool: Carpool; autoUnconfirmed: boolean }> {
+  const { data } = await apiClient.patch<CarpoolMutationResponse & { auto_unconfirmed?: boolean }>(
+    `/carpools/${id}/members/${userId}/quota`,
+    { declared_weekly_quota_usd: declaredWeeklyQuotaUsd })
+  return { carpool: mapCarpool(data.carpool), autoUnconfirmed: !!data.auto_unconfirmed }
+}
+
+export interface UpdateCarpoolPayload {
+  name?: string
+  description?: string
+  visibility?: CarpoolVisibility
+  scheduled_start_at?: string
+}
+
+// 改车的基本信息。只传要改的字段，未传的后端保持原值。
+export async function updateCarpool(id: number, payload: UpdateCarpoolPayload): Promise<Carpool> {
+  const { data } = await apiClient.patch<CarpoolMutationResponse>(`/carpools/${id}`, payload)
+  return mapCarpool(data.carpool)
+}
+
+// 把车主转给车上另一位在册成员（车主毕业/退群后这辆车本来会锁死）。
+export async function transferOwner(id: number, newOwnerUserId: number): Promise<Carpool> {
+  const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/transfer-owner`,
+    { new_owner_user_id: newOwnerUserId })
+  return mapCarpool(data.carpool)
+}
+
 // 撤回确认（confirmed → recruiting）：车主或 admin，给"等管理员启动"这段状态一个出口。
 export async function unconfirm(id: number): Promise<Carpool> {
   const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/unconfirm`)
@@ -482,6 +564,12 @@ export default {
   unconfirm,
   pendingLaunch,
   groupQrCode,
+  roster,
+  adminOverview,
+  removeMember,
+  updateMemberQuota,
+  updateCarpool,
+  transferOwner,
   launch,
   declarationRecommendation,
   notifyCustomRuleInterest,

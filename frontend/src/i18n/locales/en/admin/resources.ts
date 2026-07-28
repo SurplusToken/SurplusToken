@@ -372,6 +372,10 @@ export default {
     },
 
     // Announcements
+    carpools: {
+      title: 'Carpool admin',
+      description: 'Overview of every carpool; adjust members and details before launch'
+    },
     announcements: {
       title: 'Announcements',
       description: 'Create announcements and target by conditions',

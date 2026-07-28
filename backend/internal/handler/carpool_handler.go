@@ -275,6 +275,26 @@ func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
 	c.Data(http.StatusOK, contentType, data)
 }
 
+// Roster 返回车上现有成员与各自申报额度，供上车弹窗展示：
+// 让人在填申报额度之前就知道席位费要跟几个人分、别人分别报了多少。
+func (h *CarpoolHandler) Roster(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	members, err := h.service.GetRoster(c.Request.Context(), id,
+		subject.UserID, isCarpoolAdmin(c), c.Query("token"))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, members)
+}
+
 // Unconfirm 撤回确认（confirmed → recruiting）：车主或 admin。
 // 给"等 admin 启动"这段状态一个出口，避免车连人带钱无限挂起。
 func (h *CarpoolHandler) Unconfirm(c *gin.Context) {
@@ -439,6 +459,158 @@ func parseCarpoolID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		response.BadRequest(c, "Invalid carpool ID")
+		return 0, false
+	}
+	return id, true
+}
+
+// ---------------------------------------------------------------------------
+// 管理端
+// ---------------------------------------------------------------------------
+
+// AdminOverview 返回全部拼车（含私密、已取消、已结束），供管理总览页。
+func (h *CarpoolHandler) AdminOverview(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	items, err := h.service.ListForAdmin(c.Request.Context(), subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, items)
+}
+
+// RemoveMember 管理员在发车前把某位成员移出车。
+func (h *CarpoolHandler) RemoveMember(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	memberID, ok := parseCarpoolMemberUserID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.RemoveMember(c.Request.Context(), id, memberID,
+		subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// UpdateMemberQuota 管理员代改成员申报额度。
+func (h *CarpoolHandler) UpdateMemberQuota(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	memberID, ok := parseCarpoolMemberUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	result, err := h.service.UpdateMemberQuota(c.Request.Context(), id, memberID,
+		subject.UserID, isCarpoolAdmin(c), req.DeclaredWeeklyQuotaUSD)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// UpdateCarpool 管理员改车的基本信息（未传的字段保持不变）。
+func (h *CarpoolHandler) UpdateCarpool(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Name             *string `json:"name"`
+		Description      *string `json:"description"`
+		Visibility       *string `json:"visibility"`
+		ScheduledStartAt *string `json:"scheduled_start_at"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	// 前端的日期控件给的是 YYYY-MM-DD（与 Create 同一口径）；直接绑 *time.Time
+	// 只认 RFC3339，管理员每次保存编辑都会被它打成 400。
+	var scheduledStartAt *time.Time
+	if req.ScheduledStartAt != nil && strings.TrimSpace(*req.ScheduledStartAt) != "" {
+		start, err := time.Parse("2006-01-02", strings.TrimSpace(*req.ScheduledStartAt))
+		if err != nil {
+			response.BadRequest(c, "scheduled_start_at must use YYYY-MM-DD")
+			return
+		}
+		scheduledStartAt = &start
+	}
+	result, err := h.service.UpdateCarpool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c),
+		service.UpdateCarpoolInput{
+			Name:             req.Name,
+			Description:      req.Description,
+			Visibility:       req.Visibility,
+			ScheduledStartAt: scheduledStartAt,
+		})
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// TransferOwner 把车主转给车上另一位在册成员。
+func (h *CarpoolHandler) TransferOwner(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		NewOwnerUserID int64 `json:"new_owner_user_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	result, err := h.service.TransferOwner(c.Request.Context(), id, req.NewOwnerUserID,
+		subject.UserID, isCarpoolAdmin(c))
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// parseCarpoolMemberUserID 解析路径里的成员用户 ID。
+func parseCarpoolMemberUserID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("userId"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "invalid member user id")
 		return 0, false
 	}
 	return id, true

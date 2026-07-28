@@ -65,9 +65,10 @@ export default {
       declaredOf: '已预约 {declared} / {limit} USD',
       launchLine: '{ratio}% 发车线',
       remainingJoinable: '剩余可预约',
-      plusEquivalents: 'Plus 等价',
-      avgPrice: '均价',
-      avgPriceUnit: '¥ / Plus等价 / 月',
+      effectiveRate: '等效倍率',
+      effectiveRateHint: '¥1 ≈ 官方 ${usd}',
+      carMonthlyFee: '整车月费',
+      carMonthlyFeeUnit: '席位 {seat} + 用量 {pool}',
       members: '已上车 {count} 人'
     },
     roles: {
@@ -161,9 +162,20 @@ export default {
       floorUnit: 'USD/周',
       previewPrepaid: '预计预付',
       previewAvgPrice: '该车当前均价',
-      previewYourPrice: '你的折算单价',
-      yourPriceUnit: '¥ / Plus等价 / 月',
-      priceAboveAverage: '按你的申报折算，你的单价是 {yours}，约为全车均价（{average}）的 {times} 倍——席位费按人头均摊，申报越少单价越高。',
+      previewEffectiveRate: '等效倍率',
+      effectiveRateUnit: '¥1 ≈ 官方 ${usd}',
+      effectiveRateBasis: '按 31 天折算',
+      prepaidBreakdown: '席位 {seat} + 用量 {pool}',
+      seatShareHint: '席位费 {total} ÷ {people} 人 = {each}/人',
+      rosterTitle: '车上现有成员',
+      rosterSummary: '{count} 人 · 共 {total}/周',
+      rosterLoading: '正在加载成员…',
+      rosterFailed: '成员列表加载失败，不影响上车',
+      rosterEmpty: '还没有人上车，你是第一位',
+      rosterOwner: '车主',
+      rosterYou: '你（本次申报）',
+      rosterAnonymous: '同学 #{id}',
+      rateAboveAverage: '按你的申报折算，你的等效倍率是 {yours}，约为全车平均（{average}）的 {times} 倍——席位费按人头均摊，申报越少越不划算。',
       floorNotice: '即使未用满，也至少按申报的 80% 计费。',
       exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
       belowFloor: '申报额度不能低于 {min} USD/周',
@@ -254,6 +266,76 @@ export default {
       unsettle: '撤销结算',
       unsettleSuccess: '已撤销结算，回到实时预览',
       blockedNotLaunched: '发车后才能结算'
+    },
+    adminPage: {
+      alertsTitle: '需要处理',
+      alerts: {
+        launchOverdue: '确认超 24 小时未启动',
+        unsettled: '已结束未结算',
+        overDeclared: '申报超上限',
+        readyToConfirm: '已达发车线待确认'
+      },
+      allStatuses: '全部状态',
+      searchPlaceholder: '搜索车名或发起人',
+      total: '显示 {count} / 共 {all} 辆',
+      empty: '没有符合条件的拼车',
+      perWeek: '周',
+      columns: {
+        name: '拼车',
+        status: '状态',
+        owner: '发起人',
+        members: '人数',
+        declared: '申报 / 限额',
+        settled: '结算时间',
+        actions: '操作'
+      },
+      actions: {
+        members: '成员',
+        edit: '编辑',
+        transfer: '转让车主',
+        editQuota: '改额度',
+        remove: '移出'
+      },
+      membersDialog: {
+        title: '「{name}」的成员',
+        hint: '发车前可以移出成员或代改申报额度，额度会立即释放并重算发车进度。',
+        readOnly: '这辆车已发车或已结束，成员只能查看——改人涉及退补款，请走结算流程。',
+        empty: '这辆车还没有成员',
+        groupQr: '群二维码',
+        qrOpen: '查看大图',
+        qrLoading: '二维码加载中…',
+        qrFailed: '二维码加载失败，点击重试'
+      },
+      editDialog: {
+        title: '编辑拼车'
+      },
+      transferDialog: {
+        title: '转让车主',
+        hint: '新车主必须是车上现有成员，转让后原车主降为普通成员。',
+        pick: '选择新车主'
+      },
+      confirm: {
+        unconfirm: {
+          title: '撤回确认',
+          message: '把「{name}」退回招募中？成员与申报额度都保留，重新开放上车。',
+          success: '已撤回确认'
+        },
+        launch: {
+          title: '启动发车',
+          message: '确认启动「{name}」？启动后按 80% 保底 + 公共池配置限额，本月锁定。',
+          success: '已发车'
+        },
+        cancel: {
+          title: '取消拼车',
+          message: '取消「{name}」后邀请链接失效，已预约的额度全部释放。',
+          success: '拼车已取消'
+        }
+      },
+      autoUnconfirmed: '操作已生效。总申报跌破发车线，这辆车已自动退回招募中，并已邮件通知车主。',
+      memberRemoved: '成员已移出，申报额度已释放',
+      quotaUpdated: '申报额度已更新',
+      updated: '拼车信息已更新',
+      ownerTransferred: '车主已转让'
     },
     admin: {
       locked: '已停止新成员上车',

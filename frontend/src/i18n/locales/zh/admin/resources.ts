@@ -369,6 +369,10 @@ export default {
     },
 
     // Announcements
+    carpools: {
+      title: '拼车管理',
+      description: '总览全部拼车，发车前调整成员与车辆信息'
+    },
     announcements: {
       title: '公告管理',
       description: '创建公告并按条件投放',

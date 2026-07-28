@@ -16,6 +16,7 @@ const {
   leaveMock,
   confirmMock,
   groupQrCodeMock,
+  rosterMock,
   recommendationMock,
   notifyCustomRuleInterestMock,
   unconfirmMock,
@@ -37,6 +38,7 @@ const {
   leaveMock: vi.fn(),
   confirmMock: vi.fn(),
   groupQrCodeMock: vi.fn(),
+  rosterMock: vi.fn(),
   recommendationMock: vi.fn(),
   notifyCustomRuleInterestMock: vi.fn(),
   unconfirmMock: vi.fn(),
@@ -61,6 +63,7 @@ vi.mock('@/api/carpools', () => ({
     unconfirm: unconfirmMock,
     pendingLaunch: pendingLaunchMock,
     groupQrCode: groupQrCodeMock,
+    roster: rosterMock,
     launch: launchMock,
     declarationRecommendation: recommendationMock,
     notifyCustomRuleInterest: notifyCustomRuleInterestMock,
@@ -191,6 +194,8 @@ describe('CarpoolView', () => {
     leaveMock.mockReset()
     confirmMock.mockReset()
     groupQrCodeMock.mockReset()
+    rosterMock.mockReset()
+    rosterMock.mockResolvedValue([])
     groupQrCodeMock.mockResolvedValue(new Blob(['qr'], { type: 'image/png' }))
     recommendationMock.mockReset()
     recommendationMock.mockResolvedValue({
@@ -262,8 +267,8 @@ describe('CarpoolView', () => {
 
     expect(card.text()).toContain('carpool.fields.quotaProgress')
     expect(card.text()).toContain('carpool.fields.remainingJoinable')
-    expect(card.text()).toContain('carpool.fields.plusEquivalents')
-    expect(card.text()).toContain('carpool.fields.avgPrice')
+    expect(card.text()).toContain('carpool.fields.effectiveRate')
+    expect(card.text()).toContain('carpool.fields.carMonthlyFee')
     expect(card.text()).not.toContain('carpool.fields.seatsRemaining')
   })
 
@@ -555,7 +560,7 @@ describe('CarpoolView', () => {
 
   // 加入对话框展示"你的折算单价"而不是全车均价：席位费按人头均摊，
   // 申报越小单价越高，均价对轻度用户是系统性低估。
-  it('previews the joiner own unit price instead of the car average', async () => {
+  it('previews the joiner own effective rate instead of the car average', async () => {
     listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberCount: 3, avgPriceCny: 90 })])
 
     const wrapper = mountView()
@@ -563,13 +568,56 @@ describe('CarpoolView', () => {
     await findButton(wrapper, 'carpool.actions.join').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('carpool.joinDialog.previewYourPrice')
+    expect(wrapper.text()).toContain('carpool.joinDialog.previewEffectiveRate')
     expect(wrapper.text()).not.toContain('carpool.joinDialog.previewAvgPrice')
 
-    // 申报 $60（0.5 个 Plus 等价）：预付 = 400/4 + 1000×60/2400 = 125，
-    // 折算单价 = 125 / 0.5 = ¥250，远高于全车均价 ¥90 → 触发偏离提示。
+    // 申报 $60：预付 = 400/4 + 1000×60/2400 = ¥125，31 天可用 60×31/7 = $265.7，
+    // 等效倍率 = 125/265.7 ≈ 0.47；全车 = 1400/(2400×31/7) ≈ 0.13，约 3.6 倍 → 触发提示。
     await wrapper.get('#carpool-join-quota').setValue(60)
-    expect(wrapper.text()).toContain('carpool.joinDialog.priceAboveAverage')
+    expect(wrapper.text()).toContain('carpool.joinDialog.rateAboveAverage')
+  })
+
+  // 上车前要看得见"车上有几个人、席位费怎么分、别人各报了多少"——
+  // 这三件事直接决定自己该报多少，只给一个合计预付是看不出来的。
+  it('shows the roster and how the seat fee is split before joining', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberCount: 2 })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'owner-zhao', role: 'owner', declaredWeeklyQuotaUsd: 300 },
+      { userId: 2, username: '', role: 'member', declaredWeeklyQuotaUsd: 900 },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    expect(rosterMock).toHaveBeenCalledWith(10, undefined)
+    const roster = wrapper.get('[data-testid="carpool-join-roster"]')
+    expect(roster.text()).toContain('owner-zhao')
+    expect(roster.text()).toContain('$300')
+    expect(roster.text()).toContain('$900')
+    // 生产上确实有用户名为空的成员，不能渲染成一行空白
+    expect(roster.text()).toContain('carpool.joinDialog.rosterAnonymous')
+    // 席位费按"现有 2 人 + 我"= 3 人分摊，预付也拆成席位 + 用量两部分
+    expect(wrapper.text()).toContain('carpool.joinDialog.seatShareHint')
+    expect(wrapper.text()).toContain('carpool.joinDialog.prepaidBreakdown')
+  })
+
+  // 花名册只是参考信息，接口挂了不该把人挡在车外。
+  it('degrades gracefully when the roster fails to load', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10 })])
+    rosterMock.mockRejectedValue(new Error('boom'))
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.rosterFailed')
+    expect(wrapper.find('[data-testid="carpool-join-roster"]').exists()).toBe(false)
+    // 申报输入和预付试算照常工作——花名册失败不影响主流程
+    await wrapper.get('#carpool-join-quota').setValue(100)
+    expect(wrapper.text()).toContain('carpool.joinDialog.previewEffectiveRate')
   })
 
   // confirmed 的车原来在前端是死胡同：车主没有任何入口，只能等 admin。
@@ -777,7 +825,7 @@ describe('CarpoolView', () => {
     expect(box.text()).toContain('carpool.customRule.badge')
     expect(box.text()).toContain('基础费 ¥130/席')
     expect(wrapper.text()).not.toContain('carpool.fields.quotaProgress')
-    expect(wrapper.text()).not.toContain('carpool.fields.avgPrice')
+    expect(wrapper.text()).not.toContain('carpool.fields.carMonthlyFee')
     expect(wrapper.text()).not.toContain('carpool.fields.remainingJoinable')
   })
 

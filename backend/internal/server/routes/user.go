@@ -259,12 +259,19 @@ func RegisterUserRoutes(
 			carpools.POST("/:id/confirm", h.Carpool.Confirm)
 			carpools.POST("/:id/unconfirm", h.Carpool.Unconfirm)
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
+			carpools.GET("/:id/roster", h.Carpool.Roster)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)
 			carpools.POST("/:id/settlement/unsettle", h.Carpool.Unsettle)
 			carpools.POST("/:id/cancel", h.Carpool.Cancel)
 			carpools.PATCH("/:id/join-lock", h.Carpool.SetJoinLocked)
+			// 管理端：总览与发车前管理，权限在 service 层按 isAdmin 判定。
+			carpools.GET("/admin/overview", h.Carpool.AdminOverview)
+			carpools.PATCH("/:id", h.Carpool.UpdateCarpool)
+			carpools.POST("/:id/transfer-owner", h.Carpool.TransferOwner)
+			carpools.POST("/:id/members/:userId/remove", h.Carpool.RemoveMember)
+			carpools.PATCH("/:id/members/:userId/quota", h.Carpool.UpdateMemberQuota)
 		}
 
 		// 渠道监控（用户只读）
