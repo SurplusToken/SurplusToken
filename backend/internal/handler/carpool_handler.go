@@ -271,7 +271,9 @@ func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
 		return
 	}
 	// private：二维码是按调用者身份授权的，不能进共享缓存（CDN/代理）。
-	c.Header("Cache-Control", "private, max-age=300")
+	// no-cache 而不是 max-age：换码后浏览器若继续吃 5 分钟旧缓存，
+	// 「更换成功」就是个谎言——每次用前必须回源确认。
+	c.Header("Cache-Control", "private, no-cache")
 	c.Data(http.StatusOK, contentType, data)
 }
 
