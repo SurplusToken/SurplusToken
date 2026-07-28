@@ -28,16 +28,16 @@ type launchFlowRepoStub struct {
 	pendingLaunch []CarpoolPendingLaunch
 
 	// 管理端：记录入参并返回预设结果，供下面的管理端用例断言。
-	allCarpools     []Carpool
-	removeResult    *CarpoolMutationResult
-	removedMemberID int64
-	quotaResult     *CarpoolMutationResult
-	updatedQuota    float64
-	updateResult    *CarpoolMutationResult
-	updateInput     *UpdateCarpoolInput
-	transferResult  *CarpoolMutationResult
-	transferredTo   int64
-	carpoolByID     *Carpool
+	allCarpools       []Carpool
+	removeResult      *CarpoolMutationResult
+	removedMemberID   int64
+	quotaResult       *CarpoolMutationResult
+	updatedQuota      float64
+	updateResult      *CarpoolMutationResult
+	updateInput       *UpdateCarpoolInput
+	transferResult    *CarpoolMutationResult
+	transferredTo     int64
+	carpoolByID       *Carpool
 	settlementMembers []CarpoolSettlementMemberRow
 }
 
