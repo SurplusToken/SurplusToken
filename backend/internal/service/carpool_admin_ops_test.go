@@ -180,3 +180,19 @@ func TestCarpoolRosterEmailOnlyForAdmin(t *testing.T) {
 	require.Len(t, roster, 1)
 	require.Equal(t, "bob@test.local", roster[0].Email)
 }
+
+// 更换群二维码：非图片在打到仓储之前就被拒；合法图片解析出字节与内容类型后下传
+// （车主/admin 的权限闸在仓储锁内复核，与 CreateInvite 同一处）。
+func TestCarpoolReplaceGroupQRCodeValidatesAndForwards(t *testing.T) {
+	repo := &launchFlowRepoStub{}
+	svc := adminOpsService(repo, &recordingSender{}, nil)
+
+	err := svc.ReplaceGroupQRCode(context.Background(), 10, 7, false, "not-an-image")
+	require.ErrorIs(t, err, ErrCarpoolGroupQRCodeInvalid)
+	require.Nil(t, repo.qrReplaceData)
+
+	err = svc.ReplaceGroupQRCode(context.Background(), 10, 7, false, "data:image/png;base64,iVBORw0KGgo=")
+	require.NoError(t, err)
+	require.NotEmpty(t, repo.qrReplaceData)
+	require.Equal(t, "image/png", repo.qrReplaceType)
+}

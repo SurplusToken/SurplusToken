@@ -275,6 +275,32 @@ func (h *CarpoolHandler) GroupQRCode(c *gin.Context) {
 	c.Data(http.StatusOK, contentType, data)
 }
 
+// ReplaceGroupQRCode 车主或 admin 更换群二维码：二维码会过期、群也会换，
+// 没有它车主只能解散重建整辆车。
+func (h *CarpoolHandler) ReplaceGroupQRCode(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		GroupQRCode string `json:"group_qr_code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	if err := h.service.ReplaceGroupQRCode(c.Request.Context(), id, subject.UserID,
+		isCarpoolAdmin(c), req.GroupQRCode); response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, gin.H{"replaced": true})
+}
+
 // Roster 返回车上现有成员与各自申报额度，供上车弹窗展示：
 // 让人在填申报额度之前就知道席位费要跟几个人分、别人分别报了多少。
 func (h *CarpoolHandler) Roster(c *gin.Context) {

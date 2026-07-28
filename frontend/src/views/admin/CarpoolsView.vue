@@ -132,38 +132,48 @@
         <p v-if="!canManageMembers(activeCarpool)" class="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-dark-800 dark:text-dark-300">
           {{ t('carpool.adminPage.membersDialog.readOnly') }}
         </p>
-        <!-- 建车时上传的群二维码：只在弹窗打开时现取，关掉即吊销 object URL（私密车的二维码=入场券） -->
-        <div
-          v-if="activeCarpool.hasGroupQrCode"
-          class="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-700/40"
-        >
+        <!-- 群二维码：打开弹窗时现取，关掉即吊销 object URL（私密车的二维码=入场券）。
+             管理员可在此更换——二维码会过期、群也会换，不必整车重建。 -->
+        <div class="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-700/40">
           <img
             v-if="qrCodeUrl"
             :src="qrCodeUrl"
             :alt="t('carpool.adminPage.membersDialog.groupQr')"
-            class="h-14 w-14 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            class="h-14 w-14 shrink-0 cursor-zoom-in rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            @click="qrZoomUrl = qrCodeUrl"
           />
-          <div class="min-w-0 text-xs">
+          <div class="min-w-0 flex-1 text-xs">
             <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.adminPage.membersDialog.groupQr') }}</div>
-            <a
-              v-if="qrCodeUrl"
-              :href="qrCodeUrl"
-              target="_blank"
-              rel="noopener"
-              class="mt-1 inline-block text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-            >
-              {{ t('carpool.adminPage.membersDialog.qrOpen') }}
-            </a>
-            <span v-else-if="qrLoading" class="mt-1 inline-block text-gray-400">{{ t('carpool.adminPage.membersDialog.qrLoading') }}</span>
-            <button
-              v-else-if="qrFailed"
-              type="button"
-              class="mt-1 inline-block text-amber-600 hover:text-amber-700 dark:text-amber-400"
-              @click="loadQrCode(activeCarpool.id)"
-            >
-              {{ t('carpool.adminPage.membersDialog.qrFailed') }}
-            </button>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <a
+                v-if="qrCodeUrl"
+                :href="qrCodeUrl"
+                target="_blank"
+                rel="noopener"
+                class="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              >
+                {{ t('carpool.adminPage.membersDialog.qrOpen') }}
+              </a>
+              <span v-else-if="qrLoading" class="text-gray-400">{{ t('carpool.adminPage.membersDialog.qrLoading') }}</span>
+              <button
+                v-else-if="qrFailed"
+                type="button"
+                class="text-amber-600 hover:text-amber-700 dark:text-amber-400"
+                @click="loadQrCode(activeCarpool.id)"
+              >
+                {{ t('carpool.adminPage.membersDialog.qrFailed') }}
+              </button>
+              <button
+                type="button"
+                class="text-primary-600 hover:text-primary-700 disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
+                :disabled="qrReplacing"
+                @click="qrFileInput?.click()"
+              >
+                {{ qrReplacing ? t('common.loading') : t(activeCarpool.hasGroupQrCode ? 'carpool.adminPage.membersDialog.qrReplace' : 'carpool.adminPage.membersDialog.qrUpload') }}
+              </button>
+            </div>
           </div>
+          <input ref="qrFileInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="handleQrFileChange" />
         </div>
         <p v-if="rosterLoading" class="text-xs text-gray-400">{{ t('carpool.joinDialog.rosterLoading') }}</p>
         <p v-else-if="rosterFailed" class="text-xs text-amber-600">{{ t('carpool.joinDialog.rosterFailed') }}</p>
@@ -284,6 +294,16 @@
         </div>
       </template>
     </BaseDialog>
+    <!-- 二维码点击放大 -->
+    <Teleport to="body">
+      <div
+        v-if="qrZoomUrl"
+        class="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+        @click="qrZoomUrl = null"
+      >
+        <img :src="qrZoomUrl" :alt="t('carpool.adminPage.membersDialog.groupQr')" class="max-h-[85vh] max-w-[90vw] rounded-lg bg-white object-contain p-2" />
+      </div>
+    </Teleport>
   </AppLayout>
 </template>
 
@@ -340,6 +360,9 @@ const confirmAction = ref<{ kind: ConfirmKind; carpool: Carpool } | null>(null)
 const qrCodeUrl = ref<string | null>(null)
 const qrLoading = ref(false)
 const qrFailed = ref(false)
+const qrZoomUrl = ref<string | null>(null)
+const qrFileInput = ref<HTMLInputElement | null>(null)
+const qrReplacing = ref(false)
 
 const editForm = reactive({
   name: '',
@@ -454,7 +477,10 @@ function canTransfer(carpool: Carpool): boolean {
 }
 
 function canCancel(carpool: Carpool): boolean {
-  return carpool.status === 'recruiting' || carpool.status === 'confirmed' || carpool.status === 'starting'
+  // active 也放行：后端对 confirmed/active 只认 admin（本页就是管理员页）。
+  // 取消已发车的车会软删全员订阅，确认弹窗里有单独的重警示文案。
+  return carpool.status === 'recruiting' || carpool.status === 'confirmed'
+    || carpool.status === 'starting' || carpool.status === 'active'
 }
 
 const confirmTitle = computed(() => {
@@ -464,8 +490,12 @@ const confirmTitle = computed(() => {
 
 const confirmMessage = computed(() => {
   if (!confirmAction.value) return ''
-  return t(`carpool.adminPage.confirm.${confirmAction.value.kind}.message`,
-    { name: confirmAction.value.carpool.name })
+  const { kind, carpool } = confirmAction.value
+  // 取消已发车的车比取消招募中的车严重得多：全员订阅立即失效，文案要单独说透。
+  if (kind === 'cancel' && carpool.status === 'active') {
+    return t('carpool.adminPage.confirm.cancelActive.message', { name: carpool.name })
+  }
+  return t(`carpool.adminPage.confirm.${kind}.message`, { name: carpool.name })
 })
 
 function errorMessage(error: unknown): string {
@@ -531,6 +561,35 @@ function openMembers(carpool: Carpool): void {
 function closeMembers(): void {
   membersOpen.value = false
   revokeQrCode()
+}
+
+// 更换群二维码：读成 data URL 直接复用创建那套后端校验（png/jpeg/webp ≤2MB）。
+async function handleQrFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const carpool = activeCarpool.value
+  if (!file || !carpool) return
+  if (file.size > 2 * 1024 * 1024) {
+    appStore.showError(t('carpool.createDialog.qrTooLarge'))
+    return
+  }
+  qrReplacing.value = true
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    await carpoolAPI.replaceGroupQrCode(carpool.id, dataUrl)
+    appStore.showSuccess(t('carpool.adminPage.membersDialog.qrReplaced'))
+    await Promise.all([loadQrCode(carpool.id), load()])
+  } catch (error) {
+    appStore.showError(errorMessage(error))
+  } finally {
+    qrReplacing.value = false
+  }
 }
 
 function openEdit(carpool: Carpool): void {

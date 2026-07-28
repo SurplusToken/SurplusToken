@@ -427,6 +427,8 @@ type CarpoolRepository interface {
 	Cancel(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) error
 	SetJoinLocked(ctx context.Context, carpoolID, actorUserID int64, locked bool) error
 	GetGroupQRCode(ctx context.Context, carpoolID int64) (data []byte, contentType string, err error)
+	// SetGroupQRCode 更换群二维码：车主或 admin。群换了（老群炸号/重拉）不必整车重建。
+	SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error
 	ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error)
 	// PersistSettlement 冻结结算：仅当车未结算时写入（settled_at IS NULL 为幂等守卫），
 	// 已结算返回 ErrCarpoolAlreadySettled。
@@ -778,6 +780,16 @@ func (s *CarpoolService) GetGroupQRCode(ctx context.Context, carpoolID, actorUse
 		return nil, "", ErrCarpoolForbidden
 	}
 	return s.repo.GetGroupQRCode(ctx, carpoolID)
+}
+
+// ReplaceGroupQRCode 更换群二维码：车主或 admin。群二维码会过期、群也会换，
+// 没有它车主只能解散重建整辆车。校验与创建同一口径（parseCarpoolGroupQRCode）。
+func (s *CarpoolService) ReplaceGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, raw string) error {
+	data, contentType, err := parseCarpoolGroupQRCode(raw)
+	if err != nil {
+		return err
+	}
+	return s.repo.SetGroupQRCode(ctx, carpoolID, actorUserID, isAdmin, data, contentType)
 }
 
 // CarpoolRosterMember 是上车弹窗里的"车上还有谁、各自申报多少"。

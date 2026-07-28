@@ -379,6 +379,11 @@ export async function groupQrCode(id: number, inviteToken?: string): Promise<Blo
   return data
 }
 
+// 更换群二维码（车主/admin）：二维码会过期、群也会换，不必整车重建。
+export async function replaceGroupQrCode(id: number, groupQrCode: string): Promise<void> {
+  await apiClient.put(`/carpools/${id}/qr-code`, { group_qr_code: groupQrCode })
+}
+
 // 车上现有成员与各自申报额度。私密车同样要带邀请 token（后端与二维码共用一道闸）。
 export interface CarpoolRosterMember {
   userId: number
@@ -564,6 +569,7 @@ export default {
   unconfirm,
   pendingLaunch,
   groupQrCode,
+  replaceGroupQrCode,
   roster,
   adminOverview,
   removeMember,

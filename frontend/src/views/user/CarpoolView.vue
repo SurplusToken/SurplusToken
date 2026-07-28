@@ -264,7 +264,8 @@
                 v-if="qrCodeUrls[carpool.id]"
                 :src="qrCodeUrls[carpool.id]"
                 :alt="t('carpool.wechat.scanToJoin')"
-                class="h-14 w-14 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+                class="h-14 w-14 shrink-0 cursor-zoom-in rounded-md border border-gray-200 object-cover dark:border-dark-600"
+                @click="qrZoomUrl = qrCodeUrls[carpool.id]"
               />
               <div class="min-w-0 text-xs">
                 <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
@@ -787,9 +788,10 @@
             v-if="qrCodeUrls[selectedCarpool.id]"
             :src="qrCodeUrls[selectedCarpool.id]"
             :alt="t('carpool.wechat.scanToJoin')"
-            class="h-20 w-20 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            class="h-20 w-20 shrink-0 cursor-zoom-in rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            @click="qrZoomUrl = qrCodeUrls[selectedCarpool.id]"
           />
-          <div class="min-w-0 text-xs leading-5 text-gray-500 dark:text-dark-300">
+          <div class="min-w-0 flex-1 text-xs leading-5 text-gray-500 dark:text-dark-300">
             <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
             <button
               type="button"
@@ -800,6 +802,18 @@
               <Icon name="copy" size="xs" />
               <span>{{ t('carpool.wechat.adminLabel') }}: {{ selectedCarpool.adminWechat || ADMIN_WECHAT }}</span>
             </button>
+            <!-- 车主换码入口：二维码会过期、群也会换，不必整车重建（后端对车主/admin 放行） -->
+            <button
+              v-if="selectedCarpool.memberRole === 'owner'"
+              type="button"
+              class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
+              :disabled="qrReplacing"
+              @click="replaceQrInput?.click()"
+            >
+              <Icon name="edit" size="xs" />
+              <span>{{ qrReplacing ? t('common.loading') : t('carpool.wechat.replaceQr') }}</span>
+            </button>
+            <input ref="replaceQrInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="handleReplaceQrFile" />
           </div>
         </div>
       </div>
@@ -938,6 +952,17 @@
       @confirm="runConfirmedAction"
       @cancel="confirmAction = null"
     />
+
+    <!-- 群二维码点击放大 -->
+    <Teleport to="body">
+      <div
+        v-if="qrZoomUrl"
+        class="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+        @click="qrZoomUrl = null"
+      >
+        <img :src="qrZoomUrl" :alt="t('carpool.wechat.scanToJoin')" class="max-h-[85vh] max-w-[90vw] rounded-lg bg-white object-contain p-2" />
+      </div>
+    </Teleport>
   </AppLayout>
 </template>
 
@@ -1039,6 +1064,9 @@ const joinInviteToken = ref('')
 const joinForm = reactive({ declaredQuota: null as number | null, joinedGroup: false })
 const joinQrUrl = ref('')
 const qrCodeUrls = ref<Record<number, string>>({})
+const qrZoomUrl = ref<string | null>(null)
+const replaceQrInput = ref<HTMLInputElement | null>(null)
+const qrReplacing = ref(false)
 const recommendation = ref<DeclarationRecommendation | null>(null)
 const recommendationLoading = ref(false)
 const recommendationFailed = ref(false)
@@ -1314,6 +1342,49 @@ function ensureQrCodes(items: Carpool[]): void {
       .catch(() => {
         // 二维码加载失败不阻塞卡片展示
       })
+  }
+}
+
+// 换码后强制重取：旧的 object URL 先吊销，失败则清掉缓存让卡片回退到无图态。
+async function refreshQrCode(carpoolID: number): Promise<void> {
+  const old = qrCodeUrls.value[carpoolID]
+  if (old) URL.revokeObjectURL(old)
+  try {
+    const blob = await carpoolAPI.groupQrCode(carpoolID)
+    qrCodeUrls.value = { ...qrCodeUrls.value, [carpoolID]: URL.createObjectURL(blob) }
+  } catch {
+    const next = { ...qrCodeUrls.value }
+    delete next[carpoolID]
+    qrCodeUrls.value = next
+  }
+}
+
+// 车主更换群二维码：读成 data URL 直接复用创建那套后端校验（png/jpeg/webp ≤2MB）。
+async function handleReplaceQrFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const carpool = selectedCarpool.value
+  if (!file || !carpool) return
+  if (file.size > 2 * 1024 * 1024) {
+    appStore.showError(t('carpool.createDialog.qrTooLarge'))
+    return
+  }
+  qrReplacing.value = true
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    await carpoolAPI.replaceGroupQrCode(carpool.id, dataUrl)
+    appStore.showSuccess(t('carpool.wechat.qrReplaced'))
+    await refreshQrCode(carpool.id)
+  } catch (error) {
+    appStore.showError(carpoolError(error))
+  } finally {
+    qrReplacing.value = false
   }
 }
 

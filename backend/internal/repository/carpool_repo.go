@@ -637,8 +637,8 @@ func (r *carpoolRepository) Cancel(ctx context.Context, carpoolID, actorUserID i
 	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
 		return service.ErrCarpoolForbidden
 	}
-	// confirmed 全锁：仅 admin 可强制取消；其余入口仅 recruiting/starting 可取消。
-	if status == "confirmed" {
+	// confirmed/active 全锁：仅 admin 可强制取消；其余入口仅 recruiting/starting 可取消。
+	if status == "confirmed" || status == "active" {
 		if !isAdmin {
 			return service.ErrCarpoolUnavailable
 		}
@@ -651,7 +651,15 @@ UPDATE carpools SET status = 'cancelled', join_locked_at = NOW(), cancelled_at =
 WHERE id = $1`, carpoolID, actorUserID); err != nil {
 		return fmt.Errorf("cancel carpool: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE carpool_members SET status = 'cancelled', updated_at = NOW() WHERE carpool_id = $1 AND status = 'joined'`, carpoolID); err != nil {
+	// 已发车的车成员持有真订阅：散车必须一并软删订阅，否则车没了人还能继续用额度。
+	if _, err := tx.ExecContext(ctx, `
+UPDATE user_subscriptions SET deleted_at = NOW()
+WHERE deleted_at IS NULL AND id IN (
+    SELECT subscription_id FROM carpool_members
+    WHERE carpool_id = $1 AND subscription_id IS NOT NULL)`, carpoolID); err != nil {
+		return fmt.Errorf("cancel carpool member subscriptions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE carpool_members SET status = 'cancelled', updated_at = NOW() WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID); err != nil {
 		return fmt.Errorf("cancel carpool members: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE carpool_invites SET revoked_at = NOW(), revoked_by_user_id = $2, updated_at = NOW() WHERE carpool_id = $1 AND revoked_at IS NULL`, carpoolID, actorUserID); err != nil {
@@ -1057,6 +1065,47 @@ SELECT group_qr_code, group_qr_code_content_type FROM carpools WHERE id = $1`, c
 		contentType = sql.NullString{String: "application/octet-stream", Valid: true}
 	}
 	return data, contentType.String, nil
+}
+
+// SetGroupQRCode 更换群二维码：车主或 admin（与 CreateInvite 同一道权限闸，在锁内
+// 复核，避免车主在并发转让后还能改）。已取消/已结束的车群已散，换码没有意义。
+func (r *carpoolRepository) SetGroupQRCode(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, data []byte, contentType string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin carpool set qr code: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load carpool for set qr code: %w", err)
+	}
+	if !isAdmin && (!ownerUserID.Valid || ownerUserID.Int64 != actorUserID) {
+		return service.ErrCarpoolForbidden
+	}
+	if status == "cancelled" || status == "ended" {
+		return service.ErrCarpoolUnavailable
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET group_qr_code = $2, group_qr_code_content_type = $3,
+    version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID, data, contentType); err != nil {
+		return fmt.Errorf("set carpool group qr code: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "qr_code_replaced"); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit carpool set qr code: %w", err)
+	}
+	return nil
 }
 
 func (r *carpoolRepository) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]service.CarpoolSettlementMemberRow, error) {
