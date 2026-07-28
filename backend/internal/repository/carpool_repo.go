@@ -1359,7 +1359,7 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 	for rows.Next() {
 		var m member
 		if err := rows.Scan(&m.id, &m.userID, &m.declared); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, nil, fmt.Errorf("scan launching carpool member: %w", err)
 		}
 		if m.declared <= 0 {
@@ -1370,7 +1370,7 @@ RETURNING id`, name, "Carpool subscription: "+description, params.weeklyLimitUSD
 		members = append(members, m)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return 0, nil, fmt.Errorf("iterate launching carpool members: %w", err)
 	}
 	if err := rows.Close(); err != nil {
