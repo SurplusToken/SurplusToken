@@ -313,6 +313,10 @@ type CarpoolMutationResult struct {
 	// LaunchBandEntered 表示本次上车使 Σ申报 首次进入发车区间（repo 已在同事务
 	// 置 launch_notified_at），service 据此在提交后通知车主确认发车。
 	LaunchBandEntered bool `json:"-"`
+
+	// AutoUnconfirmed 表示管理员的成员变动把 Σ申报 打出发车区间，repo 已在同事务
+	// 把车退回 recruiting；service 据此通知车主补人。
+	AutoUnconfirmed bool `json:"auto_unconfirmed,omitempty"`
 }
 
 // CarpoolSettlementMemberRow 是结算用的成员数据行（repo 层查询结果）。
@@ -392,8 +396,24 @@ type CarpoolSettlement struct {
 	RuleNote         string `json:"rule_note,omitempty"`
 }
 
+// UpdateCarpoolInput 是管理员可改的车辆基本信息，nil 表示该字段不动。
+type UpdateCarpoolInput struct {
+	Name             *string
+	Description      *string
+	Visibility       *string
+	ScheduledStartAt *time.Time
+}
+
 type CarpoolRepository interface {
 	List(ctx context.Context, userID int64) ([]Carpool, error)
+	// ListAll 返回全部车（含私密/已取消/已结束），仅供管理端总览。
+	ListAll(ctx context.Context, viewerUserID int64) ([]Carpool, error)
+	// RemoveMember / UpdateMemberQuota 是管理员的发车前成员管理，仅 recruiting、
+	// confirmed 可用；跌破发车线时会把车退回招募中（AutoUnconfirmed）。
+	RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*CarpoolMutationResult, error)
+	UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error)
+	UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error)
+	TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*CarpoolMutationResult, error)
 	GetByID(ctx context.Context, carpoolID, userID int64) (*Carpool, error)
 	GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error)
 	Create(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, inviteHash, inviteHint string) (*CarpoolMutationResult, error)
@@ -761,11 +781,12 @@ func (s *CarpoolService) GetGroupQRCode(ctx context.Context, carpoolID, actorUse
 }
 
 // CarpoolRosterMember 是上车弹窗里的"车上还有谁、各自申报多少"。
-// 刻意不带邮箱：邮箱只在结算单里对车主/admin 开放（见 CarpoolSettlementMemberRow），
-// 上车前的透明度不需要到能直接联系到本人的程度。
+// Email 仅对 admin 输出（管理员在成员管理里要直接联系到人）；普通成员与邀请
+// 持有者看到的是同车名单，邮箱对他们仍是隐私——与结算单 FullView 同一边界。
 type CarpoolRosterMember struct {
 	UserID                 int64   `json:"user_id"`
 	Username               string  `json:"username"`
+	Email                  string  `json:"email,omitempty"`
 	Role                   string  `json:"role"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
 }
@@ -788,12 +809,16 @@ func (s *CarpoolService) GetRoster(ctx context.Context, carpoolID, actorUserID i
 	}
 	roster := make([]CarpoolRosterMember, 0, len(rows))
 	for _, row := range rows {
-		roster = append(roster, CarpoolRosterMember{
+		member := CarpoolRosterMember{
 			UserID:                 row.UserID,
 			Username:               row.Username,
 			Role:                   row.Role,
 			DeclaredWeeklyQuotaUSD: row.DeclaredWeeklyQuotaUSD,
-		})
+		}
+		if isAdmin {
+			member.Email = row.Email
+		}
+		roster = append(roster, member)
 	}
 	return roster, nil
 }
@@ -829,6 +854,127 @@ func (s *CarpoolService) canViewGroupQRCode(ctx context.Context, item *Carpool, 
 
 // GetDeclarationRecommendation 按设计文档 §4.1 从 usage_logs 聚合本人最近 7 天
 // 用量并给出推荐申报值（不足 7 天按日均外推 ×7，无记录返回锚点建议）。
+// ---------------------------------------------------------------------------
+// 管理端：总览与发车前管理。全部以 isAdmin 为唯一闸门（平台管理员即拼车运营，
+// 不再细分角色）。
+// ---------------------------------------------------------------------------
+
+// ListForAdmin 返回全部拼车，供管理总览页使用。普通用户走 List。
+func (s *CarpoolService) ListForAdmin(ctx context.Context, actorUserID int64, isAdmin bool) ([]Carpool, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	items, err := s.repo.ListAll(ctx, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		items[i].FillDerivedMetrics()
+	}
+	return items, nil
+}
+
+// RemoveMember 管理员在发车前把某位成员移出车。
+// 两封通知都要发：被移除的人得知道自己的额度被释放了（不能让他从别处才发现），
+// 车主得知道车退回招募中了（否则他会一直等一辆永远发不出去的车）。
+func (s *CarpoolService) RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	result, err := s.repo.RemoveMember(ctx, carpoolID, memberUserID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyMemberRemoved(ctx, result, memberUserID)
+	if result.AutoUnconfirmed {
+		s.notifyOwnerAutoUnconfirmed(ctx, result)
+	}
+	return result, nil
+}
+
+// UpdateMemberQuota 管理员代改成员申报额度。下限与用户自己上车时一致。
+func (s *CarpoolService) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, isAdmin bool, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	if declaredWeeklyQuotaUSD < CarpoolMinDeclaredWeeklyQuotaUSD {
+		return nil, ErrCarpoolDeclarationTooSmall
+	}
+	result, err := s.repo.UpdateMemberQuota(ctx, carpoolID, memberUserID, actorUserID, declaredWeeklyQuotaUSD)
+	if err != nil {
+		return nil, err
+	}
+	if result.AutoUnconfirmed {
+		s.notifyOwnerAutoUnconfirmed(ctx, result)
+	}
+	return result, nil
+}
+
+// UpdateCarpool 管理员改车的基本信息。
+func (s *CarpoolService) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, input UpdateCarpoolInput) (*CarpoolMutationResult, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, ErrCarpoolInvalidRequest
+		}
+		input.Name = &name
+	}
+	if input.Visibility != nil && *input.Visibility != CarpoolVisibilityPublic &&
+		*input.Visibility != CarpoolVisibilityInviteOnly {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	return s.repo.UpdateCarpool(ctx, carpoolID, actorUserID, input)
+}
+
+// TransferOwner 把车主转给车上另一位在册成员。
+func (s *CarpoolService) TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	return s.repo.TransferOwner(ctx, carpoolID, newOwnerUserID, actorUserID)
+}
+
+// notifyMemberRemoved 告知被移出的人：他申报的额度已释放。
+func (s *CarpoolService) notifyMemberRemoved(ctx context.Context, result *CarpoolMutationResult, memberUserID int64) {
+	if result == nil || result.Carpool == nil {
+		return
+	}
+	to := s.userEmail(ctx, memberUserID)
+	if to == "" {
+		return
+	}
+	subject := fmt.Sprintf("你已被移出拼车「%s」", result.Carpool.Name)
+	body := fmt.Sprintf(
+		`<p>管理员已把你移出拼车「%s」，你申报的 %.0f USD/周 额度已释放。</p>`+
+			`<p>如果这不是你预期的结果，请联系管理员（微信 %s）。</p>`,
+		html.EscapeString(result.Carpool.Name), result.DeclaredWeeklyQuotaUSD,
+		html.EscapeString(CarpoolAdminWechatID))
+	s.sendCarpoolNotification(ctx, to, subject, body,
+		"carpool_id", result.Carpool.ID, "user_id", memberUserID)
+}
+
+// notifyOwnerAutoUnconfirmed 告知车主：成员变动把车打出了发车区间，已退回招募中。
+func (s *CarpoolService) notifyOwnerAutoUnconfirmed(ctx context.Context, result *CarpoolMutationResult) {
+	if result == nil || result.Carpool == nil || result.Carpool.OwnerUserID == nil {
+		return
+	}
+	to := s.userEmail(ctx, *result.Carpool.OwnerUserID)
+	if to == "" {
+		return
+	}
+	car := result.Carpool
+	subject := fmt.Sprintf("拼车「%s」已退回招募中", car.Name)
+	body := fmt.Sprintf(
+		`<p>成员变动后，「%s」的总申报为 %.0f USD/周，低于发车线（周限额 %.0f USD 的 %.0f%%），`+
+			`已自动退回招募中并重新开放上车。</p>`+
+			`<p>补齐申报后可以再次确认发车。</p>`,
+		html.EscapeString(car.Name), car.DeclaredTotalUSD, car.WeeklyLimitUSD, car.LaunchMinRatio*100)
+	s.sendCarpoolNotification(ctx, to, subject, body, "carpool_id", car.ID)
+}
+
 func (s *CarpoolService) GetDeclarationRecommendation(ctx context.Context, userID int64) (*CarpoolDeclarationRecommendation, error) {
 	totalUSD, days, err := s.repo.GetRecentWeeklyUsageStats(ctx, userID)
 	if err != nil {

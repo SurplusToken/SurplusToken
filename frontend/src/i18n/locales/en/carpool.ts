@@ -267,6 +267,76 @@ export default {
       unsettleSuccess: 'Settlement undone; back to live preview',
       blockedNotLaunched: 'The carpool must be launched before it can be settled'
     },
+    adminPage: {
+      alertsTitle: 'Needs attention',
+      alerts: {
+        launchOverdue: 'Confirmed over 24h, not launched',
+        unsettled: 'Ended without settlement',
+        overDeclared: 'Declared above the cap',
+        readyToConfirm: 'Above the launch line, awaiting confirmation'
+      },
+      allStatuses: 'All statuses',
+      searchPlaceholder: 'Search by name or organizer',
+      total: 'Showing {count} of {all}',
+      empty: 'No carpool matches the filters',
+      perWeek: 'wk',
+      columns: {
+        name: 'Carpool',
+        status: 'Status',
+        owner: 'Organizer',
+        members: 'Members',
+        declared: 'Declared / limit',
+        settled: 'Settled at',
+        actions: 'Actions'
+      },
+      actions: {
+        members: 'Members',
+        edit: 'Edit',
+        transfer: 'Transfer owner',
+        editQuota: 'Edit quota',
+        remove: 'Remove'
+      },
+      membersDialog: {
+        title: 'Members of "{name}"',
+        hint: 'Before launch you can remove members or adjust their declaration; quota is released immediately and the launch progress is recalculated.',
+        readOnly: 'This carpool has launched or ended, so members are read-only — changing them affects refunds, use the settlement flow.',
+        empty: 'Nobody is on board yet',
+        groupQr: 'Group QR code',
+        qrOpen: 'Open full size',
+        qrLoading: 'Loading QR code…',
+        qrFailed: 'Failed to load QR code, click to retry'
+      },
+      editDialog: {
+        title: 'Edit carpool'
+      },
+      transferDialog: {
+        title: 'Transfer owner',
+        hint: 'The new owner must already be on board; the previous owner becomes a regular member.',
+        pick: 'Pick the new owner'
+      },
+      confirm: {
+        unconfirm: {
+          title: 'Withdraw confirmation',
+          message: 'Send "{name}" back to recruiting? Members and declarations are kept and boarding reopens.',
+          success: 'Confirmation withdrawn'
+        },
+        launch: {
+          title: 'Launch carpool',
+          message: 'Launch "{name}"? Limits are then set from the 80% floor plus the shared pool and locked for the period.',
+          success: 'Launched'
+        },
+        cancel: {
+          title: 'Cancel carpool',
+          message: 'Cancelling "{name}" invalidates invite links and releases every reserved quota.',
+          success: 'Carpool cancelled'
+        }
+      },
+      autoUnconfirmed: 'Done. Total declaration fell below the launch line, so this carpool went back to recruiting and the owner has been emailed.',
+      memberRemoved: 'Member removed and their quota released',
+      quotaUpdated: 'Declaration updated',
+      updated: 'Carpool updated',
+      ownerTransferred: 'Ownership transferred'
+    },
     admin: {
       locked: 'Joining has been closed',
       unlocked: 'Joining has been reopened'

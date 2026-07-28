@@ -687,6 +687,353 @@ func (r *carpoolRepository) SetJoinLocked(ctx context.Context, carpoolID, actorU
 	return nil
 }
 
+// ListAll 返回全部拼车（含私密、已取消、已结束），供管理员总览。
+// List 的 WHERE 是「公开未取消 OR 我是成员」，没有 admin 分支——管理员照样看不到
+// 别人的私密车。总览页必须绕开那道可见性过滤，否则一半的车根本到不了前端。
+// $1 仍是查看者，用于填 member_role（管理员看自己也在的车时要显示身份）。
+func (r *carpoolRepository) ListAll(ctx context.Context, viewerUserID int64) ([]service.Carpool, error) {
+	rows, err := r.db.QueryContext(ctx, carpoolSelectSQL+`
+ORDER BY c.created_at DESC`, viewerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("list all carpools: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]service.Carpool, 0)
+	for rows.Next() {
+		item, err := scanCarpool(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan carpool: %w", err)
+		}
+		items = append(items, *item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate all carpools: %w", err)
+	}
+	return items, nil
+}
+
+// carpoolMemberOpState 是「发车前改成员」两个操作共用的前置状态。
+type carpoolMemberOpState struct {
+	status         string
+	ownerUserID    sql.NullInt64
+	weeklyLimitUSD float64
+	launchMinRatio float64
+	launchMaxRatio float64
+	pricingModel   string
+}
+
+// loadCarpoolForMemberOp 锁车、校验状态、确认目标确实在册。
+// 只放行 recruiting/confirmed：发车后成员已绑定订阅并可能产生用量，动人要连带
+// 处理退补款，不在这里开口子（要散人请走结算或取消）。
+func loadCarpoolForMemberOp(ctx context.Context, tx *sql.Tx, carpoolID, memberUserID int64) (*carpoolMemberOpState, error) {
+	var st carpoolMemberOpState
+	err := tx.QueryRowContext(ctx, `
+SELECT status, owner_user_id, weekly_limit_usd, launch_min_ratio, launch_max_ratio,
+    COALESCE(pricing_model, 'quota')
+FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&st.status, &st.ownerUserID,
+		&st.weeklyLimitUSD, &st.launchMinRatio, &st.launchMaxRatio, &st.pricingModel)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for member op: %w", err)
+	}
+	if st.status != "recruiting" && st.status != "confirmed" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+
+	var memberStatus string
+	err = tx.QueryRowContext(ctx, `
+SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2`,
+		carpoolID, memberUserID).Scan(&memberStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotMember
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool member for member op: %w", err)
+	}
+	if memberStatus != "joined" && memberStatus != "active" {
+		return nil, service.ErrCarpoolNotMember
+	}
+	return &st, nil
+}
+
+// reconcileCarpoolAfterMemberChange 在成员变动后重算 Σ申报并按需退回招募中。
+// confirmed 的车要求 Σ申报 ∈ [min,max]×周限额；管理员踢人或改额度把它踢出区间后，
+// 车若还挂在 confirmed，就成了一辆「确认过却发不了」的僵尸车——直接退回招募中，
+// 重新开放上车，由 service 通知车主补人。
+func reconcileCarpoolAfterMemberChange(ctx context.Context, tx *sql.Tx, carpoolID, actorUserID int64, st *carpoolMemberOpState) (bool, error) {
+	var declaredTotal float64
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members
+WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&declaredTotal); err != nil {
+		return false, fmt.Errorf("sum carpool declared quota after member change: %w", err)
+	}
+	inBand := declaredTotal >= st.launchMinRatio*st.weeklyLimitUSD &&
+		declaredTotal <= st.launchMaxRatio*st.weeklyLimitUSD
+	if inBand {
+		return false, nil
+	}
+	// 跌出区间就清掉发车提醒，下次重新进入区间时才会再通知车主。
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET launch_notified_at = NULL, updated_at = NOW() WHERE id = $1`, carpoolID); err != nil {
+		return false, fmt.Errorf("reset carpool launch notified: %w", err)
+	}
+	if st.status != "confirmed" {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET status = 'recruiting', confirmed_at = NULL, confirmed_by = NULL,
+    launch_notified_at = NULL, version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID); err != nil {
+		return false, fmt.Errorf("auto unconfirm carpool: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "unconfirmed"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RemoveMember 管理员在发车前把某位成员移出车，释放其申报额度。
+// 与 Leave 的差别有二：可以在 confirmed 状态下操作（Leave 只允许 recruiting），
+// 且跌破发车线时会把车退回招募中而不只是清掉提醒。
+func (r *carpoolRepository) RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool remove member: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	st, err := loadCarpoolForMemberOp(ctx, tx, carpoolID, memberUserID)
+	if err != nil {
+		return nil, err
+	}
+	// 车主被移走这辆车就没人能确认发车、也没人能取消了。要散车请走 Cancel。
+	if st.ownerUserID.Valid && st.ownerUserID.Int64 == memberUserID {
+		return nil, service.ErrCarpoolOwnerCannotLeave
+	}
+
+	var declared float64
+	if err := tx.QueryRowContext(ctx, `
+UPDATE carpool_members SET status = 'left', left_at = NOW(), updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2
+RETURNING declared_weekly_quota_usd`, carpoolID, memberUserID).Scan(&declared); err != nil {
+		return nil, fmt.Errorf("remove carpool member: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "member_removed"); err != nil {
+		return nil, err
+	}
+	autoUnconfirmed, err := reconcileCarpoolAfterMemberChange(ctx, tx, carpoolID, actorUserID, st)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool remove member: %w", err)
+	}
+	return &service.CarpoolMutationResult{
+		Carpool:                item,
+		DeclaredWeeklyQuotaUSD: declared,
+		AutoUnconfirmed:        autoUnconfirmed,
+	}, nil
+}
+
+// UpdateMemberQuota 管理员代改成员申报额度：有人手滑报错时不必「下车再上车」，
+// 那中间座位可能已经被别人抢走。上限按 launch_max_ratio×周限额 卡，
+// 免得改出一辆永远确认不了的超额车。
+func (r *carpoolRepository) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool update member quota: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	st, err := loadCarpoolForMemberOp(ctx, tx, carpoolID, memberUserID)
+	if err != nil {
+		return nil, err
+	}
+	// 自定义规则车不走申报制：给它们的成员写申报毫无意义，更危险的是会把
+	// Σ申报 抬进发车区间——这些车 Join 已关闭、本该永远确认不了，现在却能被
+	// 一路点到发车（Launch 会按额度预约制给全车建订阅，与人工结算冲突）。
+	if st.pricingModel != service.CarpoolPricingQuota {
+		return nil, service.ErrCarpoolCustomRuleClosed
+	}
+
+	var othersTotal float64
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members
+WHERE carpool_id = $1 AND user_id <> $2 AND status IN ('joined', 'active')`,
+		carpoolID, memberUserID).Scan(&othersTotal); err != nil {
+		return nil, fmt.Errorf("sum other carpool declarations: %w", err)
+	}
+	if othersTotal+declaredWeeklyQuotaUSD > st.launchMaxRatio*st.weeklyLimitUSD+1e-9 {
+		return nil, service.ErrCarpoolQuotaExceeded
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET declared_weekly_quota_usd = $3, updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2`, carpoolID, memberUserID, declaredWeeklyQuotaUSD); err != nil {
+		return nil, fmt.Errorf("update carpool member quota: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "member_quota_adjusted"); err != nil {
+		return nil, err
+	}
+	autoUnconfirmed, err := reconcileCarpoolAfterMemberChange(ctx, tx, carpoolID, actorUserID, st)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool update member quota: %w", err)
+	}
+	return &service.CarpoolMutationResult{
+		Carpool:                item,
+		DeclaredWeeklyQuotaUSD: declaredWeeklyQuotaUSD,
+		AutoUnconfirmed:        autoUnconfirmed,
+	}, nil
+}
+
+// UpdateCarpool 管理员改车的基本信息。只在发车前放行：车名跟微信群名是绑定的，
+// 开车后再改会让群里对不上号。
+func (r *carpoolRepository) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input service.UpdateCarpoolInput) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var status string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for update: %w", err)
+	}
+	if status != "recruiting" && status != "confirmed" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+
+	if input.Name != nil {
+		// 与创建同一套查重口径：在跑的车之间名称唯一（车名会变成微信群名）。
+		var taken bool
+		if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(SELECT 1 FROM carpools WHERE name = $1 AND id <> $2
+    AND status IN ('recruiting', 'confirmed', 'starting', 'active'))`,
+			*input.Name, carpoolID).Scan(&taken); err != nil {
+			return nil, fmt.Errorf("check carpool name conflict: %w", err)
+		}
+		if taken {
+			return nil, service.ErrCarpoolNameConflict
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET
+    name = COALESCE($2, name),
+    description = COALESCE($3, description),
+    visibility = COALESCE($4, visibility),
+    scheduled_start_at = COALESCE($5, scheduled_start_at),
+    version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID, input.Name, input.Description, input.Visibility,
+		input.ScheduledStartAt); err != nil {
+		return nil, translateCarpoolWriteError(err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "updated"); err != nil {
+		return nil, err
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool update: %w", err)
+	}
+	return &service.CarpoolMutationResult{Carpool: item}, nil
+}
+
+// TransferOwner 把车主转给车上另一位在册成员。车主毕业/退群后这辆车本来会锁死：
+// 确认发车和取消都只有车主能做，没有转让就只剩「等它过期」一条路。
+func (r *carpoolRepository) TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*service.CarpoolMutationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin carpool transfer owner: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var ownerUserID sql.NullInt64
+	var status string
+	err = tx.QueryRowContext(ctx, `
+SELECT owner_user_id, status FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&ownerUserID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load carpool for transfer owner: %w", err)
+	}
+	// 已取消/已结束的车转让没有意义，也没有后续操作可做。
+	if status == "cancelled" || status == "ended" {
+		return nil, service.ErrCarpoolUnavailable
+	}
+	if ownerUserID.Valid && ownerUserID.Int64 == newOwnerUserID {
+		return nil, service.ErrCarpoolInvalidRequest
+	}
+
+	var memberStatus string
+	err = tx.QueryRowContext(ctx, `
+SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2`,
+		carpoolID, newOwnerUserID).Scan(&memberStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCarpoolNotMember
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load new owner membership: %w", err)
+	}
+	// 新车主必须还在车上：把车交给一个已下车的人等于换了个方式锁死。
+	if memberStatus != "joined" && memberStatus != "active" {
+		return nil, service.ErrCarpoolNotMember
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpools SET owner_user_id = $2, version = version + 1, updated_at = NOW()
+WHERE id = $1`, carpoolID, newOwnerUserID); err != nil {
+		return nil, fmt.Errorf("transfer carpool owner: %w", err)
+	}
+	// 先把旧车主降级再升新车主，避免中间态出现两个 owner。
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET role = 'member', updated_at = NOW()
+WHERE carpool_id = $1 AND role = 'owner'`, carpoolID); err != nil {
+		return nil, fmt.Errorf("demote previous carpool owner: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE carpool_members SET role = 'owner', updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2`, carpoolID, newOwnerUserID); err != nil {
+		return nil, fmt.Errorf("promote new carpool owner: %w", err)
+	}
+	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "owner_transferred"); err != nil {
+		return nil, err
+	}
+
+	item, err := getCarpoolByID(ctx, tx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit carpool transfer owner: %w", err)
+	}
+	return &service.CarpoolMutationResult{Carpool: item}, nil
+}
+
 func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
 	return getCarpoolByID(ctx, r.db, carpoolID, userID)
 }

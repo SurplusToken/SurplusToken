@@ -156,6 +156,7 @@ export default {
     apiKeys: 'API Keys',
     accountPool: 'Account Pool',
     carpool: 'Carpools',
+    carpoolAdmin: 'Carpool admin',
     batchImage: 'Batch Images',
     usage: 'Usage',
     leaderboard: 'Usage Statistics',

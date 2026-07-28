@@ -25,9 +25,26 @@ type carpoolHandlerRepoStub struct {
 	qrData       []byte
 	qrType       string
 	qrErr        error
+	updateInput  *service.UpdateCarpoolInput
 }
 
 func (s *carpoolHandlerRepoStub) List(ctx context.Context, userID int64) ([]service.Carpool, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) ListAll(ctx context.Context, viewerUserID int64) ([]service.Carpool, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*service.CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*service.CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input service.UpdateCarpoolInput) (*service.CarpoolMutationResult, error) {
+	s.updateInput = &input
+	return &service.CarpoolMutationResult{Carpool: &service.Carpool{ID: carpoolID}}, nil
+}
+func (s *carpoolHandlerRepoStub) TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*service.CarpoolMutationResult, error) {
 	panic("unexpected call")
 }
 func (s *carpoolHandlerRepoStub) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
@@ -300,4 +317,53 @@ func TestCarpoolPendingLaunchRequiresAdmin(t *testing.T) {
 	c, recorder := newCarpoolTestContext(http.MethodGet, "/api/v1/carpools/pending-launch", "")
 	h.PendingLaunch(c)
 	require.Equal(t, http.StatusForbidden, recorder.Code)
+}
+
+// 管理端编辑车：前端的日期控件给的是 YYYY-MM-DD（与 Create 同一口径），handler 必须
+// 按这个格式解析。绑 *time.Time 只认 RFC3339，会把管理员的每次保存都打成 400。
+func TestCarpoolUpdateCarpoolParsesDateOnlyScheduledStart(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPatch, "/api/v1/carpools/7",
+		`{"scheduled_start_at":"2026-08-01"}`)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+
+	h.UpdateCarpool(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, repo.updateInput)
+	require.NotNil(t, repo.updateInput.ScheduledStartAt)
+	require.Equal(t, "2026-08-01", repo.updateInput.ScheduledStartAt.Format("2006-01-02"))
+}
+
+// 非法日期 → 400，且不能打到仓储。
+func TestCarpoolUpdateCarpoolRejectsMalformedScheduledStart(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPatch, "/api/v1/carpools/7",
+		`{"scheduled_start_at":"2026/08/01"}`)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+
+	h.UpdateCarpool(c)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Nil(t, repo.updateInput)
+}
+
+// 日期留空（未传或空串）= 保持原值，不能把它当成「清空」。
+func TestCarpoolUpdateCarpoolBlankScheduledStartKeepsOldValue(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPatch, "/api/v1/carpools/7",
+		`{"scheduled_start_at":""}`)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+
+	h.UpdateCarpool(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, repo.updateInput)
+	require.Nil(t, repo.updateInput.ScheduledStartAt)
 }

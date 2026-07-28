@@ -267,6 +267,76 @@ export default {
       unsettleSuccess: '已撤销结算，回到实时预览',
       blockedNotLaunched: '发车后才能结算'
     },
+    adminPage: {
+      alertsTitle: '需要处理',
+      alerts: {
+        launchOverdue: '确认超 24 小时未启动',
+        unsettled: '已结束未结算',
+        overDeclared: '申报超上限',
+        readyToConfirm: '已达发车线待确认'
+      },
+      allStatuses: '全部状态',
+      searchPlaceholder: '搜索车名或发起人',
+      total: '显示 {count} / 共 {all} 辆',
+      empty: '没有符合条件的拼车',
+      perWeek: '周',
+      columns: {
+        name: '拼车',
+        status: '状态',
+        owner: '发起人',
+        members: '人数',
+        declared: '申报 / 限额',
+        settled: '结算时间',
+        actions: '操作'
+      },
+      actions: {
+        members: '成员',
+        edit: '编辑',
+        transfer: '转让车主',
+        editQuota: '改额度',
+        remove: '移出'
+      },
+      membersDialog: {
+        title: '「{name}」的成员',
+        hint: '发车前可以移出成员或代改申报额度，额度会立即释放并重算发车进度。',
+        readOnly: '这辆车已发车或已结束，成员只能查看——改人涉及退补款，请走结算流程。',
+        empty: '这辆车还没有成员',
+        groupQr: '群二维码',
+        qrOpen: '查看大图',
+        qrLoading: '二维码加载中…',
+        qrFailed: '二维码加载失败，点击重试'
+      },
+      editDialog: {
+        title: '编辑拼车'
+      },
+      transferDialog: {
+        title: '转让车主',
+        hint: '新车主必须是车上现有成员，转让后原车主降为普通成员。',
+        pick: '选择新车主'
+      },
+      confirm: {
+        unconfirm: {
+          title: '撤回确认',
+          message: '把「{name}」退回招募中？成员与申报额度都保留，重新开放上车。',
+          success: '已撤回确认'
+        },
+        launch: {
+          title: '启动发车',
+          message: '确认启动「{name}」？启动后按 80% 保底 + 公共池配置限额，本月锁定。',
+          success: '已发车'
+        },
+        cancel: {
+          title: '取消拼车',
+          message: '取消「{name}」后邀请链接失效，已预约的额度全部释放。',
+          success: '拼车已取消'
+        }
+      },
+      autoUnconfirmed: '操作已生效。总申报跌破发车线，这辆车已自动退回招募中，并已邮件通知车主。',
+      memberRemoved: '成员已移出，申报额度已释放',
+      quotaUpdated: '申报额度已更新',
+      updated: '拼车信息已更新',
+      ownerTransferred: '车主已转让'
+    },
     admin: {
       locked: '已停止新成员上车',
       unlocked: '已重新开放上车'

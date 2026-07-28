@@ -273,6 +273,21 @@ type carpoolRepoStub struct {
 	expiredUnsettled []int64
 }
 
+func (s *carpoolRepoStub) ListAll(ctx context.Context, viewerUserID int64) ([]Carpool, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
 func (s *carpoolRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
 	panic("unexpected call")
 }

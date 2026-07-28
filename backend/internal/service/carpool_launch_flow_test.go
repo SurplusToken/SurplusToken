@@ -26,13 +26,48 @@ type launchFlowRepoStub struct {
 	unconfirmRes  *CarpoolMutationResult
 	launchResult  *CarpoolMutationResult
 	pendingLaunch []CarpoolPendingLaunch
+
+	// 管理端：记录入参并返回预设结果，供下面的管理端用例断言。
+	allCarpools     []Carpool
+	removeResult    *CarpoolMutationResult
+	removedMemberID int64
+	quotaResult     *CarpoolMutationResult
+	updatedQuota    float64
+	updateResult    *CarpoolMutationResult
+	updateInput     *UpdateCarpoolInput
+	transferResult  *CarpoolMutationResult
+	transferredTo   int64
+	carpoolByID     *Carpool
+	settlementMembers []CarpoolSettlementMemberRow
 }
 
 func (s *launchFlowRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
 	panic("unexpected call")
 }
+func (s *launchFlowRepoStub) ListAll(ctx context.Context, viewerUserID int64) ([]Carpool, error) {
+	return s.allCarpools, nil
+}
+func (s *launchFlowRepoStub) RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*CarpoolMutationResult, error) {
+	s.removedMemberID = memberUserID
+	return s.removeResult, nil
+}
+func (s *launchFlowRepoStub) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error) {
+	s.updatedQuota = declaredWeeklyQuotaUSD
+	return s.quotaResult, nil
+}
+func (s *launchFlowRepoStub) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error) {
+	s.updateInput = &input
+	return s.updateResult, nil
+}
+func (s *launchFlowRepoStub) TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*CarpoolMutationResult, error) {
+	s.transferredTo = newOwnerUserID
+	return s.transferResult, nil
+}
 func (s *launchFlowRepoStub) GetByID(ctx context.Context, carpoolID, userID int64) (*Carpool, error) {
-	panic("unexpected call")
+	if s.carpoolByID == nil {
+		panic("unexpected call")
+	}
+	return s.carpoolByID, nil
 }
 func (s *launchFlowRepoStub) GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error) {
 	panic("unexpected call")
@@ -72,7 +107,10 @@ func (s *launchFlowRepoStub) GetGroupQRCode(ctx context.Context, carpoolID int64
 	panic("unexpected call")
 }
 func (s *launchFlowRepoStub) ListSettlementMembers(ctx context.Context, carpoolID int64) ([]CarpoolSettlementMemberRow, error) {
-	panic("unexpected call")
+	if s.settlementMembers == nil {
+		panic("unexpected call")
+	}
+	return s.settlementMembers, nil
 }
 func (s *launchFlowRepoStub) PersistSettlement(ctx context.Context, carpoolID, actorUserID int64, members []CarpoolSettlementMember) error {
 	panic("unexpected call")

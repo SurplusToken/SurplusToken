@@ -156,6 +156,7 @@ export default {
     apiKeys: 'API 密钥',
     accountPool: '账号池',
     carpool: '拼车',
+    carpoolAdmin: '拼车管理',
     batchImage: '批量生图',
     usage: '使用记录',
     leaderboard: '用量统计',
