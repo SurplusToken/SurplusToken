@@ -157,6 +157,7 @@ type UpdateSettingsRequest struct {
 	AffiliateRebateFreezeHours                *int                              `json:"affiliate_rebate_freeze_hours"`
 	AffiliateRebateDurationDays               *int                              `json:"affiliate_rebate_duration_days"`
 	AffiliateRebatePerInviteeCap              *float64                          `json:"affiliate_rebate_per_invitee_cap"`
+	AffiliateAdminRechargeEnabled             *bool                             `json:"affiliate_admin_recharge_enabled"`
 	ContributionRewardRate                    *float64                          `json:"contribution_reward_rate"`
 	ContributionRewardFreezeHours             *int                              `json:"contribution_reward_freeze_hours"`
 	SharingPoolDisplayEnabled                 *bool                             `json:"sharing_pool_display_enabled"`
@@ -552,6 +553,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if affiliateRebatePerInviteeCap < 0 {
 		affiliateRebatePerInviteeCap = service.AffiliateRebatePerInviteeCapDefault
+	}
+	affiliateAdminRechargeEnabled := previousSettings.AffiliateAdminRechargeEnabled
+	if req.AffiliateAdminRechargeEnabled != nil {
+		affiliateAdminRechargeEnabled = *req.AffiliateAdminRechargeEnabled
 	}
 	contributionRewardRate := previousSettings.ContributionRewardRate
 	if req.ContributionRewardRate != nil {
@@ -1490,6 +1495,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateRebateFreezeHours:             affiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:            affiliateRebateDurationDays,
 		AffiliateRebatePerInviteeCap:           affiliateRebatePerInviteeCap,
+		AffiliateAdminRechargeEnabled:          affiliateAdminRechargeEnabled,
 		ContributionRewardRate:                 contributionRewardRate,
 		ContributionRewardFreezeHours:          contributionRewardFreezeHours,
 		SharingPoolDisplayEnabled:              sharingPoolDisplayEnabled,
@@ -2049,6 +2055,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateRebateFreezeHours:                             updatedSettings.AffiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:                            updatedSettings.AffiliateRebateDurationDays,
 		AffiliateRebatePerInviteeCap:                           updatedSettings.AffiliateRebatePerInviteeCap,
+		AffiliateAdminRechargeEnabled:                          updatedSettings.AffiliateAdminRechargeEnabled,
 		ContributionRewardRate:                                 updatedSettings.ContributionRewardRate,
 		ContributionRewardFreezeHours:                          updatedSettings.ContributionRewardFreezeHours,
 		SharingPoolDisplayEnabled:                              updatedSettings.SharingPoolDisplayEnabled,

@@ -565,10 +565,22 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}
-	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: requestedModel, GroupID: groupID}) {
+	channel, err := s.channelService.GetChannelForGroup(ctx, *groupID)
+	if err != nil || channel == nil || !channel.RestrictModels {
+		return false
+	}
+	if channel.BillingModelSource == BillingModelSourceUpstream {
+		return false
+	}
+	model := requestedModel
+	if channel.BillingModelSource == BillingModelSourceChannelMapped {
+		mapping, _ := s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+		model = mapping.MappedModel
+	}
+	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: model, GroupID: groupID}) {
 		return true
 	}
-	return s.channelService.IsModelRestricted(ctx, *groupID, requestedModel)
+	return s.channelService.IsModelRestricted(ctx, *groupID, model)
 }
 
 func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context, groupID int64, account *Account, requestedModel string, requireCompact bool) bool {

@@ -248,18 +248,19 @@ WHERE account_id = $1 AND idempotency_key = $2`, req.AccountID, req.IdempotencyK
 	}
 
 	allocations := req.Allocations
-	if req.Mode == "even" {
+	switch req.Mode {
+	case "even":
 		allocations = splitContributionPoolEvenly(pool, owners)
 		if len(allocations) == 0 {
 			return nil, service.ErrContributionPoolEmpty
 		}
-	} else if req.Mode == "custom" {
+	case "custom":
 		for _, allocation := range allocations {
 			if _, eligible := ownerSet[allocation.UserID]; !eligible {
 				return nil, service.ErrContributionBadRecipient
 			}
 		}
-	} else {
+	default:
 		return nil, service.ErrContributionPoolDistributionModeInvalid
 	}
 

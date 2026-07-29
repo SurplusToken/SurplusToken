@@ -1070,7 +1070,7 @@ func (s *AccountService) getOwnedUserPoolAccount(ctx context.Context, userID, ac
 	if account.OwnerUserID == nil || *account.OwnerUserID != userID {
 		return nil, ErrAccountOwnerRequired
 	}
-	if account.Type != AccountTypeOAuth && !(account.Platform == PlatformKimi && account.Type == AccountTypeAPIKey) {
+	if account.Type != AccountTypeOAuth && (account.Platform != PlatformKimi || account.Type != AccountTypeAPIKey) {
 		return nil, ErrUserOAuthOnly
 	}
 	return account, nil

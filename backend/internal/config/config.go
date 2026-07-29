@@ -2061,6 +2061,9 @@ func setDefaults() {
 	viper.SetDefault("chat.database.max_idle_conns", 8)
 	viper.SetDefault("chat.database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("chat.database.conn_max_idle_time_minutes", 5)
+	viper.SetDefault("chat.database.user_platform_quota_flusher_enabled", false)
+	viper.SetDefault("chat.database.user_platform_quota_flush_interval_ms", 2000)
+	viper.SetDefault("chat.database.user_platform_quota_flush_batch_size", 1000)
 	viper.SetDefault("chat.max_history_messages", 100)
 	viper.SetDefault("chat.max_message_chars", 120000)
 

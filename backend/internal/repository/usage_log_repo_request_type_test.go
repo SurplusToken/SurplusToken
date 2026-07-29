@@ -298,7 +298,9 @@ func TestPrepareUsageLogInsert_PersistsSharingRateMultiplier(t *testing.T) {
 	})
 
 	require.Same(t, &sharingRate, prepared.args[27])
-	require.Equal(t, sharingRate, *prepared.args[27].(*float64))
+	preparedSharingRate, ok := prepared.args[27].(*float64)
+	require.True(t, ok)
+	require.Equal(t, sharingRate, *preparedSharingRate)
 }
 
 func TestCoalesceTrimmedString(t *testing.T) {

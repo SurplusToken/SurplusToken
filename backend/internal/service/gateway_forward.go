@@ -904,25 +904,22 @@ func (s *GatewayService) checkChannelPricingRestriction(ctx context.Context, gro
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}
-	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: requestedModel, GroupID: groupID}) {
+	channel, err := s.channelService.GetChannelForGroup(ctx, *groupID)
+	if err != nil || channel == nil || !channel.RestrictModels {
+		return false
+	}
+	if channel.BillingModelSource == BillingModelSourceUpstream {
+		return false
+	}
+	model := requestedModel
+	if channel.BillingModelSource == BillingModelSourceChannelMapped {
+		mapping, _ := s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+		model = mapping.MappedModel
+	}
+	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: model, GroupID: groupID}) {
 		return true
 	}
-	return s.channelService.IsModelRestricted(ctx, *groupID, requestedModel)
-}
-
-// billingModelForRestriction 根据计费基准确定限制检查使用的模型。
-// upstream 返回空（需逐账号检查）。
-func billingModelForRestriction(source, requestedModel, channelMappedModel string) string {
-	switch source {
-	case BillingModelSourceRequested:
-		return requestedModel
-	case BillingModelSourceUpstream:
-		return ""
-	case BillingModelSourceChannelMapped:
-		return channelMappedModel
-	default:
-		return channelMappedModel
-	}
+	return s.channelService.IsModelRestricted(ctx, *groupID, model)
 }
 
 // isUpstreamModelRestrictedByChannel 检查账号映射后的上游模型是否受渠道定价限制。

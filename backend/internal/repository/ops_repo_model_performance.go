@@ -107,7 +107,7 @@ func (r *opsRepository) GetModelPerformance(
 	if err != nil {
 		return nil, fmt.Errorf("query model performance: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make([]service.ModelPerformanceStat, 0)
 	for rows.Next() {

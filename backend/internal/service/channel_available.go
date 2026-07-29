@@ -206,10 +206,6 @@ func filterUsableSupportedModels(models []SupportedModel) []SupportedModel {
 	return filtered
 }
 
-func pricingNeedsFallback(p *ChannelModelPricing) bool {
-	return p == nil
-}
-
 // synthesizePricingFromLiteLLM 把 LiteLLM 的定价数据转成 ChannelModelPricing 形态，
 // 仅用于展示。
 //

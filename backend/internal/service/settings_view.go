@@ -157,6 +157,7 @@ type SystemSettings struct {
 	AffiliateRebateFreezeHours    int
 	AffiliateRebateDurationDays   int
 	AffiliateRebatePerInviteeCap  float64
+	AffiliateAdminRechargeEnabled bool
 	ContributionRewardRate        float64
 	ContributionRewardFreezeHours int
 	DefaultUserRPMLimit           int

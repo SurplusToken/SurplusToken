@@ -424,7 +424,7 @@ func parseChatImageDataURL(value string) (mediaType, data string, ok bool) {
 // CaptureCompletion forwards the gateway response unchanged while retaining a
 // bounded copy for final persistence after downstream middleware completes.
 func (h *ChatHandler) CaptureCompletion(c *gin.Context) {
-	value, ok := c.Get(chatCompletionStateKey)
+	value, _ := c.Get(chatCompletionStateKey)
 	state, ok := value.(*chatCompletionState)
 	if !ok || state == nil || state.Prepared == nil {
 		c.Next()
@@ -627,7 +627,7 @@ func parseCapturedChatResponsesResponse(data []byte, stream bool) (content, mode
 			continue
 		}
 		if event.Type == "response.output_text.delta" {
-			builder.WriteString(event.Delta)
+			_, _ = builder.WriteString(event.Delta)
 		}
 		if event.Annotation != nil {
 			citations = append(citations, *event.Annotation)
@@ -654,7 +654,7 @@ func parseCapturedChatResponsesResponse(data []byte, stream bool) (content, mode
 		}
 		responseText, responseCitations := capturedChatResponseText(event.Response)
 		if builder.Len() == 0 && responseText != "" {
-			builder.WriteString(responseText)
+			_, _ = builder.WriteString(responseText)
 		}
 		citations = append(citations, responseCitations...)
 	}
@@ -741,7 +741,7 @@ func parseCapturedChatMessagesResponse(data []byte, stream bool) (content, model
 			mergeCapturedChatUsage(usageFields, event.Message.Usage)
 			messageText, messageCitations := capturedChatMessagesText(event.Message.Content)
 			if builder.Len() == 0 && messageText != "" {
-				builder.WriteString(messageText)
+				_, _ = builder.WriteString(messageText)
 			}
 			citations = append(citations, messageCitations...)
 			if event.Message.Error != nil && event.Message.Error.Message != "" {
@@ -750,14 +750,14 @@ func parseCapturedChatMessagesResponse(data []byte, stream bool) (content, model
 		}
 		if event.ContentBlock != nil {
 			if event.ContentBlock.Text != "" {
-				builder.WriteString(event.ContentBlock.Text)
+				_, _ = builder.WriteString(event.ContentBlock.Text)
 			}
 			citations = append(citations, event.ContentBlock.Citations...)
 			citations = append(citations, capturedChatMessageSources(event.ContentBlock.Content)...)
 		}
 		if event.Delta != nil {
 			if event.Delta.Type == "text_delta" {
-				builder.WriteString(event.Delta.Text)
+				_, _ = builder.WriteString(event.Delta.Text)
 			}
 			if event.Delta.Citation != nil {
 				citations = append(citations, *event.Delta.Citation)
@@ -775,7 +775,7 @@ func capturedChatMessagesText(blocks []capturedChatMessagesContent) (string, []c
 	var citations []capturedChatCitation
 	for _, block := range blocks {
 		if block.Type == "text" {
-			builder.WriteString(block.Text)
+			_, _ = builder.WriteString(block.Text)
 		}
 		citations = append(citations, block.Citations...)
 		citations = append(citations, capturedChatMessageSources(block.Content)...)
@@ -839,7 +839,7 @@ func capturedChatResponseText(response *capturedChatResponse) (string, []capture
 	for _, output := range response.Output {
 		for _, part := range output.Content {
 			if part.Type == "output_text" {
-				builder.WriteString(part.Text)
+				_, _ = builder.WriteString(part.Text)
 			}
 			citations = append(citations, part.Annotations...)
 		}

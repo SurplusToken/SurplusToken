@@ -176,31 +176,6 @@ func TestListAvailable_DefaultsEmptyBillingModelSource(t *testing.T) {
 	require.Equal(t, BillingModelSourceUpstream, byName["explicit"])
 }
 
-func TestPricingNeedsFallback(t *testing.T) {
-	tests := []struct {
-		name string
-		in   *ChannelModelPricing
-		want bool
-	}{
-		{"nil", nil, true},
-		{"empty struct", &ChannelModelPricing{BillingMode: BillingModeToken}, false},
-		{"all-empty intervals", &ChannelModelPricing{
-			BillingMode: BillingModeImage,
-			Intervals:   []PricingInterval{{TierLabel: "1K"}, {TierLabel: "2K"}},
-		}, false},
-		{"flat input set", &ChannelModelPricing{InputPrice: testPtrFloat64(3e-6)}, false},
-		{"flat per_request set", &ChannelModelPricing{PerRequestPrice: testPtrFloat64(0.04)}, false},
-		{"interval with price", &ChannelModelPricing{
-			Intervals: []PricingInterval{{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.04)}},
-		}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, pricingNeedsFallback(tt.in))
-		})
-	}
-}
-
 func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 	lp := &LiteLLMModelPricing{
 		Mode:                        "chat",

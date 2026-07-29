@@ -367,6 +367,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		settings.AffiliateRebatePerInviteeCap = AffiliateRebatePerInviteeCapDefault
 	}
 	updates[SettingKeyAffiliateRebatePerInviteeCap] = strconv.FormatFloat(settings.AffiliateRebatePerInviteeCap, 'f', 8, 64)
+	updates[SettingKeyAffiliateAdminRechargeEnabled] = strconv.FormatBool(settings.AffiliateAdminRechargeEnabled)
 	settings.ContributionRewardRate = clampContributionRewardRate(settings.ContributionRewardRate)
 	updates[SettingKeyContributionRewardRate] = strconv.FormatFloat(settings.ContributionRewardRate, 'f', 8, 64)
 	settings.ContributionRewardFreezeHours = normalizeContributionFreezeHours(settings.ContributionRewardFreezeHours)

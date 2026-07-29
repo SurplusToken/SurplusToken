@@ -15,6 +15,19 @@ import (
 // CalculateCostUnified
 // ---------------------------------------------------------------------------
 
+func newUnifiedTestBillingService() *BillingService {
+	bs := newTestBillingService()
+	bs.pricingService = &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-sonnet-4": {
+			InputCostPerToken:       3e-6,
+			OutputCostPerToken:      15e-6,
+			CacheReadInputTokenCost: 0.3e-6,
+			SupportsPromptCaching:   true,
+		},
+	}}
+	return bs
+}
+
 func TestCalculateCostUnified_NilResolver_FallsBackToOldPath(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -38,7 +51,7 @@ func TestCalculateCostUnified_NilResolver_FallsBackToOldPath(t *testing.T) {
 }
 
 func TestCalculateCostUnified_TokenMode(t *testing.T) {
-	bs := newTestBillingService()
+	bs := newUnifiedTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500}
@@ -61,7 +74,7 @@ func TestCalculateCostUnified_TokenMode(t *testing.T) {
 }
 
 func TestCalculateCostUnified_TokenModeAppliesRateMultiplierToImageTokens(t *testing.T) {
-	bs := newTestBillingService()
+	bs := newUnifiedTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 600, ImageOutputTokens: 100}
@@ -172,7 +185,7 @@ func TestCalculateCostUnified_ImageMode(t *testing.T) {
 // TestCalculateCostUnified_RateMultiplierZeroProducesZero 锁定新行为：
 // 保存时强制 > 0；若 0 仍泄漏到计费层，按 0 计费（而非历史上的 1.0）。
 func TestCalculateCostUnified_RateMultiplierZeroProducesZero(t *testing.T) {
-	bs := newTestBillingService()
+	bs := newUnifiedTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500}
@@ -192,7 +205,7 @@ func TestCalculateCostUnified_RateMultiplierZeroProducesZero(t *testing.T) {
 // TestCalculateCostUnified_NegativeRateMultiplierClampedToZero 锁定新行为：
 // 负数倍率按 0 计费，避免历史的 <=0 → 1.0 把配置异常静默按标准价扣费。
 func TestCalculateCostUnified_NegativeRateMultiplierClampedToZero(t *testing.T) {
-	bs := newTestBillingService()
+	bs := newUnifiedTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000}
@@ -210,7 +223,7 @@ func TestCalculateCostUnified_NegativeRateMultiplierClampedToZero(t *testing.T) 
 }
 
 func TestCalculateCostUnified_BillingModeFieldFilled(t *testing.T) {
-	bs := newTestBillingService()
+	bs := newUnifiedTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
 	cost, err := bs.CalculateCostUnified(CostInput{

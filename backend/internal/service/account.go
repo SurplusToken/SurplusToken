@@ -1893,7 +1893,9 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	}
 	if a.IsGrok() {
 		switch capability {
-		case OpenAIEndpointCapabilityChatCompletions:
+		case OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityAnthropicMessages:
+			// Grok serves Messages through the same compatibility bridge as
+			// Chat Completions, so both capabilities share the same account pool.
 			return true
 		case OpenAIEndpointCapabilityGrokMediaGeneration:
 			eligible, reason := a.GrokMediaGenerationEligibility()

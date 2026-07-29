@@ -627,37 +627,37 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k3 flagship",
 			model:             "kimi-k3",
-			expectedInput:     3e-6,
-			expectedOutput:    floatPtr(15e-6),
-			expectedCacheRead: floatPtr(0.30e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi code bare alias k3",
 			model:             "k3",
-			expectedInput:     3e-6,
-			expectedOutput:    floatPtr(15e-6),
-			expectedCacheRead: floatPtr(0.30e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi code bare alias k3-256k",
 			model:             "k3-256k",
-			expectedInput:     3e-6,
-			expectedOutput:    floatPtr(15e-6),
-			expectedCacheRead: floatPtr(0.30e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi k3 path suffix moonshot",
 			model:             "moonshot/kimi-k3",
-			expectedInput:     3e-6,
-			expectedOutput:    floatPtr(15e-6),
-			expectedCacheRead: floatPtr(0.30e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi code bare path suffix",
 			model:             "kimi-code/k3",
-			expectedInput:     3e-6,
-			expectedOutput:    floatPtr(15e-6),
-			expectedCacheRead: floatPtr(0.30e-6),
+			expectedInput:     20e-6,
+			expectedOutput:    floatPtr(100e-6),
+			expectedCacheRead: floatPtr(2e-6),
 		},
 		{
 			name:              "kimi k2.6 flagship",
@@ -918,8 +918,8 @@ func TestComputeTokenBreakdown_GptImage2ImageEditIssue4386(t *testing.T) {
 
 	cost := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false)
 
-	wantTextInput := float64(19) * 5e-6    // 0.000095
-	wantImageInput := float64(352) * 8e-6  // 0.002816
+	wantTextInput := float64(19) * 5e-6     // 0.000095
+	wantImageInput := float64(352) * 8e-6   // 0.002816
 	wantImageOutput := float64(439) * 30e-6 // 0.013170
 	require.InDelta(t, wantTextInput, cost.InputCost, 1e-15, "InputCost 仅含文本输入")
 	require.InDelta(t, wantImageInput, cost.ImageInputCost, 1e-15, "图片输入按 $8/1M 独立计费")

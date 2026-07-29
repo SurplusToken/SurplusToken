@@ -728,7 +728,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 	}
 	token := account.GetOpenAIAccessToken()
 	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("Kimi account has no usable credential")
+		return nil, fmt.Errorf("kimi account has no usable credential")
 	}
 
 	baseURL := strings.TrimRight(account.GetOpenAIBaseURL(), "/")
@@ -763,7 +763,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Kimi usage request failed: %w", err)
+		return nil, fmt.Errorf("kimi usage request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -771,7 +771,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 		return nil, fmt.Errorf("read Kimi usage response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Kimi usage request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("kimi usage request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var payload map[string]any
@@ -810,7 +810,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 		}
 	}
 	if result.FiveHour == nil && result.SevenDay == nil {
-		return nil, fmt.Errorf("Kimi usage response did not contain supported quota windows")
+		return nil, fmt.Errorf("kimi usage response did not contain supported quota windows")
 	}
 	return result, nil
 }

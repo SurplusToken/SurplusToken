@@ -13,6 +13,13 @@ import (
 func newTestBillingServiceForResolver() *BillingService {
 	bs := &BillingService{
 		fallbackPrices: make(map[string]*ModelPricing),
+		pricingService: &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+			"claude-sonnet-4": {
+				InputCostPerToken:       3e-6,
+				OutputCostPerToken:      15e-6,
+				CacheReadInputTokenCost: 0.3e-6,
+			},
+		}},
 	}
 	bs.fallbackPrices["claude-sonnet-4"] = &ModelPricing{
 		InputPricePerToken:         3e-6,
@@ -53,8 +60,8 @@ func TestResolve_UnknownModel(t *testing.T) {
 
 	require.NotNil(t, resolved)
 	require.Nil(t, resolved.BasePricing)
-	// Unknown model: GetModelPricing returns error, source is "fallback"
-	require.Equal(t, "fallback", resolved.Source)
+	// Unknown models fail closed when neither channel nor LiteLLM can price them.
+	require.Equal(t, PricingSourceUnavailable, resolved.Source)
 }
 
 func TestGetIntervalPricing_NoIntervals(t *testing.T) {
@@ -267,7 +274,7 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
-	// Channel only sets InputPrice; OutputPrice should remain from the base (LiteLLM/fallback).
+	// Channel pricing is atomic: omitted fields stay zero and are not filled by LiteLLM.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -286,8 +293,7 @@ func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
 	require.NotNil(t, resolved.BasePricing)
 	// InputPrice overridden by channel
 	require.InDelta(t, 20e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
-	// OutputPrice kept from base (fallback: 15e-6)
-	require.InDelta(t, 15e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
+	require.Zero(t, resolved.BasePricing.OutputPricePerToken)
 }
 
 func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
@@ -527,7 +533,8 @@ func TestGetIntervalPricing_WithChannelIntervals(t *testing.T) {
 }
 
 func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
-	// Channel intervals don't match token count → falls back to BasePricing.
+	// Channel intervals don't match token count → falls back to the channel's
+	// atomic BasePricing, not to LiteLLM.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -545,10 +552,10 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 
 	// Token count 1000 doesn't match any interval (1000 <= 50000 minTokens)
 	pricing := r.GetIntervalPricing(resolved, 1000)
-	// Should fall back to BasePricing (from the billing service fallback)
+	// Should fall back to the channel-owned BasePricing.
 	require.NotNil(t, pricing)
 	require.Equal(t, resolved.BasePricing, pricing)
-	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12) // original base price
+	require.Zero(t, pricing.InputPricePerToken)
 }
 
 // ===========================================================================

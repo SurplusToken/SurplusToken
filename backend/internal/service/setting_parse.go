@@ -393,6 +393,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if perInviteeCap, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebatePerInviteeCap], 64); err == nil && perInviteeCap >= 0 {
 		result.AffiliateRebatePerInviteeCap = perInviteeCap
 	}
+	result.AffiliateAdminRechargeEnabled, _ = strconv.ParseBool(settings[SettingKeyAffiliateAdminRechargeEnabled])
 	if rewardRate, err := strconv.ParseFloat(settings[SettingKeyContributionRewardRate], 64); err == nil {
 		result.ContributionRewardRate = clampContributionRewardRate(rewardRate)
 	} else {

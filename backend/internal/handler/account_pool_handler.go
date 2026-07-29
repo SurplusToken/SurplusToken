@@ -1821,38 +1821,3 @@ func (h *AccountPoolHandler) hydrateCurrentWindowCost(ctx context.Context, items
 		items[i].CurrentWindowCost = &cost
 	}
 }
-
-func normalizedGeminiOAuthType(value string) string {
-	oauthType := strings.TrimSpace(value)
-	if oauthType == "" {
-		oauthType = "code_assist"
-	}
-	switch oauthType {
-	case "code_assist", "google_one", "ai_studio":
-		return oauthType
-	default:
-		return ""
-	}
-}
-
-func deriveUserOAuthRedirectURI(c *gin.Context) string {
-	origin := strings.TrimSpace(c.GetHeader("Origin"))
-	if origin != "" {
-		return strings.TrimRight(origin, "/") + "/auth/callback"
-	}
-
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	if xfProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); xfProto != "" {
-		scheme = strings.TrimSpace(strings.Split(xfProto, ",")[0])
-	}
-
-	host := strings.TrimSpace(c.Request.Host)
-	if xfHost := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); xfHost != "" {
-		host = strings.TrimSpace(strings.Split(xfHost, ",")[0])
-	}
-
-	return fmt.Sprintf("%s://%s/auth/callback", scheme, host)
-}
