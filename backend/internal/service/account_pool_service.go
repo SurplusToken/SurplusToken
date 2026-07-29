@@ -343,7 +343,11 @@ func summarizeUserDynamicPool(ctx context.Context, service *AccountService, user
 		if mine {
 			summary.MineTotal++
 		}
-		available := account.IsSchedulable() && (account.IsSurplusAIOwner(userID) || account.IsSurplusAIContributionProtectionSchedulable())
+		// Dynamic-pool availability describes whether the account can still be
+		// shared with other users. Owners may continue using their own account
+		// after a contribution protection limit is reached, but that owner bypass
+		// must not make an exhausted account appear available to the shared pool.
+		available := account.IsSchedulable() && account.IsSurplusAIContributionProtectionSchedulable()
 		rate := accountStoredSharingRate(account)
 		summary.Accounts = append(summary.Accounts, UserDynamicPoolAccount{
 			ID:                    account.ID,
