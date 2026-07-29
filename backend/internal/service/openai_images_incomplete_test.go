@@ -111,6 +111,7 @@ func TestImagesOAuthNonStreaming_CompletedNoImageTriggersSameAccountRetry(t *tes
 
 	if err == nil {
 		t.Fatal("completed-but-no-image should return an error")
+		return
 	}
 	var failoverErr *UpstreamFailoverError
 	if !errors.As(err, &failoverErr) {
@@ -145,6 +146,7 @@ func TestImagesOAuthNonStreaming_ContentRefusalReturns400NoRetry(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("content refusal should return an error")
+		return
 	}
 	// 应是不可重试的内容策略错误（400），而非 UpstreamFailoverError。
 	var failoverErr *UpstreamFailoverError

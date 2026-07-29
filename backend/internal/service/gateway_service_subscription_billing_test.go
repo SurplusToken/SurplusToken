@@ -75,6 +75,7 @@ func TestBuildUsageBillingCommand_SubscriptionAppliesRateMultiplier(t *testing.T
 			cmd := buildUsageBillingCommand("req-1", nil, p)
 			if cmd == nil {
 				t.Fatal("buildUsageBillingCommand returned nil")
+				return
 			}
 			if cmd.SubscriptionCost != tt.wantSub {
 				t.Errorf("SubscriptionCost = %v, want %v", cmd.SubscriptionCost, tt.wantSub)
@@ -108,6 +109,7 @@ func TestBuildUsageBillingCommand_ContributionRewardUsesActualCost(t *testing.T)
 	cmd := buildUsageBillingCommand("req-contribution", usageLog, p)
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
+		return
 	}
 	// Model B holds the reward in the account's pool rather than crediting a
 	// single contributor directly (see usage_billing.go ContributionPoolAccountID).
@@ -140,6 +142,7 @@ func TestBuildUsageBillingCommand_ContributionRewardTracksDiscountedActualCost(t
 	cmd := buildUsageBillingCommand("req-contribution-discount", nil, p)
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
+		return
 	}
 	if cmd.ContributionPoolAmount != 2.0 {
 		t.Fatalf("ContributionPoolAmount = %v, want 2.0", cmd.ContributionPoolAmount)
@@ -160,6 +163,7 @@ func TestBuildUsageBillingCommand_SelfUseDoesNotReward(t *testing.T) {
 	cmd := buildUsageBillingCommand("req-self", nil, p)
 	if cmd == nil {
 		t.Fatal("buildUsageBillingCommand returned nil")
+		return
 	}
 	if cmd.ContributionPoolAmount != 0 || cmd.ContributionPoolAccountID != 0 {
 		t.Fatalf("self use should not reward, got pool_account=%d amount=%v", cmd.ContributionPoolAccountID, cmd.ContributionPoolAmount)
