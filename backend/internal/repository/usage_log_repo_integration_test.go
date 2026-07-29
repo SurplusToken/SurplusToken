@@ -897,8 +897,11 @@ func (s *UsageLogRepoSuite) TestGetUserDashboardStats() {
 		SET contribution_quota = EXCLUDED.contribution_quota,
 		    contribution_frozen_quota = EXCLUDED.contribution_frozen_quota,
 		    contribution_history_quota = EXCLUDED.contribution_history_quota,
-		    updated_at = NOW();
+		    updated_at = NOW()
+	`, user.ID)
+	s.Require().NoError(err)
 
+	_, err = s.tx.ExecContext(s.ctx, `
 		INSERT INTO user_contribution_ledger (
 			user_id, action, amount, usage_billing_request_id, api_key_id, account_id,
 			consumer_user_id, model, input_tokens, output_tokens, cache_creation_tokens,

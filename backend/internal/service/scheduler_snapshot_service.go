@@ -826,8 +826,9 @@ func (s *SchedulerSnapshotService) rebuildByGroupIDs(ctx context.Context, groupI
 	if len(groupIDs) == 0 {
 		return nil
 	}
-	buckets := make([]SchedulerBucket, 0, len(groupIDs)*len(schedulerSnapshotPlatforms())*2)
-	for _, platform := range schedulerSnapshotPlatforms() {
+	platforms := schedulerSnapshotPlatforms()
+	buckets := make([]SchedulerBucket, 0, len(groupIDs)*len(platforms)*2)
+	for _, platform := range platforms {
 		buckets = append(buckets, s.bucketsForPlatform(platform, groupIDs, seen)...)
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
@@ -1595,38 +1596,6 @@ func (s *SchedulerSnapshotService) fullRebuildInterval() time.Duration {
 		return 0
 	}
 	return time.Duration(sec) * time.Second
-}
-
-func (s *SchedulerSnapshotService) defaultBuckets(ctx context.Context) ([]SchedulerBucket, error) {
-	buckets := make([]SchedulerBucket, 0)
-	platforms := []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu}
-	for _, platform := range platforms {
-		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeSingle})
-		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeForced})
-		if platform == PlatformAnthropic || platform == PlatformGemini {
-			buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeMixed})
-		}
-	}
-
-	if s.isRunModeSimple() || s.groupRepo == nil {
-		return dedupeBuckets(buckets), nil
-	}
-
-	groups, err := s.groupRepo.ListActive(ctx)
-	if err != nil {
-		return dedupeBuckets(buckets), nil
-	}
-	for _, group := range groups {
-		if group.Platform == "" {
-			continue
-		}
-		buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeSingle})
-		buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeForced})
-		if group.Platform == PlatformAnthropic || group.Platform == PlatformGemini {
-			buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeMixed})
-		}
-	}
-	return dedupeBuckets(buckets), nil
 }
 
 func dedupeBuckets(in []SchedulerBucket) []SchedulerBucket {

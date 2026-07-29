@@ -713,9 +713,8 @@ func TestSupportedModels_PricingOnlyNoMapping(t *testing.T) {
 	require.Equal(t, int64(1), got[1].Pricing.ID)
 }
 
-func TestSupportedModels_ExactMappingUsesTargetPricing(t *testing.T) {
-	// 精确 mapping `src → target`：定价应按 target 查（实际计费的是 target），
-	// 而不是按 src 自查。
+func TestSupportedModels_ExactMappingUsesRequestedPricing(t *testing.T) {
+	// 精确 mapping `src → target`：公开模型名 src 是计费键，target 只负责上游路由。
 	ch := &Channel{
 		ModelPricing: []ChannelModelPricing{
 			{ID: 100, Platform: "anthropic", Models: []string{"req-model"}, InputPrice: testPtrFloat64(3e-6)},
@@ -731,7 +730,7 @@ func TestSupportedModels_ExactMappingUsesTargetPricing(t *testing.T) {
 	require.Len(t, got, 2)
 	require.Equal(t, "req-model", got[0].Name)
 	require.NotNil(t, got[0].Pricing)
-	require.Equal(t, int64(200), got[0].Pricing.ID, "req-model 显示但定价是 served-model 的（mapping target）")
+	require.Equal(t, int64(100), got[0].Pricing.ID, "req-model 使用公开请求模型自身的定价")
 	require.Equal(t, "served-model", got[1].Name)
 	require.Equal(t, int64(200), got[1].Pricing.ID)
 }

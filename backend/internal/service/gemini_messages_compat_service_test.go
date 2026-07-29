@@ -192,6 +192,74 @@ func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *test
 	require.Contains(t, out, "data: [DONE]")
 }
 
+func TestGeminiForwardAsChatCompletions_FunctionNamedWebSearchStaysClientSide(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{
+		response: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}`,
+			)),
+		},
+	}
+	svc := &GeminiMessagesCompatService{
+		httpUpstream: httpStub,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:       103,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "gemini-api-key",
+		},
+		Concurrency: 1,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{
+		"model":"gemini-3.6-flash-high",
+		"messages":[{"role":"user","content":"search and read"}],
+		"tools":[
+			{"type":"function","function":{"name":"web_search","description":"Search through the Hermes client","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}},
+			{"type":"function","function":{"name":"read_file","description":"Read a local file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
+		]
+	}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, httpStub.lastReq)
+
+	postedBody, err := io.ReadAll(httpStub.lastReq.Body)
+	require.NoError(t, err)
+
+	var posted map[string]any
+	require.NoError(t, json.Unmarshal(postedBody, &posted))
+	tools, ok := posted["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 1, "Chat Completions function tools must not be promoted to Gemini built-ins by name")
+
+	functionTool, ok := tools[0].(map[string]any)
+	require.True(t, ok)
+	functionDecls, ok := functionTool["functionDeclarations"].([]any)
+	require.True(t, ok)
+	require.Len(t, functionDecls, 2)
+	webSearchDecl, ok := functionDecls[0].(map[string]any)
+	require.True(t, ok)
+	readFileDecl, ok := functionDecls[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "web_search", webSearchDecl["name"])
+	require.Equal(t, "read_file", readFileDecl["name"])
+	require.NotContains(t, functionTool, "googleSearch")
+	require.NotContains(t, functionTool, "google_search")
+}
+
 // TestConvertClaudeToolsToGeminiTools_CustomType 测试custom类型工具转换
 func TestConvertClaudeToolsToGeminiTools_CustomType(t *testing.T) {
 	tests := []struct {
@@ -274,6 +342,7 @@ func TestConvertClaudeToolsToGeminiTools_CustomType(t *testing.T) {
 
 			if result == nil {
 				t.Fatalf("%s: expected non-nil result", tt.description)
+				return
 			}
 
 			if len(result) != 1 {
@@ -585,7 +654,7 @@ func TestConvertGeminiToClaudeMessage_PreservesGroundingCitations(t *testing.T) 
 		}},
 	}
 
-	response, _ := convertGeminiToClaudeMessage(geminiResponse, "gemini-3.5-flash", []byte(`{}`))
+	response, _ := convertGeminiToClaudeMessage(geminiResponse, "gemini-3.5-flash", []byte(`{}`), false)
 	content, ok := response["content"].([]any)
 	require.True(t, ok)
 	require.Len(t, content, 1)
@@ -782,6 +851,7 @@ func TestExtractGeminiUsage(t *testing.T) {
 			}
 			if got == nil {
 				t.Fatalf("期望返回非 nil，实际返回 nil")
+				return
 			}
 			if got.InputTokens != tt.wantUsage.InputTokens {
 				t.Errorf("InputTokens: 期望 %d，实际 %d", tt.wantUsage.InputTokens, got.InputTokens)
@@ -922,6 +992,7 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 
 			if got == nil {
 				t.Fatalf("期望返回非 nil，实际返回 nil")
+				return
 			}
 
 			// approxDelta == -1 表示只检查非 nil，不检查具体值（如 daily quota 场景）

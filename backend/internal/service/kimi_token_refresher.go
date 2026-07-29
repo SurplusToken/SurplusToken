@@ -42,7 +42,7 @@ func (r *KimiTokenRefresher) NeedsRefresh(account *Account, refreshWindow time.D
 
 func (r *KimiTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
 	if r == nil || r.oauthService == nil {
-		return nil, errors.New("Kimi OAuth service is not configured")
+		return nil, errors.New("kimi OAuth service is not configured")
 	}
 	info, err := r.oauthService.RefreshAccountToken(ctx, account)
 	if err != nil {

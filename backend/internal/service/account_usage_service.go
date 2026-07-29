@@ -365,6 +365,13 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 		return usage, usageErr
 	}
 
+	// Dedicated UI load-test accounts must remain fully interactive without ever
+	// contacting Anthropic with synthetic credentials. Reuse the same persisted
+	// passive snapshot that the account table loads on mount.
+	if account.IsSyntheticUITest() && account.IsAnthropicOAuthOrSetupToken() {
+		return s.GetPassiveUsage(ctx, accountID)
+	}
+
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {
 		usage, err := s.getOpenAIUsage(ctx, account, forceProbe)
 		if err == nil {
@@ -528,8 +535,28 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 
 	// 添加窗口统计
 	s.addWindowStats(ctx, account, info)
+	if account.IsSyntheticUITest() {
+		applySyntheticWindowStats(info, account.Extra)
+	}
 
 	return info, nil
+}
+
+func applySyntheticWindowStats(info *UsageInfo, extra map[string]any) {
+	if info == nil || info.FiveHour == nil || len(extra) == 0 {
+		return
+	}
+	raw, ok := extra["synthetic_window_stats"].(map[string]any)
+	if !ok {
+		return
+	}
+	info.FiveHour.WindowStats = &WindowStats{
+		Requests:     int64(parseExtraInt(raw["requests"])),
+		Tokens:       int64(parseExtraInt(raw["tokens"])),
+		Cost:         parseExtraFloat64(raw["cost"]),
+		StandardCost: parseExtraFloat64(raw["standard_cost"]),
+		UserCost:     parseExtraFloat64(raw["user_cost"]),
+	}
 }
 
 // buildPassiveUsageWindow 从 Extra 中的被动采样数据（utilization 为 0-1 小数、reset 为 Unix 秒）
@@ -701,7 +728,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 	}
 	token := account.GetOpenAIAccessToken()
 	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("Kimi account has no usable credential")
+		return nil, fmt.Errorf("kimi account has no usable credential")
 	}
 
 	baseURL := strings.TrimRight(account.GetOpenAIBaseURL(), "/")
@@ -736,7 +763,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Kimi usage request failed: %w", err)
+		return nil, fmt.Errorf("kimi usage request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -744,7 +771,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 		return nil, fmt.Errorf("read Kimi usage response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Kimi usage request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("kimi usage request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var payload map[string]any
@@ -783,7 +810,7 @@ func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Acc
 		}
 	}
 	if result.FiveHour == nil && result.SevenDay == nil {
-		return nil, fmt.Errorf("Kimi usage response did not contain supported quota windows")
+		return nil, fmt.Errorf("kimi usage response did not contain supported quota windows")
 	}
 	return result, nil
 }

@@ -170,6 +170,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		clientUserAgent = c.GetHeader("User-Agent")
 	}
 	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(clientUserAgent, parsed.MetadataUserID)
+
+	// 补充判定：上游 API 网关（如 new-api）转发真实 Claude Code 流量时，
+	// UA 会变成 Go-http-client 但 body 保留了完整的 Claude Code 特征
+	// （billing attribution block + metadata.user_id）。此时如果仍走 mimicry
+	// 重写 system prompt，会破坏 Anthropic prompt cache 的前缀匹配——
+	// 导致 messages 级缓存永远 miss、cache_creation 每轮全量重写。
+	// 通过检查 body 中的 billing attribution block 来识别被代理的真实 CC 流量。
+	if !isClaudeCode && parsed.MetadataUserID != "" {
+		isClaudeCode = systemHasBillingAttributionBlock(body)
+	}
+
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
 	if shouldMimicClaudeCode {
@@ -368,6 +379,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			// Transport attempt left local validation; count Ollama Cloud activity.
+			if !errors.Is(err, context.Canceled) {
+				scheduleOllamaCloudUsageActivity(s.deferredService, account)
 			}
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
@@ -889,25 +904,22 @@ func (s *GatewayService) checkChannelPricingRestriction(ctx context.Context, gro
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}
-	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: requestedModel, GroupID: groupID}) {
+	channel, err := s.channelService.GetChannelForGroup(ctx, *groupID)
+	if err != nil || channel == nil || !channel.RestrictModels {
+		return false
+	}
+	if channel.BillingModelSource == BillingModelSourceUpstream {
+		return false
+	}
+	model := requestedModel
+	if channel.BillingModelSource == BillingModelSourceChannelMapped {
+		mapping, _ := s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+		model = mapping.MappedModel
+	}
+	if s.resolver != nil && !s.resolver.HasUsablePricing(ctx, PricingInput{Model: model, GroupID: groupID}) {
 		return true
 	}
-	return s.channelService.IsModelRestricted(ctx, *groupID, requestedModel)
-}
-
-// billingModelForRestriction 根据计费基准确定限制检查使用的模型。
-// upstream 返回空（需逐账号检查）。
-func billingModelForRestriction(source, requestedModel, channelMappedModel string) string {
-	switch source {
-	case BillingModelSourceRequested:
-		return requestedModel
-	case BillingModelSourceUpstream:
-		return ""
-	case BillingModelSourceChannelMapped:
-		return channelMappedModel
-	default:
-		return channelMappedModel
-	}
+	return s.channelService.IsModelRestricted(ctx, *groupID, model)
 }
 
 // isUpstreamModelRestrictedByChannel 检查账号映射后的上游模型是否受渠道定价限制。

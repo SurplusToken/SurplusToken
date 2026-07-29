@@ -63,7 +63,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if err != nil {
 		return nil, err
 	}
-	if tokenType != "apikey" && !(tokenType == "oauth" && account.IsKimiCode()) {
+	if tokenType != "apikey" && (tokenType != "oauth" || !account.IsKimiCode()) {
 		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
@@ -113,6 +113,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			if !errors.Is(err, context.Canceled) {
+				scheduleOllamaCloudUsageActivity(s.deferredService, account)
 			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")

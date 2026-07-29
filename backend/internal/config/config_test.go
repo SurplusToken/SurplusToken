@@ -17,6 +17,9 @@ import (
 func resetViperWithJWTSecret(t *testing.T) {
 	t.Helper()
 	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 }
 
@@ -253,8 +256,53 @@ func TestLoadTrustedProxiesPresenceFromYAML(t *testing.T) {
 	}
 }
 
+func TestLoadTrustedProxiesFromConfigFile(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	configFile := filepath.Join(t.TempDir(), "reporter-config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`server:
+  host: 192.0.2.10
+  trusted_proxies:
+    - 127.0.0.1/32
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+`), 0o600))
+	t.Setenv("CONFIG_FILE", configFile)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "192.0.2.10", cfg.Server.Host)
+	require.Equal(t, []string{"127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, cfg.Server.TrustedProxies)
+	require.True(t, cfg.Server.TrustedProxiesConfigured)
+}
+
+func TestConfigFileTakesPrecedenceOverDataDir(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	dataDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("server:\n  host: 192.0.2.20\n"), 0o600))
+	configFile := filepath.Join(t.TempDir(), "explicit.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("server:\n  host: 192.0.2.30\n"), 0o600))
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("CONFIG_FILE", configFile)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "192.0.2.30", cfg.Server.Host)
+}
+
+func TestLoadReturnsErrorForMissingConfigFile(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("CONFIG_FILE", filepath.Join(t.TempDir(), "missing.yaml"))
+
+	_, err := Load()
+	require.ErrorContains(t, err, "read config error")
+}
+
 func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", "")
 
 	cfg, err := LoadForBootstrap()
@@ -707,6 +755,21 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
 	}
+
+	wantHosts := []string{
+		"api.kimi.com",
+		"api.moonshot.ai",
+		"api.moonshot.cn",
+	}
+	hostSet := make(map[string]struct{}, len(cfg.Security.URLAllowlist.UpstreamHosts))
+	for _, h := range cfg.Security.URLAllowlist.UpstreamHosts {
+		hostSet[h] = struct{}{}
+	}
+	for _, want := range wantHosts {
+		if _, ok := hostSet[want]; !ok {
+			t.Fatalf("URLAllowlist.UpstreamHosts missing %q; got %v", want, cfg.Security.URLAllowlist.UpstreamHosts)
+		}
+	}
 }
 
 func TestLoadDefaultServerMode(t *testing.T) {
@@ -784,6 +847,7 @@ func TestValidateLinuxDoFrontendRedirectURL(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for javascript scheme, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "linuxdo_connect.frontend_redirect_url") {
 		t.Fatalf("Validate() expected frontend_redirect_url error, got: %v", err)
@@ -835,6 +899,7 @@ func TestValidateOIDCScopesMustContainOpenID(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error when scopes do not include openid, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "oidc_connect.scopes") {
 		t.Fatalf("Validate() expected oidc_connect.scopes error, got: %v", err)
@@ -936,6 +1001,7 @@ func TestValidateDashboardCacheConfigEnabled(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for stats_fresh_ttl_seconds > stats_ttl_seconds, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "dashboard_cache.stats_fresh_ttl_seconds") {
 		t.Fatalf("Validate() expected stats_fresh_ttl_seconds error, got: %v", err)
@@ -955,6 +1021,7 @@ func TestValidateDashboardCacheConfigDisabled(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for negative stats_ttl_seconds, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "dashboard_cache.stats_ttl_seconds") {
 		t.Fatalf("Validate() expected stats_ttl_seconds error, got: %v", err)
@@ -1014,6 +1081,7 @@ func TestValidateDashboardAggregationConfigDisabled(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for negative dashboard_aggregation.interval_seconds, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "dashboard_aggregation.interval_seconds") {
 		t.Fatalf("Validate() expected interval_seconds error, got: %v", err)
@@ -1033,6 +1101,7 @@ func TestValidateDashboardAggregationBackfillMaxDays(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for dashboard_aggregation.backfill_max_days, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "dashboard_aggregation.backfill_max_days") {
 		t.Fatalf("Validate() expected backfill_max_days error, got: %v", err)
@@ -1077,6 +1146,7 @@ func TestValidateUsageCleanupConfigEnabled(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for usage_cleanup.max_range_days, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage_cleanup.max_range_days") {
 		t.Fatalf("Validate() expected max_range_days error, got: %v", err)
@@ -1096,6 +1166,7 @@ func TestValidateUsageCleanupConfigDisabled(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for usage_cleanup.batch_size, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage_cleanup.batch_size") {
 		t.Fatalf("Validate() expected batch_size error, got: %v", err)
@@ -1155,6 +1226,8 @@ func TestNormalizeStringSlice(t *testing.T) {
 }
 
 func TestGetServerAddressFromEnv(t *testing.T) {
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("DATA_DIR", "")
 	t.Setenv("SERVER_HOST", "127.0.0.1")
 	t.Setenv("SERVER_PORT", "9090")
 
@@ -1162,6 +1235,17 @@ func TestGetServerAddressFromEnv(t *testing.T) {
 	if address != "127.0.0.1:9090" {
 		t.Fatalf("GetServerAddress() = %q", address)
 	}
+}
+
+func TestGetServerAddressFromConfigFile(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "setup.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("server:\n  host: 192.0.2.40\n  port: 9191\n"), 0o600))
+	t.Setenv("CONFIG_FILE", configFile)
+	t.Setenv("DATA_DIR", "")
+	t.Setenv("SERVER_HOST", "")
+	t.Setenv("SERVER_PORT", "")
+
+	require.Equal(t, "192.0.2.40:9191", GetServerAddress())
 }
 
 func TestValidateAbsoluteHTTPURL(t *testing.T) {
@@ -1262,6 +1346,7 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for ops.cleanup.schedule")
+		return
 	}
 	if !strings.Contains(err.Error(), "ops.cleanup.schedule") {
 		t.Fatalf("Validate() expected ops.cleanup.schedule error, got: %v", err)
@@ -1279,6 +1364,7 @@ func TestValidateConcurrencyPingInterval(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() expected error for concurrency.ping_interval")
+		return
 	}
 	if !strings.Contains(err.Error(), "concurrency.ping_interval") {
 		t.Fatalf("Validate() expected concurrency.ping_interval error, got: %v", err)
@@ -1390,6 +1476,7 @@ func TestValidateJWTSecret_UTF8Bytes(t *testing.T) {
 	err = cfg.Validate()
 	if err == nil {
 		t.Fatalf("Validate() should reject 31-byte secret")
+		return
 	}
 	if !strings.Contains(err.Error(), "at least 32 bytes") {
 		t.Fatalf("Validate() error = %v", err)
