@@ -344,6 +344,50 @@ func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	require.Equal(t, 1.0, summary.Accounts[2].SharingRateMultiplier)
 }
 
+func TestAccountServiceListUserDynamicPoolSummaries_OwnerBudgetExhaustionShownUnavailable(t *testing.T) {
+	ownerID := int64(42)
+	budget := 10.0
+	spent := 10.0
+	repo := &accountPoolRepoStub{accounts: []Account{
+		{
+			ID:                1,
+			Name:              "mine-exhausted",
+			Platform:          PlatformOpenAI,
+			Type:              AccountTypeOAuth,
+			OwnerUserID:       &ownerID,
+			Status:            StatusActive,
+			Schedulable:       true,
+			GroupIDs:          []int64{7},
+			OthersWeeklySpend: &spent,
+			Extra: map[string]any{
+				"contribution_share_mode":          ContributionShareModeBudget,
+				"contribution_weekly_share_budget": budget,
+			},
+		},
+	}}
+	svc := &AccountService{accountRepo: repo}
+
+	summaries, err := svc.ListUserDynamicPoolSummaries(context.Background(), ownerID, []Group{{
+		ID: 7, Name: "OpenAI Pool", Platform: PlatformOpenAI, Status: StatusActive, DynamicSharingPool: true,
+	}})
+
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	require.Equal(t, 1, summaries[0].TotalAccounts)
+	require.Equal(t, 0, summaries[0].AvailableAccounts)
+	require.Equal(t, 1, summaries[0].LimitedAccounts)
+	require.Equal(t, 1, summaries[0].MineTotal)
+	require.Equal(t, 0, summaries[0].MineAvailable)
+	require.Len(t, summaries[0].Accounts, 1)
+	require.False(t, summaries[0].Accounts[0].Available)
+	require.True(t, summaries[0].Accounts[0].IsMine)
+
+	// The display-only sharing status must not change the scheduling contract:
+	// owners still bypass contribution protection for their own account.
+	ctx := WithRequestingUserID(context.Background(), ownerID)
+	require.Len(t, filterSurplusAISchedulableAccounts(ctx, repo.accounts), 1)
+}
+
 func TestAccountServiceListOwnedUserOAuthAccountsFiltersOwnerPlatformAndType(t *testing.T) {
 	ownerID := int64(42)
 	otherOwnerID := int64(7)
