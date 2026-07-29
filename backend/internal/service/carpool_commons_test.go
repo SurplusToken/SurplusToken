@@ -255,7 +255,7 @@ func (s *weeklyResetCaptureStub) ResetWeeklyUsage(_ context.Context, _ int64, _ 
 // 拼车订阅周重置吸附回发车对齐的 7 天网格（而非当天零点），
 // 保证全车成员窗口起点恒等、公共池计数器 key 一致。
 func TestCheckAndResetWindows_CarpoolWeeklyResetSnapsToGrid(t *testing.T) {
-	anchor := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC) // 发车对齐的窗口起点
+	anchor := time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC) // 发车对齐的窗口起点
 	reserved := 960.0
 	sub := &UserSubscription{
 		ID: 1, UserID: 10, GroupID: 20,

@@ -729,6 +729,7 @@ func ProvideChatService(repo ChatRepository, cfg *config.Config) *ChatService {
 var ProviderSet = wire.NewSet(
 	// Core services
 	NewAuthService,
+	NewPasskeyService,
 	NewUserService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
@@ -816,6 +817,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRemoteSessionService,
 	NewAccountContributionService,
 	ProvideSubscriptionExpiryService,
+	ProvideCarpoolSettlementScheduler,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,
