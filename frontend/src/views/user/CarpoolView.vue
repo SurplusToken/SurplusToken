@@ -989,6 +989,8 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
 const FORCE_LAUNCH_MIN_RATIO = 0.8
+// 与后端 CarpoolUsagePrepayRatio 对齐：首笔只预付额度费分摊的 80%。
+const USAGE_PREPAY_RATIO = 0.8
 
 // 与后端 CarpoolMinDeclaredWeeklyQuotaUSD 对齐：申报下限（美元/周）。
 const MIN_DECLARED_USD = 20
@@ -1200,8 +1202,10 @@ const joinSeatShare = computed(() => (
 const joinPoolShare = computed(() => {
   const car = joinTarget.value
   const declared = joinForm.declaredQuota
-  if (!car || !declared || declared <= 0 || car.weeklyLimitUsd <= 0) return 0
-  return car.usagePoolCny * declared / car.weeklyLimitUsd
+  if (!car || !declared || declared <= 0) return 0
+  const declaredTotal = car.declaredTotalUsd + declared
+  if (declaredTotal <= 0) return 0
+  return USAGE_PREPAY_RATIO * car.usagePoolCny * declared / declaredTotal
 })
 const joinPrepaid = computed(() => {
   if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
