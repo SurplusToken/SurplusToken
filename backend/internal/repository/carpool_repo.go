@@ -103,7 +103,7 @@ RETURNING id`, input.Name, input.Description, ownerUserID, input.CarType, input.
 	// owner 申报（可选）：>0 时写入 owner 成员记录并按 1 人记账预付（设计文档 §4.1/§4.4）。
 	var ownerPrepaid *float64
 	if input.DeclaredWeeklyQuotaUSD > 0 {
-		prepaid := service.CarpoolPrepaidCNY(input.SeatFeeCNY, input.UsagePoolCNY, input.WeeklyLimitUSD, input.DeclaredWeeklyQuotaUSD, 1)
+		prepaid := service.CarpoolPrepaidCNY(input.SeatFeeCNY, input.UsagePoolCNY, input.DeclaredWeeklyQuotaUSD, input.DeclaredWeeklyQuotaUSD, 1)
 		ownerPrepaid = &prepaid
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -262,11 +262,9 @@ WHERE carpool_id = $1 AND status IN ('joined', 'active')`, carpoolID).Scan(&decl
 		return nil, service.ErrCarpoolQuotaExceeded
 	}
 
-	// 上车即记账（设计文档 §4.4）：预付 = 席位费/人数 + 变动池×(申报/周限额)。
-	// 这个数字是按"上车当时的人数"报给用户、并据此实际收款的，因此同时写入
-	// quoted_prepaid_amount_cny 永久留档；prepaid_amount_cny 会在发车时被按
-	// 发车人数重写，两者之差就是结算时席位费要找齐的钱。
-	prepaidAmountCNY := service.CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, weeklyLimitUSD, declaredWeeklyQuotaUSD, memberCount+1)
+	// 上车即记账（设计文档 §4.4）：预付 = 席位费/人数 + 80%×变动池×(申报/Σ申报)。
+	newDeclaredTotal := declaredTotal + declaredWeeklyQuotaUSD
+	prepaidAmountCNY := service.CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, newDeclaredTotal, declaredWeeklyQuotaUSD, memberCount+1)
 
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO carpool_members (carpool_id, user_id, role, status, joined_via_invite_id,
@@ -299,7 +297,6 @@ ON CONFLICT (carpool_id, user_id) DO UPDATE SET
 	}
 	// 进区间通知：Σ申报 首次进入 [launch_min, launch_max]×周限额 时，同事务置
 	// launch_notified_at；service 在提交后据此通知车主确认发车。
-	newDeclaredTotal := declaredTotal + declaredWeeklyQuotaUSD
 	if newDeclaredTotal >= launchMinRatio*weeklyLimitUSD && newDeclaredTotal <= launchMaxRatio*weeklyLimitUSD {
 		res, err := tx.ExecContext(ctx, `
 UPDATE carpools SET launch_notified_at = NOW(), updated_at = NOW()
@@ -1414,10 +1411,8 @@ RETURNING id`, member.userID, groupID, now, expiresAt, ownerUserID, "Automatical
 		if err != nil {
 			return 0, nil, fmt.Errorf("assign carpool subscription to user %d: %w", member.userID, err)
 		}
-		// 预付按发车时人数锁定（设计文档 §4.4）。注意只重写 prepaid_amount_cny，
-		// 上车时的报价 quoted_prepaid_amount_cny 保持原值——结算时席位费退补
-		// 正是拿这两个数之差算出来的。
-		prepaidAmountCNY := service.CarpoolPrepaidCNY(params.seatFeeCNY, params.usagePoolCNY, params.weeklyLimitUSD, member.declared, len(members))
+		// 预付按发车时的最终人数与申报总额锁定（设计文档 §4.4）。
+		prepaidAmountCNY := service.CarpoolPrepaidCNY(params.seatFeeCNY, params.usagePoolCNY, declaredTotal, member.declared, len(members))
 		if _, err := tx.ExecContext(ctx, `
 UPDATE carpool_members SET status = 'active', subscription_id = $2,
     prepaid_amount_cny = $3, activated_at = $4, updated_at = $4 WHERE id = $1`, member.id, subscriptionID, prepaidAmountCNY, now); err != nil {

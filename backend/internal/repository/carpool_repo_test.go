@@ -27,7 +27,7 @@ func TestLaunchCarpoolCreatesLimitedGroupAndPerMemberSubscriptions(t *testing.T)
 	t.Cleanup(func() { _ = db.Close() })
 
 	// 2 名成员各申报 $1200（Σ=2400）：保底 r = 0.8×1200 = 960，公共池 C = 2400 − 0.8×2400 = 480，
-	// 每人订阅周限额 = 960 + 480 = 1440；预付 = 400/2 + 1000×1200/2400 = 700。
+	// 每人订阅周限额 = 960 + 480 = 1440；预付 = 400/2 + 80%×1000×1200/2400 = 600。
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT name, description, owner_user_id FROM carpools WHERE id = $1")).
 		WithArgs(int64(7)).
@@ -49,7 +49,7 @@ func TestLaunchCarpoolCreatesLimitedGroupAndPerMemberSubscriptions(t *testing.T)
 				"Automatically assigned when carpool launched", 1440.0, 960.0, sqlmock.AnyArg()).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(101 + i)))
 		mock.ExpectExec("UPDATE carpool_members SET status = 'active'").
-			WithArgs(int64(21+i), int64(101+i), 700.0, sqlmock.AnyArg()).
+			WithArgs(int64(21+i), int64(101+i), 600.0, sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	mock.ExpectExec("UPDATE carpools SET status = 'active'").
@@ -97,14 +97,14 @@ func carpoolDetailRow() *sqlmock.Rows {
 	)
 }
 
-// 上车成功：申报写入成员记录，预付按当前人数记账（400/9 + 1000×250/2400 ≈ 148.61）。
+// 上车成功：申报写入成员记录，预付按当前人数和加入后的全车申报记账。
 func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2400, 250, 9)
+	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2250, 250, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
@@ -132,7 +132,7 @@ func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 	result, err := repo.Join(context.Background(), 7, 55, 250, true, nil)
 	require.NoError(t, err)
 	require.Equal(t, 250.0, result.DeclaredWeeklyQuotaUSD)
-	require.InDelta(t, 148.61, result.PrepaidAmountCNY, 0.01)
+	require.InDelta(t, 133.33, result.PrepaidAmountCNY, 0.01)
 	require.False(t, result.LaunchBandEntered)
 	require.NotNil(t, result.Carpool)
 	require.InDelta(t, 2250, result.Carpool.DeclaredTotalUSD, 1e-9)
@@ -146,7 +146,7 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2400, 300, 9)
+	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2350, 300, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).

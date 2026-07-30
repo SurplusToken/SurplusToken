@@ -1243,7 +1243,7 @@ func applyFrozenSettlement(members []CarpoolSettlementMember, rows []CarpoolSett
 		members[i].UsageFinalShareCNY = snapshot.UsageShareCNY
 		members[i].UsageDeltaCNY = members[i].UsagePrepaidCNY - snapshot.UsageShareCNY
 		members[i].SeatFeeFinalCNY = snapshot.SeatFeeCNY
-		members[i].SeatFeeDeltaCNY = members[i].SeatFeePrepaidCNY - snapshot.SeatFeeCNY
+		members[i].SeatFeeDeltaCNY = 0
 		members[i].TotalDeltaCNY = snapshot.TotalDeltaCNY
 	}
 }
