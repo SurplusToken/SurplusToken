@@ -379,6 +379,14 @@ func (h *UserHandler) CreateContributionWithdrawal(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if result != nil && result.NewlyCreated {
+		baseCtx := context.WithoutCancel(c.Request.Context())
+		go func(withdrawal *service.ContributionWithdrawal) {
+			ctx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
+			defer cancel()
+			h.contributionService.NotifyWithdrawalCreated(ctx, withdrawal)
+		}(result)
+	}
 	response.Success(c, result)
 }
 

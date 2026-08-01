@@ -166,6 +166,7 @@ func (r *contributionRepository) CreateWithdrawal(ctx context.Context, userID in
 		return nil, service.ErrUserNotFound
 	}
 	var withdrawalID int64
+	newlyCreated := false
 	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
 		if _, err := ensureUserContributionWithClient(txCtx, txClient, userID); err != nil {
 			return err
@@ -250,6 +251,7 @@ RETURNING id`, userID, req.Amount, req.PaymentMethod, req.PaymentAccount, req.Pa
 		if err := rows.Close(); err != nil {
 			return err
 		}
+		newlyCreated = true
 
 		_, err = txClient.ExecContext(txCtx, `
 INSERT INTO user_contribution_ledger (
@@ -267,7 +269,11 @@ VALUES ($1, 'withdraw_hold', $2, $3, $4, $5, $6, NOW(), NOW())`,
 	if err != nil {
 		return nil, err
 	}
-	return r.getWithdrawalByID(ctx, withdrawalID)
+	result, err := r.getWithdrawalByID(ctx, withdrawalID)
+	if result != nil {
+		result.NewlyCreated = newlyCreated
+	}
+	return result, err
 }
 
 func (r *contributionRepository) ListWithdrawals(ctx context.Context, userID int64, page, pageSize int) ([]service.ContributionWithdrawal, int64, error) {

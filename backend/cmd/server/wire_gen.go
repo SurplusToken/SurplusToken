@@ -94,7 +94,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	userAttributeService := service.NewUserAttributeService(userAttributeDefinitionRepository, userAttributeValueRepository)
 	authHandler := handler.NewAuthHandler(configConfig, authService, userService, settingService, promoService, redeemService, totpService, userAttributeService)
 	contributionRepository := repository.NewContributionRepository(client, db)
-	contributionService := service.NewContributionService(contributionRepository, apiKeyAuthCacheInvalidator, billingCacheService)
+	contributionService := service.NewContributionService(contributionRepository, apiKeyAuthCacheInvalidator, billingCacheService, emailService)
 	userHandler := handler.NewUserHandler(userService, authService, emailService, emailCache, affiliateService, contributionService, serviceUserPlatformQuotaRepository)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageLogRepository := repository.NewUsageLogRepository(client, db)

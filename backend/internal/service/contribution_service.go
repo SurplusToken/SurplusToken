@@ -75,6 +75,7 @@ type ContributionWithdrawal struct {
 	CancelledAt      *time.Time `json:"cancelled_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+	NewlyCreated     bool       `json:"-"`
 }
 
 type CreateContributionWithdrawalRequest struct {
@@ -120,14 +121,19 @@ type ContributionService struct {
 	repo                 ContributionRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	billingCacheService  *BillingCacheService
+	emailSender          ContributionWithdrawalEmailSender
 }
 
-func NewContributionService(repo ContributionRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCacheService *BillingCacheService) *ContributionService {
-	return &ContributionService{
+func NewContributionService(repo ContributionRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCacheService *BillingCacheService, emailService *EmailService) *ContributionService {
+	svc := &ContributionService{
 		repo:                 repo,
 		authCacheInvalidator: authCacheInvalidator,
 		billingCacheService:  billingCacheService,
 	}
+	if emailService != nil {
+		svc.emailSender = emailService
+	}
+	return svc
 }
 
 func (s *ContributionService) GetSummary(ctx context.Context, userID int64) (*ContributionSummary, error) {

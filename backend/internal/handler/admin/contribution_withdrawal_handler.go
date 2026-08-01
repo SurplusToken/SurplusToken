@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -92,6 +94,14 @@ func (h *ContributionWithdrawalHandler) Review(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if result != nil && result.Status == service.ContributionWithdrawalStatusPaid {
+		baseCtx := context.WithoutCancel(c.Request.Context())
+		go func(withdrawal *service.ContributionWithdrawal) {
+			ctx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
+			defer cancel()
+			h.service.NotifyWithdrawalPaid(ctx, withdrawal)
+		}(result)
 	}
 	response.Success(c, result)
 }

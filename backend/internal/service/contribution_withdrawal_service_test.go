@@ -83,7 +83,7 @@ func validContributionWithdrawalRequest() CreateContributionWithdrawalRequest {
 func TestCreateContributionWithdrawalCanonicalizesAndFingerprintsRequest(t *testing.T) {
 	t.Parallel()
 	repo := &contributionWithdrawalRepoCapture{}
-	svc := NewContributionService(repo, nil, nil)
+	svc := NewContributionService(repo, nil, nil, nil)
 
 	result, err := svc.CreateWithdrawal(context.Background(), 9, validContributionWithdrawalRequest())
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestCreateContributionWithdrawalRejectsInvalidPayloadBeforeRepository(t *te
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			repo := &contributionWithdrawalRepoCapture{}
-			svc := NewContributionService(repo, nil, nil)
+			svc := NewContributionService(repo, nil, nil, nil)
 			req := validContributionWithdrawalRequest()
 			test.mutate(&req)
 			_, err := svc.CreateWithdrawal(context.Background(), 9, req)
@@ -157,7 +157,7 @@ func TestReviewContributionWithdrawalEnforcesTerminalStateEvidence(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			repo := &contributionWithdrawalRepoCapture{}
-			svc := NewContributionService(repo, nil, nil)
+			svc := NewContributionService(repo, nil, nil, nil)
 			_, err := svc.ReviewWithdrawal(context.Background(), test.req)
 			require.Error(t, err)
 			require.Zero(t, repo.reviewCalls)
@@ -168,7 +168,7 @@ func TestReviewContributionWithdrawalEnforcesTerminalStateEvidence(t *testing.T)
 func TestReviewContributionWithdrawalCanonicalizesValidDecision(t *testing.T) {
 	t.Parallel()
 	repo := &contributionWithdrawalRepoCapture{}
-	svc := NewContributionService(repo, nil, nil)
+	svc := NewContributionService(repo, nil, nil, nil)
 
 	_, err := svc.ReviewWithdrawal(context.Background(), ReviewContributionWithdrawalRequest{
 		WithdrawalID:     3,
@@ -187,7 +187,7 @@ func TestReviewContributionWithdrawalCanonicalizesValidDecision(t *testing.T) {
 func TestListContributionWithdrawalsAdminNormalizesFiltersAndPagination(t *testing.T) {
 	t.Parallel()
 	repo := &contributionWithdrawalRepoCapture{}
-	svc := NewContributionService(repo, nil, nil)
+	svc := NewContributionService(repo, nil, nil, nil)
 
 	_, _, err := svc.ListWithdrawalsAdmin(context.Background(), " PAID ", " user@example.com ", 0, 500)
 	require.NoError(t, err)
