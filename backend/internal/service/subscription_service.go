@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -82,11 +83,16 @@ func (s *SubscriptionService) SetCarpoolBillingCycleRecorder(rec CarpoolBillingC
 // 失败只记日志不阻断：窗口推进关系到用户能不能继续用，不能因为台账写失败就卡住。
 // 漏记的周期在结算时会被识别（周期数对不上覆盖天数），单据上会标出来。
 func (s *SubscriptionService) recordClosedCarpoolCycle(ctx context.Context, sub *UserSubscription, cycleEnd time.Time) {
-	if s == nil || s.cycleRecorder == nil || sub == nil {
+	if s == nil || sub == nil {
 		return
 	}
 	if !sub.HasWeeklyReserve() || sub.WeeklyWindowStart == nil {
 		return // 非拼车订阅不记台账
+	}
+	if s.cycleRecorder == nil {
+		// 这一周的流水就此丢失且无法补记（用量马上会被清零），必须报出来。
+		warnMissingCycleRecorder()
+		return
 	}
 	// 只传订阅 ID：用量等数值由仓储层直接读订阅行，绝不用这里的内存快照——
 	// ValidateAndCheckLimits 已经把 sub.WeeklyUsageUSD 在内存里清零了。
@@ -94,6 +100,44 @@ func (s *SubscriptionService) recordClosedCarpoolCycle(ctx context.Context, sub 
 		log.Printf("[subscription] ALERT: record carpool billing cycle failed sub=%d start=%s: %v",
 			sub.ID, sub.WeeklyWindowStart.Format(time.RFC3339), err)
 	}
+}
+
+// CarpoolWiringReady 报告拼车相关的可选注入是否齐备。
+//
+// 这两个注入曾经在一次 wire 重新生成中被整块抹掉，而缺失是完全静默的：
+// 上游窗口缺失时拼车的"一周"永远不跟随 OpenAI 重置（成员被自己人挡在门外），
+// 台账记录器缺失时每周期的计费流水根本不落库（月底按 80% 地板结算直接失真）。
+// 两者都不会报错、日志里也看不出来，只能靠这里主动暴露。
+func (s *SubscriptionService) CarpoolWiringReady() (upstreamWindows bool, cycleRecorder bool) {
+	if s == nil {
+		return false, false
+	}
+	return s.upstreamWindows != nil, s.cycleRecorder != nil
+}
+
+// 惰性告警：只在真的碰到拼车订阅、却发现注入缺失时打一次。
+//
+// 刻意不放在启动流程里——启动处的调用点在 wire 生成文件中，正是上次被整块
+// 抹掉的地方；放在服务自己身上则与装配方式无关，怎么组装都躲不掉。
+var (
+	warnMissingUpstreamWindowsOnce sync.Once
+	warnMissingCycleRecorderOnce   sync.Once
+)
+
+func warnMissingUpstreamWindows() {
+	warnMissingUpstreamWindowsOnce.Do(func() {
+		log.Printf("[subscription] ALERT: carpool upstream window source is NOT wired; " +
+			"carpool weekly windows stay on the local 7-day grid and will NOT follow the " +
+			"upstream reset — after upstream resets, members get blocked by our own counter")
+	})
+}
+
+func warnMissingCycleRecorder() {
+	warnMissingCycleRecorderOnce.Do(func() {
+		log.Printf("[subscription] ALERT: carpool billing cycle recorder is NOT wired; " +
+			"closed weekly cycles are NOT persisted and month-end settlement loses the " +
+			"per-cycle 80%% floor")
+	})
 }
 
 // SetCarpoolUpstreamWindowSource 注入上游周窗口查询器（wire 组装时调用）。
@@ -111,6 +155,11 @@ func (s *SubscriptionService) carpoolWeeklyWindowTarget(ctx context.Context, sub
 		return time.Time{}, false
 	}
 	var upstream *CarpoolUpstreamWindow
+	if s.upstreamWindows == nil {
+		// 走到这里说明这是一张拼车订阅，却没有上游窗口可查——降级是真实发生的，
+		// 必须在日志里留下痕迹（见 warnMissingUpstreamWindows 的注释）。
+		warnMissingUpstreamWindows()
+	}
 	if s.upstreamWindows != nil {
 		w, err := s.upstreamWindows.GroupUpstreamWeeklyWindow(ctx, sub.GroupID)
 		if err != nil {
@@ -120,6 +169,45 @@ func (s *SubscriptionService) carpoolWeeklyWindowTarget(ctx context.Context, sub
 		}
 	}
 	return CarpoolWeeklyWindowTarget(*sub.WeeklyWindowStart, upstream, time.Now())
+}
+
+// resetCarpoolGroupWindow 尝试把整辆车一次性重锚到 target。
+//
+// 返回 true 表示整组重锚已经落库（含台账与清零），调用方无需再走单订阅路径。
+// 返回 false 有两种情形，都退回原路径：
+//   - 上游窗口源没有实现整组重锚（未注入/旧实现）；
+//   - 本次无需写入（并发下已有人重锚过，或 target 并未前移）。
+//
+// 失败只记日志不阻塞：窗口重置是请求路径上的旁路维护，让它挡住用户请求
+// 是本末倒置——退回单订阅路径至少还能把本人重置掉。
+func (s *SubscriptionService) resetCarpoolGroupWindow(ctx context.Context, sub *UserSubscription, target time.Time) bool {
+	if s == nil || sub == nil || s.upstreamWindows == nil {
+		return false
+	}
+	resetter, ok := s.upstreamWindows.(CarpoolGroupWindowResetter)
+	if !ok {
+		return false
+	}
+	result, err := resetter.ResetGroupWeeklyWindow(ctx, sub.GroupID, target, CarpoolUpstreamWindowTolerance)
+	if err != nil {
+		log.Printf("[subscription] ALERT: carpool group window reset failed group=%d target=%s: %v (falling back to per-subscription reset)",
+			sub.GroupID, target.Format(time.RFC3339), err)
+		return false
+	}
+	if result == nil || !result.Applied {
+		return false
+	}
+	log.Printf("[subscription] carpool group window reanchored group=%d %s -> %s members=%d cycles=%d",
+		sub.GroupID, result.From.Format(time.RFC3339), result.To.Format(time.RFC3339),
+		len(result.UserIDs), result.Cycles)
+	// 整组重锚必须整组失效缓存，否则别人还拿着旧窗口和旧用量。
+	for _, userID := range result.UserIDs {
+		s.InvalidateSubCache(userID, sub.GroupID)
+		if s.billingCacheService != nil {
+			_ = s.billingCacheService.InvalidateSubscription(ctx, userID, sub.GroupID)
+		}
+	}
+	return true
 }
 
 // carpoolWeeklyWindowDrifted 报告拼车订阅的周窗口是否已经偏离目标窗口。
@@ -1028,15 +1116,26 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 			shouldReset = sub.NeedsWeeklyReset() && !target.Equal(*sub.WeeklyWindowStart)
 		}
 		if shouldReset {
-			expectedWindowStart := sub.WeeklyWindowStart
-			// 先把这一周落成台账，再清零——顺序反了就永远拿不到该周用量。
-			s.recordClosedCarpoolCycle(ctx, sub, target)
-			if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, target); err != nil {
-				return err
+			// 优先整组一次性重锚：全车写同一个窗口起点，公共池计数器的 key
+			// 才不会因为各人各存一份而裂开（见 CarpoolGroupWindowResetter）。
+			// 顺带把不发请求、否则永远不会被重锚的成员也带上。
+			if s.resetCarpoolGroupWindow(ctx, sub, target) {
+				sub.WeeklyWindowStart = &target
+				sub.WeeklyUsageUSD = 0
+				needsInvalidateCache = true
+			} else {
+				// 整组重锚不可用（未注入）或本次无需写入时，退回单订阅路径，
+				// 行为与改动前一致。
+				expectedWindowStart := sub.WeeklyWindowStart
+				// 先把这一周落成台账，再清零——顺序反了就永远拿不到该周用量。
+				s.recordClosedCarpoolCycle(ctx, sub, target)
+				if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, target); err != nil {
+					return err
+				}
+				sub.WeeklyWindowStart = &target
+				sub.WeeklyUsageUSD = 0
+				needsInvalidateCache = true
 			}
-			sub.WeeklyWindowStart = &target
-			sub.WeeklyUsageUSD = 0
-			needsInvalidateCache = true
 		}
 	} else if sub.NeedsWeeklyReset() {
 		expectedWindowStart := sub.WeeklyWindowStart
