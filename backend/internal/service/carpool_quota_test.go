@@ -8,13 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCarpoolPrepaidCNYMatchesDesignAppendixA1(t *testing.T) {
-	// A1 满车场景（Σ申报 = 2400）：预付 = 400/N + 1000×(申报/2400)
-	require.InDelta(t, 233.33, CarpoolPrepaidCNY(400, 1000, 2400, 400, 6), 0.01) // 重度 6 人
-	require.InDelta(t, 140.0, CarpoolPrepaidCNY(400, 1000, 2400, 240, 10), 0.01) // 均衡 10 人
-	require.InDelta(t, 70.0, CarpoolPrepaidCNY(400, 1000, 2400, 120, 20), 0.01)  // 轻度 20 人
-	require.InDelta(t, 154.17, CarpoolPrepaidCNY(400, 1000, 2400, 250, 8), 0.01) // A3 8 人各 250
-	require.InDelta(t, 100.0, CarpoolPrepaidCNY(0, 1000, 2400, 240, 0), 0.01)    // memberCount<1 按 1 计
+func TestCarpoolPrepaidCNYUsesDeclaredShareAndEightyPercentUsagePrepay(t *testing.T) {
+	// 预付 = 400/N + 80%×1000×(个人申报/全车申报)。
+	require.InDelta(t, 200.0, CarpoolPrepaidCNY(400, 1000, 2400, 400, 6), 0.01) // A1 重度 6 人
+	require.InDelta(t, 120.0, CarpoolPrepaidCNY(400, 1000, 2400, 240, 10), 0.01)
+	require.InDelta(t, 60.0, CarpoolPrepaidCNY(400, 1000, 2400, 120, 20), 0.01)
+	require.InDelta(t, 150.0, CarpoolPrepaidCNY(400, 1000, 2000, 250, 8), 0.01) // A3 降档发车
+	// 全车申报不可用时只收席位费，且 memberCount<1 按 1 计。
+	require.InDelta(t, 400.0, CarpoolPrepaidCNY(400, 1000, 0, 240, 0), 0.01)
 }
 
 func TestCarpoolMemberWeeklyLimitUSDGuaranteesReserve(t *testing.T) {
@@ -159,11 +160,13 @@ func TestComputeCarpoolSettlementMembersMatchesAppendixA4(t *testing.T) {
 			UserID:                 int64(100 + i),
 			Role:                   "member",
 			DeclaredWeeklyQuotaUSD: 240,
-			PrepaidAmountCNY:       140, // 400/10 + 1000×240/2400
+			PrepaidAmountCNY:       140, // 模拟旧规则留下的台账，输出应按新规则重算为 120
 			ActualUsageUSD:         actual,
 			PeriodDays:             7,
 		})
 	}
+	// 历史报价不再参与退补；席位费不退不补。
+	inputs[0].QuotedPrepaidCNY = 525
 
 	members := ComputeCarpoolSettlementMembers(2400, 400, 1000, 0.8, inputs)
 	require.Len(t, members, 10)
@@ -171,10 +174,12 @@ func TestComputeCarpoolSettlementMembersMatchesAppendixA4(t *testing.T) {
 	shareTotal := 0.0
 	for _, m := range members {
 		require.InDelta(t, 192, m.FloorUsageUSD, 1e-9)
-		require.InDelta(t, 100, m.UsagePrepaidCNY, 1e-9)
+		require.InDelta(t, 120, m.PrepaidAmountCNY, 1e-9)
+		require.InDelta(t, 80, m.UsagePrepaidCNY, 1e-9)
 		require.InDelta(t, 40, m.SeatFeePrepaidCNY, 1e-9)
 		require.InDelta(t, 40, m.SeatFeeFinalCNY, 1e-9)
 		require.InDelta(t, 0, m.SeatFeeDeltaCNY, 1e-9)
+		require.InDelta(t, m.UsageDeltaCNY, m.TotalDeltaCNY, 1e-9)
 		shareTotal += m.UsageFinalShareCNY
 	}
 	// 恒等闭合：全车变动池收支恒等于 ¥1000
@@ -184,19 +189,19 @@ func TestComputeCarpoolSettlementMembersMatchesAppendixA4(t *testing.T) {
 	require.True(t, a.FloorTriggered)
 	require.InDelta(t, 192, a.BillableUsageUSD, 1e-9)
 	require.InDelta(t, 89.2, a.UsageFinalShareCNY, 0.05)
-	require.InDelta(t, 10.8, a.UsageDeltaCNY, 0.05) // 退 ¥10.8
+	require.InDelta(t, -9.2, a.UsageDeltaCNY, 0.05) // 补 ¥9.2
 
 	other := members[1]
 	require.False(t, other.FloorTriggered)
 	require.InDelta(t, 200, other.BillableUsageUSD, 1e-9)
 	require.InDelta(t, 92.9, other.UsageFinalShareCNY, 0.05)
-	require.InDelta(t, 7.1, other.UsageDeltaCNY, 0.05) // 退 ¥7.1
+	require.InDelta(t, -12.9, other.UsageDeltaCNY, 0.05) // 补 ¥12.9
 
 	b := members[9]
 	require.False(t, b.FloorTriggered)
 	require.InDelta(t, 360, b.BillableUsageUSD, 1e-9)
 	require.InDelta(t, 167.3, b.UsageFinalShareCNY, 0.05)
-	require.InDelta(t, -67.3, b.UsageDeltaCNY, 0.05) // 补 ¥67.3
+	require.InDelta(t, -87.3, b.UsageDeltaCNY, 0.05) // 补 ¥87.3
 }
 
 func TestComputeCarpoolSettlementMembersFloorExtrapolatesByPeriod(t *testing.T) {

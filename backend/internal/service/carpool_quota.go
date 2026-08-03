@@ -11,6 +11,7 @@ const (
 	CarpoolDefaultSeatFeeCNY     = 400.0  // 席位费（固定部分），全车每月
 	CarpoolDefaultUsagePoolCNY   = 1000.0 // 变动池（用量部分），全车每月
 	CarpoolDefaultReserveRatio   = 0.80   // 申报额中定向锁定/保底付费比例
+	CarpoolUsagePrepayRatio      = 0.80   // 首笔预付收取额度费分摊的比例
 	CarpoolDefaultLaunchMinRatio = 0.95   // 可发车总申报区间下限（×周限额）
 	CarpoolDefaultLaunchMaxRatio = 1.05   // 可发车/可上车总申报区间上限（×周限额）
 
@@ -28,14 +29,14 @@ func carpoolPlusEquivalentUSD(weeklyLimitUSD float64) float64 {
 }
 
 // CarpoolPrepaidCNY 计算上车预付（第一笔账，设计文档 §4.4）：
-// 预付 = 席位费/人数 + 变动池×(申报/周限额)。
-func CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, weeklyLimitUSD, declaredWeeklyQuotaUSD float64, memberCount int) float64 {
+// 预付 = 席位费/人数 + 80%×变动池×(个人申报/全车申报)。
+func CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, declaredTotalUSD, declaredWeeklyQuotaUSD float64, memberCount int) float64 {
 	if memberCount < 1 {
 		memberCount = 1
 	}
 	prepaid := seatFeeCNY / float64(memberCount)
-	if weeklyLimitUSD > 0 {
-		prepaid += usagePoolCNY * declaredWeeklyQuotaUSD / weeklyLimitUSD
+	if declaredTotalUSD > 0 {
+		prepaid += CarpoolUsagePrepayRatio * usagePoolCNY * declaredWeeklyQuotaUSD / declaredTotalUSD
 	}
 	return prepaid
 }
@@ -182,15 +183,15 @@ type CarpoolSettlementMember struct {
 	ActualUsageUSD     float64               `json:"actual_usage_usd"`      // 周期内实际用量
 	BillableUsageUSD   float64               `json:"billable_usage_usd"`    // 计费用量 = max(实际, 地板)
 	FloorTriggered     bool                  `json:"floor_triggered"`       // 实际未达地板，按地板计费
-	PrepaidAmountCNY   float64               `json:"prepaid_amount_cny"`    // 发车时按发车人数锁定的台账值
+	PrepaidAmountCNY   float64               `json:"prepaid_amount_cny"`    // 新规则预付 = 最终席位费 + 80%×申报占比额度费
 	QuotedPrepaidCNY   float64               `json:"quoted_prepaid_cny"`    // 上车当时报给用户的金额（实际收款依据）
-	UsagePrepaidCNY    float64               `json:"usage_prepaid_cny"`     // 预付变动部分 = 变动池×申报/周限额
+	UsagePrepaidCNY    float64               `json:"usage_prepaid_cny"`     // 预付变动部分 = 80%×变动池×申报/Σ申报
 	UsageFinalShareCNY float64               `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
 	UsageDeltaCNY      float64               `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
-	SeatFeePrepaidCNY  float64               `json:"seat_fee_prepaid_cny"`  // 上车报价中的席位费部分 = 席位费/上车时人数
+	SeatFeePrepaidCNY  float64               `json:"seat_fee_prepaid_cny"`  // 预付席位费 = 席位费/发车人数
 	SeatFeeFinalCNY    float64               `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
-	SeatFeeDeltaCNY    float64               `json:"seat_fee_delta_cny"`    // 席位费退/补：正=退，负=补
-	TotalDeltaCNY      float64               `json:"total_delta_cny"`       // 合计退/补：正=退，负=补
+	SeatFeeDeltaCNY    float64               `json:"seat_fee_delta_cny"`    // 席位费固定不退补，恒为 0
+	TotalDeltaCNY      float64               `json:"total_delta_cny"`       // 用量退/补：正=退，负=补
 }
 
 // ComputeCarpoolSettlementMembers 按设计文档 §4.5 计算全车结算单（含 80% 地板规则）。
@@ -202,9 +203,11 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 	}
 
 	billableTotal := 0.0
+	declaredTotal := 0.0
 	for _, in := range inputs {
 		b, _, _, _, _ := memberBillable(in, reserveRatio)
 		billableTotal += b
+		declaredTotal += in.DeclaredWeeklyQuotaUSD
 	}
 
 	seatFeeFinal := seatFeeCNY / float64(len(inputs))
@@ -213,22 +216,18 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 		floorTriggered := actual <= floor
 
 		usagePrepaid := 0.0
-		if weeklyLimitUSD > 0 {
-			usagePrepaid = usagePoolCNY * in.DeclaredWeeklyQuotaUSD / weeklyLimitUSD
+		if declaredTotal > 0 {
+			usagePrepaid = CarpoolUsagePrepayRatio * usagePoolCNY * in.DeclaredWeeklyQuotaUSD / declaredTotal
 		}
 		usageFinalShare := 0.0
 		if billableTotal > 0 {
 			usageFinalShare = usagePoolCNY * billable / billableTotal
 		}
-		// 席位费退补必须对着"用户上车当时被报价、并据此付给车主的金额"算。
-		// 发车时 prepaid_amount_cny 被按发车人数重写，如果拿它当预付基准，
-		// 差额恒等于 0——席位费"找齐"就成了死代码。老数据没有报价列时回落到
-		// 锁定值，行为退化为原来的恒 0，不产生错误金额。
 		quoted := in.QuotedPrepaidCNY
 		if quoted <= 0 {
 			quoted = in.PrepaidAmountCNY
 		}
-		seatFeePrepaid := quoted - usagePrepaid
+		prepaid := seatFeeFinal + usagePrepaid
 
 		member := CarpoolSettlementMember{
 			UserID:                 in.UserID,
@@ -244,16 +243,16 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 			ActualUsageUSD:         actual,
 			BillableUsageUSD:       billable,
 			FloorTriggered:         floorTriggered,
-			PrepaidAmountCNY:       in.PrepaidAmountCNY,
+			PrepaidAmountCNY:       prepaid,
 			QuotedPrepaidCNY:       quoted,
 			UsagePrepaidCNY:        usagePrepaid,
 			UsageFinalShareCNY:     usageFinalShare,
 			UsageDeltaCNY:          usagePrepaid - usageFinalShare,
-			SeatFeePrepaidCNY:      seatFeePrepaid,
+			SeatFeePrepaidCNY:      seatFeeFinal,
 			SeatFeeFinalCNY:        seatFeeFinal,
-			SeatFeeDeltaCNY:        seatFeePrepaid - seatFeeFinal,
+			SeatFeeDeltaCNY:        0,
 		}
-		member.TotalDeltaCNY = member.UsageDeltaCNY + member.SeatFeeDeltaCNY
+		member.TotalDeltaCNY = member.UsageDeltaCNY
 		members = append(members, member)
 	}
 	return members

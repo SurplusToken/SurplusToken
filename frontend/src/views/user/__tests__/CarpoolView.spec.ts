@@ -576,9 +576,9 @@ describe('CarpoolView', () => {
     expect(wrapper.text()).toContain('carpool.joinDialog.previewEffectiveRate')
     expect(wrapper.text()).not.toContain('carpool.joinDialog.previewAvgPrice')
 
-    // 申报 $60：预付 = 400/4 + 1000×60/2400 = ¥125，31 天可用 60×31/7 = $265.7，
-    // 等效倍率 = 125/265.7 ≈ 0.47；全车 = 1400/(2400×31/7) ≈ 0.13，约 3.6 倍 → 触发提示。
+    // 申报 $60：预付 = 400/4 + 80%×1000×60/(1200+60) ≈ ¥138.1。
     await wrapper.get('#carpool-join-quota').setValue(60)
+    expect(wrapper.text()).toContain('¥138.1')
     expect(wrapper.text()).toContain('carpool.joinDialog.rateAboveAverage')
   })
 
