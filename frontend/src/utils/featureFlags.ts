@@ -52,7 +52,7 @@
  *   8. Frontend `api/admin/settings.ts`        → admin DTO typings
  *   9. **Frontend `utils/featureFlags.ts` (this file)** → register via `defineFlag`
  *  10. Frontend `views/admin/SettingsView.vue` → Toggle UI + form defaults + save payload
- *  11. Frontend `components/layout/AppSidebar.vue` → attach via `makeSidebarFlag`
+ *  11. Frontend `components/layout/useUserNavItems.ts` / `useAdminNavItems.ts` → attach via `makeSidebarFlag`
  *
  * ## Usage
  *
@@ -66,7 +66,7 @@
  *
  * `isFeatureFlagEnabled(flag)` returns the resolved boolean (`true` = show).
  * `makeSidebarFlag(flag)` returns a `() => boolean | undefined` compatible with
- * `AppSidebar.NavItem.featureFlag`, where `false` hides the menu entry.
+ * `NavItem.featureFlag` (see `components/layout/useUserNavItems.ts`), where `false` hides the menu entry.
  */
 
 import { useAppStore } from '@/stores/app'
@@ -145,9 +145,9 @@ export function isFeatureFlagEnabled(flag: FeatureFlagDefinition): boolean {
 }
 
 /**
- * Sidebar NavItem.featureFlag accepts a getter that returns
+ * NavItem.featureFlag accepts a getter that returns
  * `false` to hide. Keeping the same contract lets callers swap in
- * registry-backed flags without changing AppSidebar's filter logic.
+ * registry-backed flags without changing the nav filter logic.
  */
 export function makeSidebarFlag(flag: FeatureFlagDefinition): () => boolean {
   return () => isFeatureFlagEnabled(flag)

@@ -8,7 +8,7 @@ export function formatHeaderMoney(value: number) {
 }
 
 /**
- * 头部余额展示共享逻辑（AppHeader 的 BalancePill / UserMenu 与 AppTopNav 共用）。
+ * 头部余额展示共享逻辑（AppTopNav 的 BalancePill / UserMenu 共用）。
  */
 export function useHeaderBalance() {
   const { t } = useI18n()

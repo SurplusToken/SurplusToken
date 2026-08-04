@@ -40,7 +40,7 @@ export function applyFeatureFlags(items: NavItem[]): NavItem[] {
   return out
 }
 
-// SVG Icon Components (shared by AppSidebar and AppTopNav)
+// SVG Icon Components (shared by the nav composables and AppTopNav)
 export const DashboardIcon = {
   render: () =>
     h(
@@ -283,7 +283,7 @@ export const OrderListIcon = {
 
 /**
  * 用户端导航项（用户主菜单 + 管理员"我的账户"子菜单共享）。
- * 由 AppSidebar 与 AppTopNav 共同消费，保证两侧菜单定义与过滤逻辑只有一份。
+ * 由 AppTopNav（用户区与管理员的"我的账户"区）消费，保证菜单定义与过滤逻辑只有一份。
  */
 export function useUserNavItems() {
   const { t } = useI18n()

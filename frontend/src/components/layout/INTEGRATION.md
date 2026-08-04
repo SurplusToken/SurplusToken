@@ -251,31 +251,36 @@ Replace HTML entity icons with your preferred icon library:
 <ChartBarIcon class="h-5 w-5" />
 ```
 
-### Sidebar Customization
+### Navigation Customization
 
-Modify navigation items in `AppSidebar.vue`:
+Modify navigation items in the composables (single source of truth for the top nav):
+
+- `useUserNavItems.ts` → `buildSelfNavItems()` for user menu entries
+- `useAdminNavItems.ts` → `adminNavItems` for admin menu entries
 
 ```typescript
 // Add/remove/modify navigation items
-const userNavItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: '&#128200;' },
-  { path: '/new-page', label: 'New Page', icon: '&#128196;' } // Add new item
+items.push(
+  { path: '/new-page', label: t('nav.newPage'), icon: NewPageIcon } // Add new item
   // ...
-]
+)
 ```
 
-### Header Customization
+Grouping/order in the top bar itself is configured in `AppTopNav.vue`
+(`primaryPaths`, `adminCorePaths`, `adminGroupDefs`).
 
-Modify user dropdown in `AppHeader.vue`:
+### User Dropdown Customization
+
+Modify the user dropdown in `UserMenu.vue`:
 
 ```vue
 <!-- Add new dropdown items -->
 <router-link
   to="/settings"
   @click="closeDropdown"
-  class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+  class="dropdown-item"
 >
-  <span class="mr-2">&#9881;</span>
+  <Icon name="cog" size="sm" />
   Settings
 </router-link>
 ```
@@ -284,39 +289,13 @@ Modify user dropdown in `AppHeader.vue`:
 
 ## Mobile Responsive Behavior
 
-### Sidebar
+### Top Navigation
 
-- **Desktop (md+)**: Always visible, can be collapsed to icon-only view
-- **Mobile**: Hidden by default, shown via menu toggle in header
+- **Desktop (lg+)**: Horizontal nav items inline; overflow items in dropdowns
+- **Mobile**: Hamburger button toggles a dropdown panel listing all items
+  (admin items are listed with group titles)
 
-### Header
-
-- **Desktop**: Shows full user info and balance
-- **Mobile**: Shows compact view with hamburger menu
-
-To improve mobile experience, you can add overlay and transitions:
-
-```vue
-<!-- AppSidebar.vue enhancement for mobile -->
-<aside
-  class="fixed left-0 top-0 z-40 h-screen transition-transform duration-300"
-  :class="[
-    sidebarCollapsed ? 'w-16' : 'w-64',
-    // Hide on mobile when collapsed
-    'md:translate-x-0',
-    sidebarCollapsed ? '-translate-x-full md:translate-x-0' : 'translate-x-0'
-  ]"
->
-  <!-- ... -->
-</aside>
-
-<!-- Add overlay for mobile -->
-<div
-  v-if="!sidebarCollapsed"
-  @click="toggleSidebar"
-  class="fixed inset-0 z-30 bg-black bg-opacity-50 md:hidden"
-></div>
-```
+The mobile panel is part of `AppTopNav.vue` — no extra overlay wiring needed.
 
 ---
 
@@ -405,24 +384,24 @@ To enhance further:
 ### Unit Testing Layout Components
 
 ```typescript
-// AppHeader.test.ts
+// AppTopNav.test.ts
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import AppHeader from '@/components/layout/AppHeader.vue'
+import AppTopNav from '@/components/layout/AppTopNav.vue'
 
-describe('AppHeader', () => {
+describe('AppTopNav', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
 
   it('renders user info when authenticated', () => {
-    const wrapper = mount(AppHeader)
+    const wrapper = mount(AppTopNav)
     // Add assertions
   })
 
   it('shows dropdown when clicked', async () => {
-    const wrapper = mount(AppHeader)
+    const wrapper = mount(AppTopNav)
     await wrapper.find('button').trigger('click')
     expect(wrapper.find('.dropdown').exists()).toBe(true)
   })
@@ -451,21 +430,21 @@ import { AppLayout } from '@/components/layout'
 Layout components use `computed` refs to prevent unnecessary re-renders:
 
 ```typescript
-const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
-// This only re-renders when sidebarCollapsed changes
+const primaryItems = computed(() => userNavItems.value.filter((item) => primaryPaths.includes(item.path)))
+// This only re-renders when userNavItems changes
 ```
 
 ---
 
 ## Troubleshooting
 
-### Sidebar not showing
+### Navigation not showing
 
-- Check if `useAppStore` is properly initialized
+- Check if `useAppStore`/`useAuthStore` is properly initialized
 - Verify Tailwind classes are being processed
 - Check z-index conflicts with other components
 
-### Routes not highlighting in sidebar
+### Routes not highlighting in the top nav
 
 - Ensure route paths match exactly
 - Check `isActive()` function logic

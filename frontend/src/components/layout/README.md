@@ -6,7 +6,7 @@ Vue 3 layout components for the Sub2API frontend, built with Composition API, Ty
 
 ### 1. AppLayout.vue
 
-Main application layout with sidebar and header.
+Main application layout with a top horizontal navigation bar.
 
 **Usage:**
 
@@ -26,71 +26,48 @@ import { AppLayout } from '@/components/layout'
 
 **Features:**
 
-- Responsive sidebar (collapsible)
-- Fixed header at top
-- Main content area with slot
-- Automatically adjusts margin based on sidebar state
+- Top horizontal navigation (AppTopNav) for all roles
+- Centered `max-w-7xl` content container for regular users; full-width pages for admins
+- Onboarding tour wiring (admin_guide / user_guide)
 
 ---
 
-### 2. AppSidebar.vue
+### 2. AppTopNav.vue
 
-Navigation sidebar with user and admin sections.
+Top horizontal navigation bar used for every role (there is no sidebar).
 
 **Features:**
 
-- Logo/brand at top
-- User navigation links:
-  - Dashboard
-  - API Keys
-  - Usage
-  - Redeem
-  - Profile
-- Admin navigation links (shown only if user is admin):
-  - Admin Dashboard
-  - Users
-  - Groups
-  - Accounts
-  - Proxies
-  - Redeem Codes
-- Collapsible sidebar with toggle button
-- Active route highlighting
-- Icons using HTML entities
-- Responsive (mobile-friendly)
+- Logo/brand on the left (site name/logo from appStore)
+- Horizontal nav items with active-route highlighting:
+  - Regular users: core items inline, the rest under a "More" dropdown
+  - Admins on `/admin/*`: core admin items inline, the rest grouped into
+    semantic dropdowns (channels / payments & orders / ops / security / system),
+    plus a "User View" link back to `/dashboard`
+  - Admins on user pages: user nav plus a highlighted "Admin Console" entry
+- Right side: announcements bell, docs link, model plaza entry, locale switcher,
+  subscription progress, theme toggle, balance pill, user dropdown
+- Mobile (`<lg`): hamburger toggles a dropdown panel listing all items
+  (admin items shown with group titles)
+- Onboarding tour anchors (`sidebar-group-manage`, `sidebar-channel-manage`,
+  `sidebar-my-keys`) are preserved for the interactive guides
 
 **Used automatically by AppLayout** - no need to import separately.
 
 ---
 
-### 3. AppHeader.vue
+### 3. Navigation item composables
 
-Top header with user info and actions.
+Menu definitions and their filtering (feature flags, simple mode, custom pages)
+live in composables so the top nav never duplicates logic:
 
-**Features:**
+- `useUserNavItems.ts` — user menu (`userNavItems`), also used for the admin's
+  personal area; exports the shared `NavItem` type, `applyFeatureFlags`, and icons
+- `useAdminNavItems.ts` — admin menu (`adminNavItems`), including collapsible
+  groups (`children`/`expandOnly`) and feature-flag filtering
 
-- Mobile menu toggle button
-- Page title (from route meta or slot)
-- User balance display (desktop only)
-- User dropdown menu with:
-  - Profile link
-  - Logout button
-- User avatar with initials
-- Click-outside handling for dropdown
-- Responsive design
-
-**Usage with custom title:**
-
-```vue
-<template>
-  <AppLayout>
-    <template #title> Custom Page Title </template>
-
-    <!-- Your content -->
-  </AppLayout>
-</template>
-```
-
-**Used automatically by AppLayout** - no need to import separately.
+Shared building blocks: `TopNavDropdown.vue` (dropdown group), `BalancePill.vue`,
+`UserMenu.vue`, `useHeaderBalance.ts`.
 
 ---
 
@@ -211,8 +188,9 @@ You can replace these with your preferred icon library (e.g., Heroicons, Font Aw
 
 All components are fully responsive:
 
-- **AppSidebar**: Fixed positioning on desktop, hidden by default on mobile
-- **AppHeader**: Shows mobile menu toggle on small screens, hides balance display
+- **AppTopNav**: Collapses the horizontal nav into a hamburger-triggered dropdown
+  panel on small screens (`<lg`); balance pill hides on very small screens and its
+  values move into the user dropdown
 - **AuthLayout**: Adapts padding and card size for mobile devices
 
-The sidebar uses Tailwind's responsive breakpoints (md:) to adjust behavior.
+The top nav uses Tailwind's responsive breakpoints (`sm:`/`lg:`/`xl:`) to adjust behavior.
