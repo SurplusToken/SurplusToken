@@ -70,7 +70,7 @@ const ACCENT: Record<Platform, string> = {
   zhipu: '#06b6d4', // cyan-500
   composite: '#06b6d4', // cyan-500
 }
-const ACCENT_DEFAULT = '#14b8a6' // primary-500 (teal)
+const ACCENT_DEFAULT = '#0da5e8' // primary-500 (heliblue)
 
 // ── Accent bar (gradient) ───────────────────────────────────────────
 const ACCENT_BAR: Record<Platform, string> = {

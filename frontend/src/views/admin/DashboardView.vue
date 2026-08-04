@@ -547,7 +547,7 @@ const userTrendChartData = computed(() => {
     '#ef4444',
     '#8b5cf6',
     '#ec4899',
-    '#14b8a6',
+    '#0da5e8',
     '#f97316',
     '#6366f1',
     '#84cc16',

@@ -2,7 +2,7 @@
   <aside
     class="sidebar"
     :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
+      sidebarCollapsed ? 'w-12' : 'w-52',
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -11,7 +11,7 @@
       <!-- Custom Logo or Default Logo -->
       <router-link
         :to="homePath"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
+        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg transition-opacity hover:opacity-80"
         @click="handleMenuItemClick(homePath)"
       >
         <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
@@ -999,8 +999,8 @@ onBeforeUnmount(() => {
 
 .sidebar-header-collapsed {
   gap: 0;
-  padding-left: 1.125rem;
-  padding-right: 1.125rem;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
 }
 
 .sidebar-brand {
@@ -1117,5 +1117,32 @@ onBeforeUnmount(() => {
   display: block;
   width: 1.25rem;
   height: 1.25rem;
+}
+
+/* Helicone-style compact nav items: 32px height, 6px radius, flat slate hover */
+.sidebar-link {
+  height: 2rem;
+  padding: 0 0.75rem;
+  gap: 0.625rem;
+  border-radius: 0.375rem;
+}
+
+.sidebar-link-collapsed {
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+  justify-content: center;
+}
+
+.sidebar-link-active,
+.sidebar-link-active:hover {
+  background-color: rgb(240 249 255); /* primary-50 */
+  color: #0284c7; /* primary-600 */
+}
+
+.dark .sidebar-link-active,
+.dark .sidebar-link-active:hover {
+  background-color: rgb(13 165 232 / 0.1); /* primary-500/10 */
+  color: #38bdf8; /* primary-400 */
 }
 </style>

@@ -154,8 +154,8 @@
     <!-- Total Contribution Tokens -->
     <div class="card p-4">
       <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-teal-100 p-2 dark:bg-teal-900/30">
-          <Icon name="database" size="md" class="text-teal-600 dark:text-teal-400" :stroke-width="2" />
+        <div class="rounded-lg bg-primary-100 p-2 dark:bg-primary-900/30">
+          <Icon name="database" size="md" class="text-primary-600 dark:text-primary-400" :stroke-width="2" />
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalContributionTokens') }}</p>
