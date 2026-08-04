@@ -6,6 +6,9 @@ import { describe, expect, it } from 'vitest'
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppSidebar.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
+// User nav items (incl. payment entries) are shared with AppTopNav via this composable
+const userNavItemsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../useUserNavItems.ts')
+const userNavItemsSource = readFileSync(userNavItemsPath, 'utf8')
 const stylePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../style.css')
 const styleSource = readFileSync(stylePath, 'utf8')
 
@@ -56,8 +59,8 @@ describe('AppSidebar header styles', () => {
 
 describe('AppSidebar payment entries', () => {
   it('shows purchase and orders according to the payment feature flag', () => {
-    expect(componentSource).toContain('const flagPayment = makeSidebarFlag(FeatureFlags.payment)')
-    expect(componentSource).toContain("{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
-    expect(componentSource).toContain("{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
+    expect(userNavItemsSource).toContain('const flagPayment = makeSidebarFlag(FeatureFlags.payment)')
+    expect(userNavItemsSource).toContain("{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
+    expect(userNavItemsSource).toContain("{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }")
   })
 })

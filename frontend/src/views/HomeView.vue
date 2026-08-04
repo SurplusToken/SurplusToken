@@ -28,33 +28,45 @@
     <header
       class="sticky top-0 z-20 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-dark-950"
     >
-      <nav class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <!-- Logo -->
-        <router-link to="/" class="flex items-center gap-2.5">
-          <div class="h-8 w-8 overflow-hidden rounded-lg">
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+      <nav class="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+        <!-- Logo + Primary Nav -->
+        <div class="flex items-center gap-8">
+          <router-link to="/" class="flex items-center gap-2.5">
+            <div class="h-8 w-8 overflow-hidden rounded-lg">
+              <img :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
+            </div>
+            <span class="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
+              {{ siteName }}
+            </span>
+          </router-link>
+
+          <!-- Desktop Nav Links -->
+          <div class="hidden items-center gap-1 md:flex">
+            <router-link to="/model-plaza" class="home-nav-link">
+              {{ t('home.nav.models') }}
+            </router-link>
+            <router-link to="/model-plaza" class="home-nav-link">
+              {{ t('home.nav.pricing') }}
+            </router-link>
+            <a
+              v-if="docUrl"
+              :href="docUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="home-nav-link"
+            >
+              {{ t('home.docs') }}
+            </a>
+            <a :href="githubUrl" target="_blank" rel="noopener noreferrer" class="home-nav-link">
+              GitHub
+            </a>
           </div>
-          <span class="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
-            {{ siteName }}
-          </span>
-        </router-link>
+        </div>
 
         <!-- Nav Actions -->
         <div class="flex items-center gap-2">
           <!-- Language Switcher -->
           <LocaleSwitcher />
-
-          <!-- Doc Link -->
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-            :title="t('home.viewDocs')"
-          >
-            <Icon name="book" size="md" />
-          </a>
 
           <!-- Theme Toggle -->
           <button
@@ -66,28 +78,73 @@
             <Icon v-else name="moon" size="md" />
           </button>
 
-          <!-- Login / Dashboard Button -->
+          <!-- Console / Login / Get Started -->
           <router-link
             v-if="isAuthenticated"
             :to="dashboardPath"
-            class="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-dark-900"
-          >
-            <span
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-primary-500 text-[10px] font-semibold text-white"
-            >
-              {{ userInitial }}
-            </span>
-            {{ t('home.dashboard') }}
-          </router-link>
-          <router-link
-            v-else
-            to="/login"
             class="btn btn-primary rounded-lg px-4 py-2 text-sm"
+          >
+            {{ t('home.nav.console') }}
+          </router-link>
+          <template v-else>
+            <router-link
+              to="/login"
+              class="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white sm:inline-flex"
+            >
+              {{ t('home.login') }}
+            </router-link>
+            <router-link to="/login" class="btn btn-primary rounded-lg px-4 py-2 text-sm">
+              {{ t('home.getStarted') }}
+            </router-link>
+          </template>
+
+          <!-- Mobile Menu Button -->
+          <button
+            @click="mobileMenuOpen = !mobileMenuOpen"
+            class="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white md:hidden"
+            :title="t('home.nav.menu')"
+            :aria-label="t('home.nav.menu')"
+          >
+            <Icon v-if="mobileMenuOpen" name="x" size="md" />
+            <Icon v-else name="menu" size="md" />
+          </button>
+        </div>
+      </nav>
+
+      <!-- Mobile Nav Panel -->
+      <div
+        v-if="mobileMenuOpen"
+        class="border-t border-slate-200 px-6 py-3 dark:border-slate-800 md:hidden"
+      >
+        <div class="flex flex-col gap-1">
+          <router-link to="/model-plaza" class="home-nav-link" @click="mobileMenuOpen = false">
+            {{ t('home.nav.models') }}
+          </router-link>
+          <router-link to="/model-plaza" class="home-nav-link" @click="mobileMenuOpen = false">
+            {{ t('home.nav.pricing') }}
+          </router-link>
+          <a
+            v-if="docUrl"
+            :href="docUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="home-nav-link"
+          >
+            {{ t('home.docs') }}
+          </a>
+          <a :href="githubUrl" target="_blank" rel="noopener noreferrer" class="home-nav-link">
+            GitHub
+          </a>
+          <router-link
+            v-if="!isAuthenticated"
+            to="/login"
+            class="home-nav-link"
+            @click="mobileMenuOpen = false"
           >
             {{ t('home.login') }}
           </router-link>
         </div>
-      </nav>
+      </div>
     </header>
 
     <!-- Main Content -->
@@ -401,6 +458,9 @@ const isHomeContentUrl = computed(() => {
 // Theme
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
+// Mobile nav
+const mobileMenuOpen = ref(false)
+
 // GitHub URL
 const githubUrl = 'https://github.com/ypd666/SurplusAI'
 
@@ -408,11 +468,6 @@ const githubUrl = 'https://github.com/ypd666/SurplusAI'
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const dashboardPath = computed(() => isAdmin.value ? '/admin/dashboard' : '/dashboard')
-const userInitial = computed(() => {
-  const user = authStore.user
-  if (!user || !user.email) return ''
-  return user.email.charAt(0).toUpperCase()
-})
 
 // Current year for footer
 const currentYear = computed(() => new Date().getFullYear())
@@ -448,3 +503,11 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.home-nav-link {
+  @apply rounded-md px-3 py-2 text-sm font-medium text-slate-600 transition-colors;
+  @apply hover:bg-slate-100 hover:text-slate-900;
+  @apply dark:text-slate-300 dark:hover:bg-dark-800 dark:hover:text-white;
+}
+</style>
