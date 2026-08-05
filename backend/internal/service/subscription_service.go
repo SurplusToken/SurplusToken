@@ -180,22 +180,39 @@ func (s *SubscriptionService) carpoolWeeklyWindowTarget(ctx context.Context, sub
 //
 // 失败只记日志不阻塞：窗口重置是请求路径上的旁路维护，让它挡住用户请求
 // 是本末倒置——退回单订阅路径至少还能把本人重置掉。
-func (s *SubscriptionService) resetCarpoolGroupWindow(ctx context.Context, sub *UserSubscription, target time.Time) bool {
+// carpoolGroupResetOutcome 区分整组重锚的三种结局。
+//
+// 把"拒绝"和"不支持"分开是必须的：前者是整组重锚看过全组状态后的决定，
+// 调用方必须尊重；后者只是能力缺失，才可以退回单订阅路径。早先两者都返回
+// false，于是单订阅路径去做了整组重锚刚刚拒绝的事——生产上因此写出了一批
+// cycle_end < cycle_start 的倒挂周期。
+type carpoolGroupResetOutcome int
+
+const (
+	carpoolGroupResetUnavailable carpoolGroupResetOutcome = iota // 未注入/旧实现/出错
+	carpoolGroupResetApplied                                     // 已落库
+	carpoolGroupResetDeclined                                    // 看过全组后判定不该写
+)
+
+func (s *SubscriptionService) resetCarpoolGroupWindow(ctx context.Context, sub *UserSubscription, target time.Time) carpoolGroupResetOutcome {
 	if s == nil || sub == nil || s.upstreamWindows == nil {
-		return false
+		return carpoolGroupResetUnavailable
 	}
 	resetter, ok := s.upstreamWindows.(CarpoolGroupWindowResetter)
 	if !ok {
-		return false
+		return carpoolGroupResetUnavailable
 	}
-	result, err := resetter.ResetGroupWeeklyWindow(ctx, sub.GroupID, target, CarpoolUpstreamWindowTolerance)
+	result, err := resetter.ResetGroupWeeklyWindow(ctx, sub.GroupID, target, CarpoolUpstreamWindowMinAdvance)
 	if err != nil {
 		log.Printf("[subscription] ALERT: carpool group window reset failed group=%d target=%s: %v (falling back to per-subscription reset)",
 			sub.GroupID, target.Format(time.RFC3339), err)
-		return false
+		return carpoolGroupResetUnavailable
 	}
-	if result == nil || !result.Applied {
-		return false
+	if result == nil {
+		return carpoolGroupResetUnavailable
+	}
+	if !result.Applied {
+		return carpoolGroupResetDeclined
 	}
 	log.Printf("[subscription] carpool group window reanchored group=%d %s -> %s members=%d cycles=%d",
 		sub.GroupID, result.From.Format(time.RFC3339), result.To.Format(time.RFC3339),
@@ -207,7 +224,7 @@ func (s *SubscriptionService) resetCarpoolGroupWindow(ctx context.Context, sub *
 			_ = s.billingCacheService.InvalidateSubscription(ctx, userID, sub.GroupID)
 		}
 	}
-	return true
+	return carpoolGroupResetApplied
 }
 
 // carpoolWeeklyWindowDrifted 报告拼车订阅的周窗口是否已经偏离目标窗口。
@@ -1110,22 +1127,34 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 	// 上游数据缺失或陈旧时目标退回本地 7 天网格，行为与原来一致。
 	if sub.HasWeeklyReserve() && sub.WeeklyWindowStart != nil {
 		target, fromUpstream := s.carpoolWeeklyWindowTarget(ctx, sub)
-		shouldReset := CarpoolWeeklyWindowDrifted(*sub.WeeklyWindowStart, target)
+		// 判据只有一个：窗口确实前移了足够多（见 CarpoolWeeklyWindowAdvanced）。
+		// 早先用的是"偏离超过容差"，双向都算——上游一抖就被误判成新窗口，
+		// 抖回去又把成员往回搬，生产上把一整周的用量清成了伪周期。
+		shouldReset := CarpoolWeeklyWindowAdvanced(*sub.WeeklyWindowStart, target)
 		if !fromUpstream {
 			// 降级路径：维持原语义，只在本地 7 天到点后吸附网格。
-			shouldReset = sub.NeedsWeeklyReset() && !target.Equal(*sub.WeeklyWindowStart)
+			shouldReset = sub.NeedsWeeklyReset() && target.After(*sub.WeeklyWindowStart)
 		}
 		if shouldReset {
 			// 优先整组一次性重锚：全车写同一个窗口起点，公共池计数器的 key
 			// 才不会因为各人各存一份而裂开（见 CarpoolGroupWindowResetter）。
 			// 顺带把不发请求、否则永远不会被重锚的成员也带上。
-			if s.resetCarpoolGroupWindow(ctx, sub, target) {
+			outcome := s.resetCarpoolGroupWindow(ctx, sub, target)
+			switch outcome {
+			case carpoolGroupResetApplied:
 				sub.WeeklyWindowStart = &target
 				sub.WeeklyUsageUSD = 0
 				needsInvalidateCache = true
-			} else {
-				// 整组重锚不可用（未注入）或本次无需写入时，退回单订阅路径，
-				// 行为与改动前一致。
+			case carpoolGroupResetDeclined:
+				// 整组重锚看过全组状态后判定"不该写"（并发下已有人重锚过，或目标
+				// 并未真正前移）。这是一个决定，不是能力缺失——绝不能退回单订阅
+				// 路径去做它刚拒绝的事，那正是倒挂周期的来源。
+			case carpoolGroupResetUnavailable:
+				// 未注入或出错才退回单订阅路径；这里再自查一次方向，
+				// 降级路径同样不允许把窗口往回搬。
+				if !target.After(*sub.WeeklyWindowStart) {
+					break
+				}
 				expectedWindowStart := sub.WeeklyWindowStart
 				// 先把这一周落成台账，再清零——顺序反了就永远拿不到该周用量。
 				s.recordClosedCarpoolCycle(ctx, sub, target)

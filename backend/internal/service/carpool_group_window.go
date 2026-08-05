@@ -29,7 +29,7 @@ type CarpoolGroupWindowResetter interface {
 	// tolerance，视为已经有人重锚过，直接返回 Applied=false 不做任何写入。
 	// 没有这道判断的话，两个并发请求会各自算出相差几秒的 target，
 	// 后到的那个会把刚重置好的窗口再重置一遍，把用量二次清零。
-	ResetGroupWeeklyWindow(ctx context.Context, groupID int64, target time.Time, tolerance time.Duration) (*CarpoolGroupWindowReset, error)
+	ResetGroupWeeklyWindow(ctx context.Context, groupID int64, target time.Time, minAdvance time.Duration) (*CarpoolGroupWindowReset, error)
 }
 
 // CarpoolGroupWindowReset 是一次整组重锚的结果。

@@ -28,6 +28,17 @@ const (
 	// 每次请求算出来都会差几秒。没有容差的话每个请求都会被当成一次上游重置，
 	// 全车用量会被反复清零。
 	CarpoolUpstreamWindowTolerance = 10 * time.Minute
+
+	// CarpoolUpstreamWindowMinAdvance 是"这确实是一个新窗口"所需的最小前移量。
+	//
+	// 10 分钟的容差不够。生产事故实测：同一个窗口内 codex_7d_reset_at 一度读到
+	// 比真实值晚 12 分 43 秒的数值，随后又读回原值。那次抖动越过容差，被当成一次
+	// 上游重置，整组 11 人的周用量被清零（2213.73 USD 的记录被截成一个伪周期），
+	// 上游读回原值后又把成员逐个向回搬，写出 cycle_end < cycle_start 的倒挂周期。
+	//
+	// 抖动是分钟级的，真实的新窗口至少前移数天。取 1 小时：比观测到的抖动大近
+	// 五倍，又远小于任何一个可信窗口长度（下限 24 小时），两头都不会误判。
+	CarpoolUpstreamWindowMinAdvance = time.Hour
 )
 
 // CarpoolUpstreamWindow 是拼车组绑定的上游账号当前周窗口的快照。
@@ -97,4 +108,18 @@ func CarpoolWeeklyWindowDrifted(current, target time.Time) bool {
 		diff = -diff
 	}
 	return diff > CarpoolUpstreamWindowTolerance
+}
+
+// CarpoolWeeklyWindowAdvanced 报告目标窗口是否真的开启了新的一周，
+// 即"可以重锚 + 清零"。这是重锚的唯一判据，比单纯的偏离更严格：
+//
+//   - 只认前移。目标早于当前窗口意味着上游数据回退（抖动、缓存、时钟），
+//     跟着往回搬会把已经结算过的一周重新打开，并写出 cycle_end < cycle_start
+//     的倒挂周期——生产上真的发生过。
+//   - 前移量必须够大。分钟级的前移是抖动不是新窗口，见 MinAdvance 的注释。
+func CarpoolWeeklyWindowAdvanced(current, target time.Time) bool {
+	if current.IsZero() || target.IsZero() {
+		return false
+	}
+	return target.Sub(current) >= CarpoolUpstreamWindowMinAdvance
 }
