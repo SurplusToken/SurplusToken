@@ -1,13 +1,20 @@
 <template>
-  <div class="stat-card">
-    <div :class="['stat-icon', iconClass]">
-      <component v-if="icon" :is="icon" class="h-6 w-6" aria-hidden="true" />
-    </div>
-    <div class="min-w-0 flex-1">
-      <p class="stat-label truncate">{{ title }}</p>
-      <div class="mt-1 flex items-baseline gap-2">
-        <p class="stat-value" :title="String(formattedValue)">{{ formattedValue }}</p>
-        <span v-if="change !== undefined" :class="['stat-trend', trendClass]">
+  <div class="flex h-full flex-col rounded-lg border border-border bg-card">
+    <div class="flex flex-grow flex-col p-4">
+      <div class="flex w-full items-center justify-between">
+        <p class="truncate text-[13px] text-muted-foreground">{{ title }}</p>
+        <component
+          v-if="icon"
+          :is="icon"
+          class="h-6 w-6 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      </div>
+      <div class="mt-auto flex items-baseline gap-2">
+        <p class="truncate text-xl font-semibold text-foreground" :title="String(formattedValue)">
+          {{ formattedValue }}
+        </p>
+        <span v-if="change !== undefined" :class="['flex items-center gap-1 text-xs font-medium', trendClass]">
           <Icon
             v-if="changeType !== 'neutral'"
             name="arrowUp"
@@ -60,20 +67,10 @@ const formattedChange = computed(() => {
   return `${absChange}%`
 })
 
-const iconClass = computed(() => {
-  const classes: Record<IconVariant, string> = {
-    primary: 'stat-icon-primary',
-    success: 'stat-icon-success',
-    warning: 'stat-icon-warning',
-    danger: 'stat-icon-danger'
-  }
-  return classes[props.iconVariant]
-})
-
 const trendClass = computed(() => {
   const classes: Record<ChangeType, string> = {
-    up: 'stat-trend-up',
-    down: 'stat-trend-down',
+    up: 'text-emerald-600 dark:text-emerald-400',
+    down: 'text-red-600 dark:text-red-400',
     neutral: 'text-gray-500 dark:text-dark-400'
   }
   return classes[props.changeType]

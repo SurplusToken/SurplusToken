@@ -3,31 +3,31 @@
     <div v-if="loading" class="flex items-center justify-center py-12">
       <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
     </div>
-    <div v-else-if="initError" class="card p-6 text-center">
+    <div v-else-if="initError" class="rounded-lg border border-border bg-card p-6 text-center">
       <p class="text-sm text-red-600 dark:text-red-400">{{ initError }}</p>
       <button class="btn btn-secondary mt-4" @click="$emit('back')">{{ t('payment.result.backToRecharge') }}</button>
     </div>
     <!-- Success -->
     <template v-else-if="success">
-      <div class="card p-6">
+      <div class="rounded-lg border border-border bg-card p-6">
         <div class="flex flex-col items-center space-y-4 py-4">
-          <div class="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+          <div class="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
             <Icon name="check" size="lg" class="text-green-500" />
           </div>
-          <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.result.success') }}</p>
-          <div class="w-full rounded-xl bg-gray-50 p-4 dark:bg-dark-800">
+          <p class="text-lg font-semibold text-foreground">{{ t('payment.result.success') }}</p>
+          <div class="w-full rounded-lg bg-muted p-4">
             <div class="space-y-2 text-sm">
               <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderId') }}</span>
-                <span class="font-medium text-gray-900 dark:text-white">#{{ orderId }}</span>
+                <span class="text-muted-foreground">{{ t('payment.orders.orderId') }}</span>
+                <span class="font-medium text-foreground">#{{ orderId }}</span>
               </div>
               <div v-if="amount > 0" class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.amount') }}</span>
-                <span class="font-medium text-gray-900 dark:text-white">{{ creditedAmountSymbol }}{{ amount.toFixed(2) }}</span>
+                <span class="text-muted-foreground">{{ t('payment.orders.amount') }}</span>
+                <span class="font-medium text-foreground">{{ creditedAmountSymbol }}{{ amount.toFixed(2) }}</span>
               </div>
               <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-                <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol }}{{ payAmount.toFixed(2) }}</span>
+                <span class="text-muted-foreground">{{ t('payment.orders.payAmount') }}</span>
+                <span class="font-medium text-foreground">{{ paymentAmountSymbol }}{{ payAmount.toFixed(2) }}</span>
               </div>
             </div>
           </div>
@@ -37,14 +37,12 @@
     </template>
     <template v-else>
       <!-- Amount -->
-      <div class="card overflow-hidden">
-        <div class="bg-gradient-to-br from-[#635bff] to-[#4f46e5] px-6 py-5 text-center">
-          <p class="text-sm font-medium text-indigo-200">{{ t('payment.actualPay') }}</p>
-          <p class="mt-1 text-3xl font-bold text-white">{{ paymentAmountSymbol }}{{ payAmount.toFixed(2) }}</p>
-        </div>
+      <div class="rounded-lg border border-border bg-card px-6 py-5 text-center">
+        <p class="text-sm text-muted-foreground">{{ t('payment.actualPay') }}</p>
+        <p class="mt-1 text-xl font-semibold text-foreground">{{ paymentAmountSymbol }}{{ payAmount.toFixed(2) }}</p>
       </div>
       <!-- Stripe Payment Element -->
-      <div class="card p-6">
+      <div class="rounded-lg border border-border bg-card p-6">
         <div ref="stripeMount" class="min-h-[200px]"></div>
         <p v-if="error" class="mt-4 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
         <button class="btn btn-stripe mt-6 w-full py-3 text-base" :disabled="submitting || !ready" @click="handlePay">

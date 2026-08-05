@@ -1,12 +1,12 @@
 <template>
-  <div class="card" data-testid="sharing-rate-range-card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+  <div class="rounded-lg border border-border bg-card" data-testid="sharing-rate-range-card">
+    <div class="border-b border-border px-6 py-4">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="text-lg font-medium text-gray-900 dark:text-white">
+          <h2 class="text-sm font-semibold text-foreground">
             {{ t('profile.sharingRateRange.title') }}
           </h2>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p class="mt-1 text-sm text-muted-foreground">
             {{ t('profile.sharingRateRange.description') }}
           </p>
         </div>
@@ -52,7 +52,7 @@
         </label>
       </div>
 
-      <p class="text-xs text-gray-500 dark:text-gray-400">
+      <p class="text-xs text-muted-foreground">
         {{ t('profile.sharingRateRange.marketBounds', { floor: effectiveFloor, cap: effectiveCap }) }}
       </p>
 

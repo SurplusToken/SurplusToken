@@ -3,6 +3,27 @@
 @tailwind utilities;
 
 @layer base {
+  /* ============ Helicone 语义色 token(web/styles/globals.css) ============ */
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 32% 91%;
+  }
+
+  .dark {
+    --background: 0 0% 0%;
+    --foreground: 210 40% 98%;
+    --card: 229 84% 5%;
+    --card-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --border: 217 33% 17%;
+  }
+
   * {
     @apply border-slate-200 dark:border-dark-800;
   }
@@ -241,40 +262,29 @@
     @apply px-6 py-4;
   }
 
-  /* ============ 统计卡片 ============ */
+  /* ============ 统计卡片(Helicone metricsPanel 风:灰 icon 无色块) ============ */
   .stat-card {
-    @apply card p-5;
-    @apply flex items-start gap-4;
+    @apply flex h-full flex-col rounded-lg border border-border bg-card p-4;
   }
 
   .stat-icon {
-    @apply h-12 w-12 rounded-lg;
-    @apply flex items-center justify-center;
-    @apply text-xl;
+    @apply h-6 w-6;
+    @apply text-slate-400 dark:text-dark-400;
   }
 
-  .stat-icon-primary {
-    @apply bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400;
-  }
-
-  .stat-icon-success {
-    @apply bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400;
-  }
-
-  .stat-icon-warning {
-    @apply bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400;
-  }
-
+  .stat-icon-primary,
+  .stat-icon-success,
+  .stat-icon-warning,
   .stat-icon-danger {
-    @apply bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400;
+    @apply text-slate-400 dark:text-dark-400;
   }
 
   .stat-value {
-    @apply text-2xl font-semibold tracking-tight text-slate-900 dark:text-white truncate;
+    @apply text-xl font-semibold text-foreground truncate;
   }
 
   .stat-label {
-    @apply text-sm text-slate-500 dark:text-dark-400;
+    @apply text-[13px] text-muted-foreground;
   }
 
   .stat-trend {
@@ -597,7 +607,7 @@
   }
 
   .empty-state-title {
-    @apply mb-1 text-lg font-medium text-slate-900 dark:text-white;
+    @apply mb-1 text-xl font-semibold text-slate-900 dark:text-white;
   }
 
   .empty-state-description {

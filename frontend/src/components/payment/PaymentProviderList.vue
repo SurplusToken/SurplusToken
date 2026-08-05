@@ -1,13 +1,13 @@
 <template>
-  <div class="card">
+  <div class="rounded-lg border border-border bg-card">
     <!-- Header -->
-    <div class="border-b border-gray-100 px-4 py-3 dark:border-dark-700">
+    <div class="border-b border-border px-4 py-3">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-base font-semibold text-gray-900 dark:text-white">
+          <h2 class="text-sm font-semibold text-foreground">
             {{ t('admin.settings.payment.providerManagement') }}
           </h2>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-muted-foreground">
             {{ t('admin.settings.payment.providerManagementDesc') }}
           </p>
         </div>
@@ -52,7 +52,7 @@
         @end="onDragEnd"
       >
         <div v-for="p in localProviders" :key="p.id" class="flex items-start gap-2">
-          <div class="drag-handle mt-3 flex cursor-grab items-center text-gray-300 hover:text-gray-500 active:cursor-grabbing dark:text-dark-600 dark:hover:text-dark-400">
+          <div class="drag-handle mt-3 flex cursor-grab items-center text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing">
             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
             </svg>
@@ -73,7 +73,7 @@
 
       <!-- Empty -->
       <div v-else-if="!loading" class="py-6 text-center">
-        <p class="text-sm text-gray-500 dark:text-gray-400">
+        <p class="text-sm text-muted-foreground">
           {{ canCreate
             ? t('admin.settings.payment.noProviders')
             : t('admin.settings.payment.enableTypesFirst') }}

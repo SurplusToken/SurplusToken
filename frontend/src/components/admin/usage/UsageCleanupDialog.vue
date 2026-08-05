@@ -10,13 +10,13 @@
         @change="noop"
       />
 
-      <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+      <div class="rounded-lg border border-amber-600/20 bg-amber-50/50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
         {{ t('admin.usage.cleanup.warning') }}
       </div>
 
-      <div class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+      <div class="rounded-lg border border-border p-4">
         <div class="flex items-center justify-between">
-          <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-200">
+          <h4 class="text-sm font-semibold text-foreground">
             {{ t('admin.usage.cleanup.recentTasks') }}
           </h4>
           <button type="button" class="btn btn-ghost btn-sm" @click="loadTasks">
@@ -25,38 +25,38 @@
         </div>
 
         <div class="mt-3 space-y-2">
-          <div v-if="tasksLoading" class="text-sm text-gray-500 dark:text-gray-400">
+          <div v-if="tasksLoading" class="text-sm text-muted-foreground">
             {{ t('admin.usage.cleanup.loadingTasks') }}
           </div>
-          <div v-else-if="tasks.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+          <div v-else-if="tasks.length === 0" class="text-sm text-muted-foreground">
             {{ t('admin.usage.cleanup.noTasks') }}
           </div>
           <div v-else class="space-y-2">
             <div
               v-for="task in tasks"
               :key="task.id"
-              class="flex flex-col gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm text-gray-600 dark:border-dark-700 dark:text-gray-300"
+              class="flex flex-col gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span :class="statusClass(task.status)" class="rounded-full px-2 py-0.5 text-xs font-semibold">
+                  <span :class="statusClass(task.status)" class="rounded px-2 py-0.5 text-xs font-medium ring-1 ring-inset">
                     {{ statusLabel(task.status) }}
                   </span>
-                  <span class="text-xs text-gray-400">#{{ task.id }}</span>
+                  <span class="text-xs text-muted-foreground">#{{ task.id }}</span>
                   <button
                     v-if="canCancel(task)"
                     type="button"
-                    class="btn btn-ghost btn-xs text-rose-600 hover:text-rose-700 dark:text-rose-300"
+                    class="btn btn-ghost btn-xs text-rose-600 hover:text-rose-700 dark:text-rose-400"
                     @click="openCancelConfirm(task)"
                   >
                     {{ t('admin.usage.cleanup.cancel') }}
                   </button>
                 </div>
-                <div class="text-xs text-gray-400">
+                <div class="text-xs text-muted-foreground">
                   {{ formatDateTime(task.created_at) }}
                 </div>
               </div>
-              <div class="flex flex-wrap items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+              <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                 <span>{{ t('admin.usage.cleanup.range') }}: {{ formatRange(task) }}</span>
                 <span>{{ t('admin.usage.cleanup.deletedRows') }}: {{ task.deleted_rows.toLocaleString() }}</span>
               </div>
@@ -205,13 +205,13 @@ const statusLabel = (status: string) => {
 
 const statusClass = (status: string) => {
   const map: Record<string, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200',
-    running: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200',
-    succeeded: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200',
-    failed: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200',
-    canceled: 'bg-gray-200 text-gray-600 dark:bg-dark-600 dark:text-gray-300'
+    pending: 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900 dark:text-amber-300',
+    running: 'bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-900 dark:text-blue-300',
+    succeeded: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900 dark:text-emerald-300',
+    failed: 'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-900 dark:text-rose-300',
+    canceled: 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-900 dark:text-gray-300'
   }
-  return map[status] || 'bg-gray-100 text-gray-600'
+  return map[status] || 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-900 dark:text-gray-300'
 }
 
 const formatDateTime = (value?: string | null) => {

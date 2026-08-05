@@ -2,14 +2,9 @@
   <AppLayout>
     <div class="mx-auto w-full max-w-7xl space-y-5">
       <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex min-w-0 items-center gap-3">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-            <Icon name="users" size="lg" />
-          </div>
-          <div class="min-w-0">
-            <h1 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('carpool.title') }}</h1>
-            <p class="mt-0.5 text-sm text-gray-500 dark:text-dark-300">{{ t('carpool.description') }}</p>
-          </div>
+        <div class="min-w-0">
+          <h1 class="text-xl font-semibold text-foreground">{{ t('carpool.title') }}</h1>
+          <p class="mt-0.5 text-sm text-muted-foreground">{{ t('carpool.description') }}</p>
         </div>
         <button type="button" class="btn btn-primary shrink-0" @click="openCreateDialog">
           <Icon name="plus" size="sm" />
@@ -19,14 +14,14 @@
 
       <section
         data-testid="gpt-carpool-rules"
-        class="overflow-hidden rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/20"
+        class="overflow-hidden rounded-lg border border-border bg-muted/50"
       >
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-4 py-3 dark:border-amber-900/70">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div class="flex items-center gap-2">
-            <Icon name="book" size="sm" class="text-amber-700 dark:text-amber-400" />
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('carpool.rules.title') }}</h2>
+            <Icon name="book" size="sm" class="text-muted-foreground" />
+            <h2 class="text-sm font-semibold text-foreground">{{ t('carpool.rules.title') }}</h2>
           </div>
-          <span class="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+          <span class="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Icon name="refresh" size="xs" />
             {{ t('carpool.rules.weeklyBadge') }}
           </span>
@@ -34,12 +29,12 @@
 
         <div class="grid gap-x-6 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
           <div v-for="item in ruleItems" :key="item.label" class="py-1.5">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ item.label }}</h3>
-            <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ item.text }}</p>
+            <h3 class="text-sm font-semibold text-foreground">{{ item.label }}</h3>
+            <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ item.text }}</p>
           </div>
         </div>
 
-        <div class="space-y-1 border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
+        <div class="space-y-1 border-t border-border px-4 py-2.5 text-xs leading-5 text-muted-foreground">
           <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
           <p>{{ t('carpool.notices.consumeOrder') }}</p>
           <p>{{ t('carpool.notices.customRule') }}</p>
@@ -54,12 +49,12 @@
       <section
         v-if="authStore.isAdmin && pendingLaunches.length > 0"
         data-testid="carpool-pending-launch"
-        class="overflow-hidden rounded-lg border border-blue-200 bg-blue-50/70 dark:border-blue-900/70 dark:bg-blue-950/20"
+        class="overflow-hidden rounded-lg border border-border bg-muted/50"
       >
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200 px-4 py-3 dark:border-blue-900/70">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div class="flex items-center gap-2">
-            <Icon name="clock" size="sm" class="text-blue-700 dark:text-blue-400" />
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+            <Icon name="clock" size="sm" class="text-muted-foreground" />
+            <h2 class="text-sm font-semibold text-foreground">
               {{ t('carpool.pendingLaunch.title', { count: pendingLaunches.length }) }}
             </h2>
           </div>
@@ -67,7 +62,7 @@
             {{ t('carpool.pendingLaunch.overdueBadge', { count: overduePendingCount }) }}
           </span>
         </div>
-        <ul class="divide-y divide-blue-200 dark:divide-blue-900/70">
+        <ul class="divide-y divide-border">
           <li
             v-for="item in pendingLaunches"
             :key="item.carpoolId"
@@ -75,12 +70,12 @@
           >
             <div class="min-w-0">
               <div class="flex items-center gap-2">
-                <span class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ item.name }}</span>
+                <span class="truncate text-sm font-medium text-foreground">{{ item.name }}</span>
                 <span v-if="item.overdue" class="badge badge-warning shrink-0">
                   {{ t('carpool.pendingLaunch.overdue') }}
                 </span>
               </div>
-              <div class="mt-0.5 text-xs text-gray-500 dark:text-dark-300">
+              <div class="mt-0.5 text-xs text-muted-foreground">
                 {{ t('carpool.pendingLaunch.summary', {
                   members: item.memberCount,
                   total: formatUsd(item.declaredTotalUsd),
@@ -102,22 +97,22 @@
         </ul>
       </section>
 
-      <section class="grid grid-cols-2 border-y border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 sm:grid-cols-4">
-        <div v-for="stat in stats" :key="stat.label" class="border-gray-200 px-4 py-3 odd:border-r dark:border-dark-700 sm:border-r sm:last:border-r-0">
-          <div class="text-xs text-gray-500 dark:text-dark-300">{{ stat.label }}</div>
-          <div class="mt-1 text-xl font-semibold text-gray-900 dark:text-white">{{ stat.value }}</div>
+      <section class="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card sm:grid-cols-4">
+        <div v-for="stat in stats" :key="stat.label" class="border-border px-4 py-3 odd:border-r sm:border-r sm:last:border-r-0">
+          <div class="text-xs text-muted-foreground">{{ stat.label }}</div>
+          <div class="mt-1 text-xl font-semibold text-foreground">{{ stat.value }}</div>
         </div>
       </section>
 
       <section class="space-y-4">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div class="inline-flex h-10 w-fit rounded-lg bg-gray-100 p-1 dark:bg-dark-800">
+          <div class="inline-flex h-10 w-fit rounded-lg bg-muted p-1">
             <button
               v-for="tab in tabs"
               :key="tab.value"
               type="button"
               class="min-w-28 rounded-md px-4 text-sm font-medium transition-colors"
-              :class="activeTab === tab.value ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:text-dark-300 dark:hover:text-white'"
+              :class="activeTab === tab.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
               @click="activeTab = tab.value"
             >
               {{ tab.label }}
@@ -126,7 +121,7 @@
 
           <div class="flex flex-col gap-2 sm:flex-row">
             <div class="relative sm:w-72">
-              <Icon name="search" size="sm" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Icon name="search" size="sm" class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input v-model.trim="searchQuery" type="search" class="input h-10 pl-9" :placeholder="t('carpool.searchPlaceholder')" />
             </div>
             <select v-model="statusFilter" class="input h-10 sm:w-40">
@@ -139,35 +134,35 @@
           </div>
         </div>
 
-        <div v-if="loading" class="flex min-h-64 items-center justify-center border-y border-gray-200 dark:border-dark-700">
-          <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+        <div v-if="loading" class="flex min-h-64 items-center justify-center rounded-lg border border-border bg-card">
+          <Icon name="refresh" size="lg" class="animate-spin text-muted-foreground" />
         </div>
 
         <div v-else-if="filteredCarpools.length" class="grid gap-4 lg:grid-cols-2">
           <article
             v-for="carpool in filteredCarpools"
             :key="carpool.id"
-            class="flex min-h-[292px] flex-col rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-gray-300 dark:border-dark-700 dark:bg-dark-800 dark:hover:border-dark-600"
+            class="flex min-h-[292px] flex-col rounded-lg border border-border bg-card p-5"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="truncate text-base font-semibold text-gray-900 dark:text-white">{{ carpool.name }}</h2>
+                  <h2 class="truncate text-base font-semibold text-foreground">{{ carpool.name }}</h2>
                   <span :class="['badge', statusBadgeClass(carpool)]">{{ statusLabel(carpool) }}</span>
                   <span v-if="carpool.memberRole" class="badge badge-primary">{{ t(`carpool.roles.${carpool.memberRole}`) }}</span>
                 </div>
-                <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
+                <p class="mt-1 line-clamp-2 min-h-10 text-sm text-muted-foreground">{{ carpool.description }}</p>
               </div>
               <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义 -->
               <span
                 v-if="isQuotaCar(carpool)"
-                class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
+                class="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground"
               >
                 {{ t('carpool.fields.weeklyLimitBadge', { limit: formatUsd(carpool.weeklyLimitUsd) }) }}
               </span>
               <span
                 v-else
-                class="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                class="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground"
               >
                 {{ t('carpool.customRule.badge') }}
               </span>
@@ -181,21 +176,21 @@
             <div
               v-if="!isQuotaCar(carpool)"
               data-testid="carpool-custom-rule"
-              class="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300"
+              class="mt-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
             >
-              <div class="font-medium">{{ t('carpool.customRule.badge') }}</div>
+              <div class="font-medium text-foreground">{{ t('carpool.customRule.badge') }}</div>
               <p v-if="carpool.ruleNote" class="mt-1">{{ carpool.ruleNote }}</p>
               <p v-else class="mt-1">{{ t('carpool.customRule.noNote') }}</p>
             </div>
 
             <div v-else class="mt-4">
               <div class="mb-2 flex items-center justify-between text-xs">
-                <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.quotaProgress') }}</span>
-                <span class="text-gray-500 dark:text-dark-300">
+                <span class="font-medium text-foreground">{{ t('carpool.fields.quotaProgress') }}</span>
+                <span class="text-muted-foreground">
                   {{ t('carpool.fields.declaredOf', { declared: formatUsd(carpool.declaredTotalUsd), limit: formatUsd(carpool.weeklyLimitUsd) }) }}
                 </span>
               </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
+              <div class="relative h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   class="h-full rounded-full transition-all"
                   :class="quotaProgressClass(carpool)"
@@ -220,55 +215,55 @@
             <dl class="mt-4 grid grid-cols-3 gap-x-4 gap-y-3 text-sm">
               <template v-if="isQuotaCar(carpool)">
                 <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
-                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
+                  <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.remainingJoinable') }}</dt>
+                  <dd class="mt-1 font-medium text-foreground">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
                 </div>
                 <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.effectiveRate') }}</dt>
-                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
+                  <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.effectiveRate') }}</dt>
+                  <dd class="mt-1 font-medium text-foreground">
                     {{ formatRate(carEffectiveRate(carpool)) }}
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                    <span class="block text-[10px] font-normal text-muted-foreground">
                       {{ t('carpool.fields.effectiveRateHint', { usd: formatDecimal(carUsdPerCny(carpool)) }) }}
                     </span>
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
-                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
+                  <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.carMonthlyFee') }}</dt>
+                  <dd class="mt-1 font-medium text-foreground">
                     {{ formatCny(carpool.seatFeeCny + carpool.usagePoolCny) }}
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                    <span class="block text-[10px] font-normal text-muted-foreground">
                       {{ t('carpool.fields.carMonthlyFeeUnit', { seat: formatCny(carpool.seatFeeCny), pool: formatCny(carpool.usagePoolCny) }) }}
                     </span>
                   </dd>
                 </div>
               </template>
               <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.organizer') }}</dt>
-                <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.organizer }}</dd>
+                <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.organizer') }}</dt>
+                <dd class="mt-1 truncate font-medium text-foreground">{{ carpool.organizer }}</dd>
               </div>
               <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.scheduledStart') }}</dt>
-                <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDate(carpool.scheduledStartAt) }}</dd>
+                <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.scheduledStart') }}</dt>
+                <dd class="mt-1 font-medium text-foreground">{{ formatDate(carpool.scheduledStartAt) }}</dd>
               </div>
               <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
-                <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
+                <dt class="text-xs text-muted-foreground">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
+                <dd class="mt-1 truncate font-medium text-foreground">{{ carpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
               </div>
             </dl>
 
             <div
               v-if="carpool.hasGroupQrCode"
-              class="mt-4 flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-700/40"
+              class="mt-4 flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2"
             >
               <img
                 v-if="qrCodeUrls[carpool.id]"
                 :src="qrCodeUrls[carpool.id]"
                 :alt="t('carpool.wechat.scanToJoin')"
-                class="h-14 w-14 shrink-0 cursor-zoom-in rounded-md border border-gray-200 object-cover dark:border-dark-600"
+                class="h-14 w-14 shrink-0 cursor-zoom-in rounded-md border border-border object-cover"
                 @click="qrZoomUrl = qrCodeUrls[carpool.id]"
               />
               <div class="min-w-0 text-xs">
-                <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
+                <div class="font-medium text-foreground">{{ t('carpool.wechat.scanToJoin') }}</div>
                 <button
                   type="button"
                   class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
@@ -281,7 +276,7 @@
               </div>
             </div>
 
-            <div class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-4 dark:border-dark-700">
+            <div class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
               <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="btn btn-secondary h-9 px-3 py-2" @click="openDetails(carpool)">
                   <Icon name="eye" size="sm" />
@@ -309,7 +304,7 @@
                   <Icon name="checkCircle" size="sm" />
                   <span>{{ t('carpool.actions.confirm') }}</span>
                 </button>
-                <span v-if="canConfirm(carpool) && !launchReady(carpool)" class="text-xs text-gray-500 dark:text-dark-300">{{ launchHint(carpool) }}</span>
+                <span v-if="canConfirm(carpool) && !launchReady(carpool)" class="text-xs text-muted-foreground">{{ launchHint(carpool) }}</span>
                 <button
                   v-if="canAdminLaunch(carpool)"
                   type="button"
@@ -397,10 +392,10 @@
           </article>
         </div>
 
-        <div v-else class="flex min-h-64 flex-col items-center justify-center border-y border-gray-200 py-12 text-center dark:border-dark-700">
-          <Icon name="users" size="xl" class="text-gray-300 dark:text-dark-500" />
-          <h2 class="mt-3 text-base font-semibold text-gray-900 dark:text-white">{{ t('carpool.empty.title') }}</h2>
-          <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">{{ t('carpool.empty.description') }}</p>
+        <div v-else class="flex min-h-64 flex-col items-center justify-center rounded-lg border border-border bg-card py-12 text-center">
+          <Icon name="users" size="xl" class="text-muted-foreground" />
+          <h2 class="mt-3 text-base font-semibold text-foreground">{{ t('carpool.empty.title') }}</h2>
+          <p class="mt-1 text-sm text-muted-foreground">{{ t('carpool.empty.description') }}</p>
         </div>
       </section>
     </div>
@@ -416,7 +411,7 @@
               type="button"
               :data-testid="`rule-mode-${mode.value}`"
               class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
-              :class="createRuleMode === mode.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
+              :class="createRuleMode === mode.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-border text-muted-foreground hover:text-foreground'"
               @click="createRuleMode = mode.value"
             >
               <Icon :name="mode.value === 'default' ? 'checkCircle' : 'users'" size="sm" />
@@ -428,10 +423,10 @@
         <div
           v-if="createRuleMode === 'custom'"
           data-testid="custom-rule-panel"
-          class="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/70 dark:bg-amber-950/20"
+          class="rounded-lg border border-border bg-muted/50 px-3 py-3"
         >
-          <div class="text-xs font-medium text-amber-800 dark:text-amber-300">{{ t('carpool.createDialog.customRule.title') }}</div>
-          <p class="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">{{ t('carpool.createDialog.customRule.description') }}</p>
+          <div class="text-xs font-medium text-foreground">{{ t('carpool.createDialog.customRule.title') }}</div>
+          <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ t('carpool.createDialog.customRule.description') }}</p>
           <div class="mt-3">
             <button
               type="button"
@@ -446,9 +441,9 @@
           </div>
           <div
             v-if="customRuleNotified"
-            class="mt-3 flex items-center justify-between gap-2 rounded-md bg-white/70 px-2.5 py-2 dark:bg-dark-700/40"
+            class="mt-3 flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-2"
           >
-            <span class="text-sm text-gray-700 dark:text-dark-100">
+            <span class="text-sm text-foreground">
               {{ t('carpool.wechat.adminLabel') }}: <span class="font-mono font-medium">{{ ADMIN_WECHAT }}</span>
             </span>
             <button type="button" class="btn btn-secondary h-7 px-2 py-1 text-xs" @click="copyAdminWechat(ADMIN_WECHAT)">
@@ -474,7 +469,7 @@
           <div>
             <label class="input-label" for="carpool-owner-quota">{{ t('carpool.createDialog.ownerQuota') }}</label>
             <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" step="1" class="input" :disabled="createFieldsDisabled" />
-            <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.ownerQuotaHint') }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ t('carpool.createDialog.ownerQuotaHint') }}</p>
           </div>
         </div>
         <fieldset>
@@ -485,7 +480,7 @@
               :key="visibility.value"
               type="button"
               class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
-              :class="createForm.visibility === visibility.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
+              :class="createForm.visibility === visibility.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-border text-muted-foreground hover:text-foreground'"
               :disabled="createFieldsDisabled"
               @click="createForm.visibility = visibility.value"
             >
@@ -494,11 +489,11 @@
             </button>
           </div>
         </fieldset>
-        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
-          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.createDialog.contactTitle') }}</div>
-          <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ t('carpool.createDialog.contactHint') }}</p>
-          <div class="mt-2 flex items-center justify-between gap-2 rounded-md bg-gray-50 px-2.5 py-2 dark:bg-dark-700/40">
-            <span class="text-sm text-gray-700 dark:text-dark-100">
+        <div class="rounded-lg border border-border px-3 py-3">
+          <div class="text-xs font-medium text-foreground">{{ t('carpool.createDialog.contactTitle') }}</div>
+          <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ t('carpool.createDialog.contactHint') }}</p>
+          <div class="mt-2 flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-2">
+            <span class="text-sm text-foreground">
               {{ t('carpool.wechat.adminLabel') }}: <span class="font-mono font-medium">{{ ADMIN_WECHAT }}</span>
             </span>
             <button type="button" class="btn btn-secondary h-7 px-2 py-1 text-xs" @click="copyAdminWechat(ADMIN_WECHAT)">
@@ -514,7 +509,7 @@
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :disabled="createFieldsDisabled"
             />
-            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
+            <span class="text-sm text-foreground">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
           </label>
           <div class="mt-3">
             <label class="input-label" for="carpool-group-qr">{{ t('carpool.createDialog.qrLabel') }}</label>
@@ -524,18 +519,18 @@
                   id="carpool-group-qr"
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
-                  class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:text-dark-300 dark:file:bg-primary-900/20 dark:file:text-primary-300"
+                  class="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:file:bg-primary-900/20 dark:file:text-primary-300"
                   :disabled="createFieldsDisabled"
                   @change="handleQrFileChange"
                 />
-                <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.qrHint') }}</p>
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('carpool.createDialog.qrHint') }}</p>
                 <p v-if="createQrError" class="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{{ createQrError }}</p>
               </div>
               <img
                 v-if="createForm.groupQrCode"
                 :src="createForm.groupQrCode"
                 :alt="t('carpool.createDialog.qrLabel')"
-                class="h-16 w-16 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+                class="h-16 w-16 shrink-0 rounded-md border border-border object-cover"
               />
             </div>
           </div>
@@ -554,12 +549,12 @@
 
     <BaseDialog :show="joinDialogOpen" :title="t('carpool.joinDialog.title')" width="normal" @close="joinDialogOpen = false">
       <div v-if="joinTarget" class="space-y-4">
-        <div class="flex items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
+        <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
-            <div class="font-semibold text-gray-900 dark:text-white">{{ joinTarget.name }}</div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+            <div class="font-semibold text-foreground">{{ joinTarget.name }}</div>
+            <div class="mt-1 text-xs text-muted-foreground">
               {{ t('carpool.fields.members', { count: joinTarget.memberCount }) }}
-              <span class="text-gray-400 dark:text-dark-400">
+              <span>
                 · {{ t('carpool.joinDialog.seatShareHint', {
                   total: formatCny(joinTarget.seatFeeCny),
                   people: joinHeadcount,
@@ -574,41 +569,41 @@
         <div>
           <label class="input-label" for="carpool-join-quota">{{ t('carpool.joinDialog.quotaLabel') }}</label>
           <input id="carpool-join-quota" v-model.number="joinForm.declaredQuota" type="number" min="1" step="1" class="input" required />
-          <p v-if="recommendationLoading" class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
-          <p v-else-if="recommendation" class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ recommendation.message }}</p>
+          <p v-if="recommendationLoading" class="mt-1 text-xs text-muted-foreground">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
+          <p v-else-if="recommendation" class="mt-1 text-xs text-muted-foreground">{{ recommendation.message }}</p>
           <p v-else-if="recommendationFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.recommendationFailed') }}</p>
         </div>
 
         <!-- 车上还有谁、各自报了多少：申报额度是在跟这些人分同一个池子，
              看不到别人的申报就只能凭空猜自己该报多少。 -->
-        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+        <div class="rounded-lg border border-border px-3 py-3">
           <div class="flex items-center justify-between gap-2 text-xs">
-            <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.joinDialog.rosterTitle') }}</span>
-            <span v-if="!joinRosterLoading && !joinRosterFailed" class="shrink-0 text-gray-400 dark:text-dark-400">
+            <span class="font-medium text-foreground">{{ t('carpool.joinDialog.rosterTitle') }}</span>
+            <span v-if="!joinRosterLoading && !joinRosterFailed" class="shrink-0 text-muted-foreground">
               {{ t('carpool.joinDialog.rosterSummary', { count: joinRoster.length, total: formatUsd(joinRosterTotal) }) }}
             </span>
           </div>
-          <p v-if="joinRosterLoading" class="mt-2 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.rosterLoading') }}</p>
+          <p v-if="joinRosterLoading" class="mt-2 text-xs text-muted-foreground">{{ t('carpool.joinDialog.rosterLoading') }}</p>
           <p v-else-if="joinRosterFailed" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.rosterFailed') }}</p>
-          <p v-else-if="joinRoster.length === 0" class="mt-2 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.rosterEmpty') }}</p>
+          <p v-else-if="joinRoster.length === 0" class="mt-2 text-xs text-muted-foreground">{{ t('carpool.joinDialog.rosterEmpty') }}</p>
           <ul v-else class="mt-2 space-y-1" data-testid="carpool-join-roster">
             <li v-for="member in joinRoster" :key="member.userId" class="flex items-center justify-between gap-2 text-xs">
               <span class="flex min-w-0 items-center gap-1.5">
-                <span class="truncate text-gray-700 dark:text-dark-200">
+                <span class="truncate text-foreground">
                   {{ member.username || t('carpool.joinDialog.rosterAnonymous', { id: member.userId }) }}
                 </span>
                 <span
                   v-if="member.role === 'owner'"
-                  class="shrink-0 rounded bg-gray-100 px-1 text-[10px] text-gray-500 dark:bg-dark-700 dark:text-dark-300"
+                  class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
                 >
                   {{ t('carpool.joinDialog.rosterOwner') }}
                 </span>
               </span>
-              <span class="shrink-0 font-medium text-gray-600 dark:text-dark-200">{{ formatUsd(member.declaredWeeklyQuotaUsd) }}</span>
+              <span class="shrink-0 font-medium text-foreground">{{ formatUsd(member.declaredWeeklyQuotaUsd) }}</span>
             </li>
             <li
               v-if="joinForm.declaredQuota && joinForm.declaredQuota > 0"
-              class="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 pt-1 text-xs dark:border-dark-600"
+              class="flex items-center justify-between gap-2 border-t border-dashed border-border pt-1 text-xs"
             >
               <span class="text-primary-600 dark:text-primary-400">{{ t('carpool.joinDialog.rosterYou') }}</span>
               <span class="font-medium text-primary-600 dark:text-primary-400">{{ formatUsd(joinForm.declaredQuota) }}</span>
@@ -616,16 +611,16 @@
           </ul>
         </div>
 
-        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
-          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.joinDialog.groupSection') }}</div>
+        <div class="rounded-lg border border-border px-3 py-3">
+          <div class="text-xs font-medium text-foreground">{{ t('carpool.joinDialog.groupSection') }}</div>
           <div class="mt-2 flex items-center gap-3">
             <img
               v-if="joinQrUrl"
               :src="joinQrUrl"
               :alt="t('carpool.wechat.scanToJoin')"
-              class="h-20 w-20 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+              class="h-20 w-20 shrink-0 rounded-md border border-border object-cover"
             />
-            <div class="min-w-0 text-xs leading-5 text-gray-500 dark:text-dark-300">
+            <div class="min-w-0 text-xs leading-5 text-muted-foreground">
               <p>{{ t('carpool.wechat.scanToJoin') }}</p>
               <button
                 type="button"
@@ -645,7 +640,7 @@
               type="checkbox"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
-            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.joinDialog.joinedGroup') }}</span>
+            <span class="text-sm text-foreground">{{ t('carpool.joinDialog.joinedGroup') }}</span>
           </label>
         </div>
 
@@ -656,26 +651,26 @@
           {{ t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
         </p>
 
-        <div class="grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
+        <div class="grid grid-cols-3 divide-x divide-border rounded-lg border border-border py-3 text-center">
           <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewFloor') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatUsd(joinFloorQuota) }} {{ t('carpool.joinDialog.floorUnit') }}</div>
+            <div class="text-xs text-muted-foreground">{{ t('carpool.joinDialog.previewFloor') }}</div>
+            <div class="mt-1 text-sm font-semibold text-foreground">{{ formatUsd(joinFloorQuota) }} {{ t('carpool.joinDialog.floorUnit') }}</div>
           </div>
           <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinPrepaid) }}</div>
+            <div class="text-xs text-muted-foreground">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
+            <div class="mt-1 text-sm font-semibold text-foreground">{{ formatCny(joinPrepaid) }}</div>
             <!-- 席位费和用量池的分摊口径不同（人头 vs 申报占比），
                  合成一个数字看不出多来一个人能省多少。 -->
-            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
+            <div class="mt-0.5 text-[10px] text-muted-foreground">
               {{ t('carpool.joinDialog.prepaidBreakdown', { seat: formatCny(joinSeatShare), pool: formatCny(joinPoolShare) }) }}
             </div>
           </div>
           <!-- 显示"你的"倍率而非全车平均：申报越小的人越贵，
                拿平均当报价对轻度用户是系统性低估。 -->
           <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewEffectiveRate') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatRate(joinEffectiveRate) }}</div>
-            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
+            <div class="text-xs text-muted-foreground">{{ t('carpool.joinDialog.previewEffectiveRate') }}</div>
+            <div class="mt-1 text-sm font-semibold text-foreground">{{ formatRate(joinEffectiveRate) }}</div>
+            <div class="mt-0.5 text-[10px] text-muted-foreground">
               {{ joinUsdPerCny > 0
                 ? t('carpool.joinDialog.effectiveRateUnit', { usd: formatDecimal(joinUsdPerCny) })
                 : t('carpool.joinDialog.effectiveRateBasis') }}
@@ -684,7 +679,7 @@
         </div>
         <p
           v-if="joinRateRatio > 1.2"
-          class="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+          class="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground"
         >
           {{ t('carpool.joinDialog.rateAboveAverage', {
             yours: formatRate(joinEffectiveRate),
@@ -693,10 +688,10 @@
           }) }}
         </p>
 
-        <p class="rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+        <p class="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground">
           {{ t('carpool.joinDialog.floorNotice') }}
         </p>
-        <div class="space-y-1 text-xs leading-5 text-gray-500 dark:text-dark-300">
+        <div class="space-y-1 text-xs leading-5 text-muted-foreground">
           <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
           <p>{{ t('carpool.notices.consumeOrder') }}</p>
         </div>
@@ -714,10 +709,10 @@
 
     <BaseDialog :show="inviteDialogOpen" :title="t('carpool.inviteDialog.title')" width="normal" @close="inviteDialogOpen = false">
       <div v-if="selectedCarpool" class="space-y-4">
-        <div class="flex items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
+        <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
-            <div class="font-semibold text-gray-900 dark:text-white">{{ selectedCarpool.name }}</div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.inviteDialog.uses', { count: selectedCarpool.memberCount }) }}</div>
+            <div class="font-semibold text-foreground">{{ selectedCarpool.name }}</div>
+            <div class="mt-1 text-xs text-muted-foreground">{{ t('carpool.inviteDialog.uses', { count: selectedCarpool.memberCount }) }}</div>
           </div>
           <span :class="['badge', statusBadgeClass(selectedCarpool)]">{{ statusLabel(selectedCarpool) }}</span>
         </div>
@@ -738,61 +733,61 @@
       <div v-if="selectedCarpool" class="space-y-5">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <h3 class="font-semibold text-gray-900 dark:text-white">{{ selectedCarpool.name }}</h3>
-            <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">{{ selectedCarpool.description }}</p>
+            <h3 class="font-semibold text-foreground">{{ selectedCarpool.name }}</h3>
+            <p class="mt-1 text-sm text-muted-foreground">{{ selectedCarpool.description }}</p>
           </div>
           <span :class="['badge', statusBadgeClass(selectedCarpool)]">{{ statusLabel(selectedCarpool) }}</span>
         </div>
         <div>
-          <div class="mb-2 flex justify-between text-sm text-gray-600 dark:text-dark-200">
+          <div class="mb-2 flex justify-between text-sm text-muted-foreground">
             <span>{{ t('carpool.fields.quotaProgress') }}</span>
-            <span class="font-medium">
+            <span class="font-medium text-foreground">
               {{ t('carpool.fields.declaredOf', { declared: formatUsd(selectedCarpool.declaredTotalUsd), limit: formatUsd(selectedCarpool.weeklyLimitUsd) }) }}
             </span>
           </div>
-          <div class="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
+          <div class="h-2 overflow-hidden rounded-full bg-muted">
             <div class="h-full rounded-full" :class="quotaProgressClass(selectedCarpool)" :style="{ width: `${quotaProgress(selectedCarpool)}%` }" />
           </div>
         </div>
-        <dl class="grid grid-cols-2 gap-4 border-y border-gray-100 py-4 text-sm dark:border-dark-700">
+        <dl class="grid grid-cols-2 gap-4 border-y border-border py-4 text-sm">
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ formatUsd(selectedCarpool.remainingJoinableUsd) }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.remainingJoinable') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ formatUsd(selectedCarpool.remainingJoinableUsd) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.fields.avgPrice') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ formatCny(selectedCarpool.avgPriceCny) }} {{ t('carpool.fields.avgPriceUnit') }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.avgPrice') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ formatCny(selectedCarpool.avgPriceCny) }} {{ t('carpool.fields.avgPriceUnit') }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.fields.organizer') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ selectedCarpool.organizer }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.organizer') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ selectedCarpool.organizer }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.fields.scheduledStart') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ formatDate(selectedCarpool.scheduledStartAt) }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.fields.scheduledStart') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ formatDate(selectedCarpool.scheduledStartAt) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.detailDialog.runtime') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ statusLabel(selectedCarpool) }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.detailDialog.runtime') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ statusLabel(selectedCarpool) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ selectedCarpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
+            <dt class="text-xs text-muted-foreground">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
+            <dd class="mt-1 font-medium text-foreground">{{ selectedCarpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
           </div>
         </dl>
         <div
           v-if="selectedCarpool.hasGroupQrCode"
-          class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+          class="flex items-center gap-3 rounded-lg border border-border px-3 py-3"
         >
           <img
             v-if="qrCodeUrls[selectedCarpool.id]"
             :src="qrCodeUrls[selectedCarpool.id]"
             :alt="t('carpool.wechat.scanToJoin')"
-            class="h-20 w-20 shrink-0 cursor-zoom-in rounded-md border border-gray-200 object-cover dark:border-dark-600"
+            class="h-20 w-20 shrink-0 cursor-zoom-in rounded-md border border-border object-cover"
             @click="qrZoomUrl = qrCodeUrls[selectedCarpool.id]"
           />
-          <div class="min-w-0 flex-1 text-xs leading-5 text-gray-500 dark:text-dark-300">
-            <div class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.wechat.scanToJoin') }}</div>
+          <div class="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+            <div class="font-medium text-foreground">{{ t('carpool.wechat.scanToJoin') }}</div>
             <button
               type="button"
               class="mt-1 inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
@@ -822,10 +817,10 @@
     <BaseDialog :show="settlementDialogOpen" :title="t('carpool.settlement.title')" width="wide" @close="settlementDialogOpen = false">
       <div class="space-y-4">
         <div v-if="settlementLoading" class="flex min-h-32 items-center justify-center">
-          <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+          <Icon name="refresh" size="lg" class="animate-spin text-muted-foreground" />
         </div>
         <template v-else-if="settlementData">
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-dark-300">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               {{ t('carpool.settlement.period') }}:
               {{ settlementData.periodStart ? `${formatDateTime(settlementData.periodStart)} – ${formatDateTime(settlementData.periodEnd || '')}` : '-' }}
@@ -843,9 +838,9 @@
           <div
             v-if="settlementData.manualSettlement"
             data-testid="carpool-settlement-manual"
-            class="rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300"
+            class="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
           >
-            <div class="font-medium">{{ t('carpool.settlement.manualTitle') }}</div>
+            <div class="font-medium text-foreground">{{ t('carpool.settlement.manualTitle') }}</div>
             <p v-if="settlementData.ruleNote" class="mt-1">{{ settlementData.ruleNote }}</p>
             <p class="mt-1">{{ t('carpool.settlement.manualHint') }}</p>
           </div>
@@ -857,7 +852,7 @@
           <div
             v-else-if="settlementData.settled"
             data-testid="carpool-settlement-frozen"
-            class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
           >
             <span>
               {{ t('carpool.settlement.frozenAt', { time: formatDateTime(settlementData.settledAt || '') }) }}
@@ -875,7 +870,7 @@
           <div
             v-else
             data-testid="carpool-settlement-live"
-            class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
           >
             <span>{{ t('carpool.settlement.livePreview') }}</span>
             <button
@@ -891,9 +886,9 @@
               {{ t('carpool.settlement.blockedNotLaunched') }}
             </span>
           </div>
-          <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-600">
-            <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
-              <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-700 dark:text-dark-300">
+          <div class="overflow-x-auto rounded-lg border border-border">
+            <table class="min-w-full divide-y divide-border text-sm">
+              <thead class="bg-muted text-xs text-muted-foreground">
                 <tr>
                   <th class="px-3 py-2 text-left font-medium">{{ t('carpool.settlement.member') }}</th>
                   <th v-if="!settlementData.manualSettlement" class="px-3 py-2 text-right font-medium">{{ t('carpool.settlement.declared') }}</th>
@@ -905,20 +900,20 @@
                   </template>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+              <tbody class="divide-y divide-border">
                 <tr v-for="member in settlementData.members" :key="member.userId">
                   <!-- 带上邮箱/用户名：只有 #id 的话车主没法对应到微信群里的真人收款 -->
                   <td class="px-3 py-2">
                     <div class="flex items-baseline gap-1.5">
-                      <span class="font-medium text-gray-800 dark:text-dark-100">
+                      <span class="font-medium text-foreground">
                         {{ member.username || member.email || `#${member.userId}` }}
                       </span>
-                      <span class="text-xs text-gray-400">{{ t(`carpool.roles.${member.role}`) }}</span>
+                      <span class="text-xs text-muted-foreground">{{ t(`carpool.roles.${member.role}`) }}</span>
                     </div>
-                    <div v-if="member.email && member.username" class="text-[11px] text-gray-400 dark:text-dark-400">
+                    <div v-if="member.email && member.username" class="text-[11px] text-muted-foreground">
                       {{ member.email }}
                     </div>
-                    <div class="text-[11px] text-gray-400 dark:text-dark-400">#{{ member.userId }}</div>
+                    <div class="text-[11px] text-muted-foreground">#{{ member.userId }}</div>
                   </td>
                   <td v-if="!settlementData.manualSettlement" class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.declaredWeeklyQuotaUsd) }}</td>
                   <td class="px-3 py-2 text-right font-mono">{{ formatDecimal(member.actualUsageUsd) }}</td>
@@ -938,7 +933,7 @@
               </tbody>
             </table>
           </div>
-          <p v-if="!settlementData.manualSettlement" class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.settlement.deltaNote') }}</p>
+          <p v-if="!settlementData.manualSettlement" class="text-xs text-muted-foreground">{{ t('carpool.settlement.deltaNote') }}</p>
         </template>
       </div>
     </BaseDialog>
@@ -1538,7 +1533,7 @@ function formatDateTime(value: string): string {
 function deltaClass(delta: number): string {
   if (delta > 0.004) return 'text-emerald-600 dark:text-emerald-400'
   if (delta < -0.004) return 'text-red-600 dark:text-red-400'
-  return 'text-gray-500 dark:text-dark-300'
+  return 'text-muted-foreground'
 }
 
 function deltaLabel(delta: number): string {

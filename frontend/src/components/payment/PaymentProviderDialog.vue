@@ -35,7 +35,7 @@
         <ToggleSwitch :label="t('admin.settings.payment.refundEnabled')" :checked="form.refund_enabled" @toggle="form.refund_enabled = !form.refund_enabled; if (!form.refund_enabled) form.allow_user_refund = false" />
         <ToggleSwitch v-if="form.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="form.allow_user_refund" @toggle="form.allow_user_refund = !form.allow_user_refund" />
         <div v-if="supportsPaymentMode" class="flex items-center gap-2">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.paymentMode') }}</span>
+          <span class="text-xs font-medium text-muted-foreground">{{ t('admin.settings.payment.paymentMode') }}</span>
           <div class="flex gap-1.5">
             <button
               v-for="mode in paymentModeOptions"
@@ -46,13 +46,13 @@
                 'rounded-lg border px-2.5 py-1 text-xs font-medium transition-all',
                 form.payment_mode === mode.value
                   ? 'border-primary-500 bg-primary-500 text-white shadow-sm'
-                  : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-500',
+                  : 'border-border bg-card text-muted-foreground hover:border-slate-300 hover:text-foreground dark:hover:border-slate-600',
               ]"
             >{{ mode.label }}</button>
           </div>
         </div>
         <div v-if="availableTypes.length > 1" class="flex items-center gap-2">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.supportedTypes') }}</span>
+          <span class="text-xs font-medium text-muted-foreground">{{ t('admin.settings.payment.supportedTypes') }}</span>
           <div class="flex flex-wrap gap-1.5">
             <button
               v-for="pt in availableTypes"
@@ -63,20 +63,20 @@
                 'rounded-lg border px-2.5 py-1 text-xs font-medium transition-all',
                 isTypeSelected(pt.value)
                   ? 'border-primary-500 bg-primary-500 text-white shadow-sm'
-                  : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-500',
+                  : 'border-border bg-card text-muted-foreground hover:border-slate-300 hover:text-foreground dark:hover:border-slate-600',
               ]"
             >{{ pt.label }}</button>
           </div>
         </div>
       </div>
 
-      <div v-if="form.provider_key === 'easypay'" class="space-y-3 rounded-lg border border-gray-100 p-3 dark:border-dark-700">
+      <div v-if="form.provider_key === 'easypay'" class="space-y-3 rounded-lg border border-border p-3">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <h5 class="text-sm font-medium text-gray-900 dark:text-white">
+            <h5 class="text-sm font-medium text-foreground">
               {{ t('admin.settings.payment.easypayCustomMethods') }}
             </h5>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1 text-xs text-muted-foreground">
               {{ t('admin.settings.payment.easypayCustomMethodsHint') }}
             </p>
           </div>
@@ -91,15 +91,15 @@
             class="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2"
           >
             <div>
-              <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodType') }}</label>
+              <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.customMethodType') }}</label>
               <input v-model="method.type" type="text" class="input mt-0.5" placeholder="credit_card" />
             </div>
             <div>
-              <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodUpstreamType') }}</label>
+              <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.customMethodUpstreamType') }}</label>
               <input v-model="method.upstreamType" type="text" class="input mt-0.5" placeholder="credit_card" />
             </div>
             <div>
-              <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodDisplayName') }}</label>
+              <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.customMethodDisplayName') }}</label>
               <input v-model="method.displayName" type="text" class="input mt-0.5" :placeholder="t('admin.settings.payment.customMethodDisplayNamePlaceholder')" />
             </div>
             <button
@@ -115,9 +115,9 @@
 
 
       <!-- Config fields -->
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-700">
+      <div class="border-t border-border pt-4">
         <div class="mb-3 flex items-center gap-2">
-          <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+          <h4 class="text-sm font-semibold text-foreground">
             {{ t('admin.settings.payment.providerConfig') }}
           </h4>
           <HelpTooltip v-if="paymentGuide" trigger="click" width-class="w-80">
@@ -149,14 +149,14 @@
             </div>
           </HelpTooltip>
         </div>
-        <p v-if="paymentGuide" class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+        <p v-if="paymentGuide" class="mb-3 text-xs text-muted-foreground">
           {{ paymentGuide.summary }}
         </p>
         <div class="space-y-3">
           <div v-for="field in resolvedFields" :key="field.key">
             <label class="input-label">
               {{ field.label }}
-              <span v-if="field.optional" class="text-xs text-gray-400">({{ t('common.optional') }})</span>
+              <span v-if="field.optional" class="text-xs text-muted-foreground">({{ t('common.optional') }})</span>
               <span v-else class="text-red-500"> *</span>
             </label>
             <textarea
@@ -205,7 +205,7 @@
               class="input"
               :placeholder="field.defaultValue || ''"
             />
-            <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+            <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-muted-foreground">
               {{ t(field.hintKey) }}
             </p>
           </div>
@@ -217,36 +217,36 @@
             <label class="input-label">{{ t('admin.settings.payment.field_notifyUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
               <input v-model="notifyBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
-              <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.notifyUrl }}</span>
+              <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-border bg-muted px-3 text-xs text-muted-foreground">{{ callbackPaths.notifyUrl }}</span>
             </div>
           </div>
           <div v-if="callbackPaths.returnUrl">
             <label class="input-label">{{ t('admin.settings.payment.field_returnUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
               <input v-model="returnBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
-              <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.returnUrl }}</span>
+              <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-border bg-muted px-3 text-xs text-muted-foreground">{{ callbackPaths.returnUrl }}</span>
             </div>
           </div>
         </div>
 
         <!-- 服务商 Webhook 提示 -->
-        <div v-if="providerWebhookUrl" class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800/50 dark:bg-blue-900/20">
-          <p class="text-xs text-blue-700 dark:text-blue-300">
+        <div v-if="providerWebhookUrl" class="mt-3 rounded-lg border border-border bg-muted p-3">
+          <p class="text-xs text-muted-foreground">
             {{ t(providerWebhookHint) }}
           </p>
-          <code class="mt-1 block break-all rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+          <code class="mt-1 block break-all rounded border border-border bg-background px-2 py-1 text-xs text-foreground">
             {{ providerWebhookUrl }}
           </code>
-          <p v-if="form.provider_key === 'stripe'" class="mt-2 text-xs leading-relaxed text-blue-700 dark:text-blue-300">
+          <p v-if="form.provider_key === 'stripe'" class="mt-2 text-xs leading-relaxed text-muted-foreground">
             {{ t('admin.settings.payment.stripeWebhookApiVersionHint', { version: STRIPE_SDK_API_VERSION }) }}
           </p>
         </div>
       </div>
 
       <!-- Per-type limits (collapsible) -->
-      <div v-if="limitableTypes.length" class="border-t border-gray-200 pt-4 dark:border-dark-700">
+      <div v-if="limitableTypes.length" class="border-t border-border pt-4">
         <button type="button" @click="limitsExpanded = !limitsExpanded" class="flex w-full items-center justify-between">
-          <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+          <h4 class="text-sm font-semibold text-foreground">
             {{ t('admin.settings.payment.limitsTitle') }}
           </h4>
           <svg :class="['h-4 w-4 text-gray-400 transition-transform', limitsExpanded && 'rotate-180']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
@@ -255,12 +255,12 @@
           <div
             v-for="lt in limitableTypes"
             :key="lt.value"
-            class="rounded-lg border border-gray-100 p-3 dark:border-dark-700"
+            class="rounded-lg border border-border p-3"
           >
-            <p class="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{{ lt.label }}</p>
+            <p class="mb-2 text-xs font-medium text-foreground">{{ lt.label }}</p>
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitSingleMin') }}</label>
+                <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.limitSingleMin') }}</label>
                 <input
                   type="number"
                   :value="getLimitVal(lt.value, 'singleMin')"
@@ -269,7 +269,7 @@
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitSingleMax') }}</label>
+                <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.limitSingleMax') }}</label>
                 <input
                   type="number"
                   :value="getLimitVal(lt.value, 'singleMax')"
@@ -278,7 +278,7 @@
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitDaily') }}</label>
+                <label class="text-xs text-muted-foreground">{{ t('admin.settings.payment.limitDaily') }}</label>
                 <input
                   type="number"
                   :value="getLimitVal(lt.value, 'dailyLimit')"
@@ -288,7 +288,7 @@
               </div>
             </div>
           </div>
-          <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('admin.settings.payment.limitsHint') }}</p>
+          <p class="text-xs text-muted-foreground">{{ t('admin.settings.payment.limitsHint') }}</p>
         </div>
       </div>
     </form>

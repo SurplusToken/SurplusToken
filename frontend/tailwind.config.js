@@ -5,6 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Helicone 语义色 token(映射 style.css 中的 CSS 变量)
+        border: 'hsl(var(--border))',
+        card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        foreground: 'hsl(var(--foreground))',
+        background: 'hsl(var(--background))',
         // 主色调 - Helicone 品牌蓝 (heliblue)
         primary: {
           50: '#f0f9ff',
