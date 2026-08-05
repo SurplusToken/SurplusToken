@@ -15,7 +15,7 @@
         >
         <span v-else>{{ userInitials }}</span>
       </div>
-      <div class="hidden text-left md:block">
+      <div class="hidden text-left xl:block">
         <div class="text-sm font-medium text-gray-900 dark:text-white">
           {{ displayName }}
         </div>
@@ -23,7 +23,7 @@
           {{ user.role }}
         </div>
       </div>
-      <Icon name="chevronDown" size="sm" class="hidden text-gray-400 md:block" />
+      <Icon name="chevronDown" size="sm" class="hidden text-gray-400 xl:block" />
     </button>
 
     <!-- Dropdown Menu -->

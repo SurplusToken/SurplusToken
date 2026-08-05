@@ -7,7 +7,7 @@
       :title="currentLocale?.name"
     >
       <span class="text-base">{{ currentLocale?.flag }}</span>
-      <span class="hidden sm:inline">{{ currentLocale?.code.toUpperCase() }}</span>
+      <span :class="compact ? 'hidden xl:inline' : 'hidden sm:inline'">{{ currentLocale?.code.toUpperCase() }}</span>
       <Icon
         name="chevronDown"
         size="xs"
@@ -48,6 +48,9 @@ import Icon from '@/components/icons/Icon.vue'
 import { setLocale, availableLocales } from '@/i18n'
 
 const { locale } = useI18n()
+
+// compact: 窄屏（xl 以下）只显示国旗图标，用于顶部导航等空间紧张的场景
+withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 
 const isOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)

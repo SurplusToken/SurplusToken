@@ -1,7 +1,7 @@
 <template>
-  <div class="relative" ref="rootRef">
+  <div class="relative shrink-0" ref="rootRef">
     <button
-      class="flex items-center gap-1 whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+      class="flex items-center gap-1 whitespace-nowrap text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors"
       :class="anyActive
         ? 'text-primary-600 bg-primary-50 dark:bg-primary-500/10 dark:text-primary-400'
         : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-dark-800'"

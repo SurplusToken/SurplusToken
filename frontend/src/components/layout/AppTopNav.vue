@@ -2,7 +2,7 @@
   <header
     class="sticky top-0 z-40 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-dark-900"
   >
-    <div class="mx-auto flex h-14 items-center gap-4 px-4">
+    <div class="mx-auto flex h-14 items-center gap-3 px-4">
       <!-- Mobile: Hamburger -->
       <button
         class="btn-ghost btn-icon rounded-lg lg:hidden"
@@ -15,7 +15,7 @@
       <!-- Left: Logo + Site Name -->
       <router-link :to="homePath" class="flex shrink-0 items-center gap-2.5" @click="closeMobileMenu">
         <span class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg">
-          <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+          <img v-if="settingsLoaded" :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
         </span>
         <span class="hidden text-base font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400 sm:block">
           {{ siteName }}
@@ -23,14 +23,14 @@
       </router-link>
 
       <!-- Center: Horizontal Nav (desktop) -->
-      <nav v-if="!appStore.backendModeEnabled" class="hidden min-w-0 flex-1 items-center gap-1 lg:flex">
+      <nav v-if="!appStore.backendModeEnabled" class="scrollbar-hide hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto lg:flex">
         <!-- Admin area: admin menu -->
         <template v-if="showAdminNav">
           <router-link
             v-for="item in adminCoreItems"
             :key="item.path"
             :to="item.path"
-            class="whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+            class="shrink-0 whitespace-nowrap text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors"
             :class="isActive(item.path) ? activeClass : inactiveClass"
             :id="tourIdFor(item.path)"
             :data-tour="dataTourFor(item.path)"
@@ -43,7 +43,7 @@
             v-for="item in adminLeftoverItems"
             :key="item.path"
             :to="item.path"
-            class="whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+            class="shrink-0 whitespace-nowrap text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors"
             :class="isActive(item.path) ? activeClass : inactiveClass"
             :id="tourIdFor(item.path)"
             :data-tour="dataTourFor(item.path)"
@@ -60,14 +60,16 @@
             @select="handleNavClick"
           />
 
-          <!-- Back to user view -->
+          <!-- Back to user view (icon-only below xl) -->
           <router-link
             to="/dashboard"
-            class="ml-1 whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+            class="ml-1 flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors"
             :class="inactiveClass"
+            :title="t('nav.userView')"
             @click="closeMobileMenu"
           >
-            {{ t('nav.userView') }}
+            <Icon name="home" size="sm" class="xl:hidden" />
+            <span class="hidden xl:inline">{{ t('nav.userView') }}</span>
           </router-link>
         </template>
 
@@ -77,7 +79,7 @@
             v-for="item in primaryItems"
             :key="item.path"
             :to="item.path"
-            class="whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded-md transition-colors"
+            class="shrink-0 whitespace-nowrap text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors"
             :class="isActive(item.path) ? activeClass : inactiveClass"
             :data-tour="dataTourFor(item.path)"
             @click="handleNavClick(item.path)"
@@ -95,7 +97,7 @@
           <router-link
             v-if="isAdmin"
             to="/admin/dashboard"
-            class="whitespace-nowrap rounded-md border border-primary-200 bg-primary-50/60 px-3 py-1.5 text-sm font-semibold text-primary-600 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-400 dark:hover:bg-primary-500/20"
+            class="shrink-0 whitespace-nowrap rounded-md border border-primary-200 bg-primary-50/60 px-2.5 py-1.5 text-sm font-semibold text-primary-600 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-400 dark:hover:bg-primary-500/20"
             @click="closeMobileMenu"
           >
             {{ t('nav.adminPanel') }}
@@ -106,7 +108,7 @@
       <div class="min-w-0 flex-1 lg:hidden" />
 
       <!-- Right: Announcements + Docs + Language + Subscription + Theme + Balance + User -->
-      <div class="flex shrink-0 items-center gap-1 sm:gap-3">
+      <div class="flex shrink-0 items-center gap-1 sm:gap-2 xl:gap-3">
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
@@ -132,8 +134,8 @@
           <span class="hidden xl:inline">{{ t('nav.modelPlaza') }}</span>
         </router-link>
 
-        <!-- Language Switcher -->
-        <LocaleSwitcher />
+        <!-- Language Switcher (icon-only below xl) -->
+        <LocaleSwitcher compact />
 
         <!-- Subscription Progress (for users with active subscriptions) -->
         <SubscriptionProgressMini v-if="user" />
