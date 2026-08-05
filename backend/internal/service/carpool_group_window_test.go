@@ -64,14 +64,14 @@ func TestResetCarpoolGroupWindowAppliesToWholeGroup(t *testing.T) {
 	}}
 	svc := &SubscriptionService{upstreamWindows: stub}
 
-	ok := svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target)
+	outcome := svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target)
 
-	require.True(t, ok, "整组重锚已落库时应返回 true，调用方不再走单订阅路径")
+	require.Equal(t, carpoolGroupResetApplied, outcome, "整组重锚已落库时调用方不应再走单订阅路径")
 	require.Equal(t, 1, stub.calls)
 	require.Equal(t, int64(62), stub.gotGroup)
 	require.True(t, target.Equal(stub.gotTarget))
-	// 容差必须与漂移判定用的是同一个常量，否则会出现"判定要重锚、去重又说不用"的死循环
-	require.Equal(t, CarpoolUpstreamWindowTolerance, stub.gotTol)
+	// 阈值必须与重锚判定用同一个常量，否则会出现"判定要重锚、仓储又说不用"的空转
+	require.Equal(t, CarpoolUpstreamWindowMinAdvance, stub.gotTol)
 }
 
 // Applied=false（并发下已有人重锚过）时必须退回单订阅路径，不能当成已完成。
@@ -80,7 +80,7 @@ func TestResetCarpoolGroupWindowFallsBackWhenNotApplied(t *testing.T) {
 	stub := &groupResetterStub{result: &CarpoolGroupWindowReset{Applied: false}}
 	svc := &SubscriptionService{upstreamWindows: stub}
 
-	require.False(t, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
+	require.NotEqual(t, carpoolGroupResetApplied, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
 	require.Equal(t, 1, stub.calls)
 }
 
@@ -90,21 +90,21 @@ func TestResetCarpoolGroupWindowFallsBackOnError(t *testing.T) {
 	stub := &groupResetterStub{err: context.DeadlineExceeded}
 	svc := &SubscriptionService{upstreamWindows: stub}
 
-	require.False(t, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
+	require.NotEqual(t, carpoolGroupResetApplied, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
 }
 
 // 窗口源没有实现整组重锚（旧实现）时，安静退回单订阅路径。
 func TestResetCarpoolGroupWindowFallsBackWhenNotSupported(t *testing.T) {
 	target := time.Now()
 	svc := &SubscriptionService{upstreamWindows: &upstreamOnlyStub{}}
-	require.False(t, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
+	require.NotEqual(t, carpoolGroupResetApplied, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
 }
 
 // 完全没注入窗口源时也不能 panic。
 func TestResetCarpoolGroupWindowHandlesMissingWiring(t *testing.T) {
 	target := time.Now()
 	svc := &SubscriptionService{}
-	require.False(t, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
+	require.NotEqual(t, carpoolGroupResetApplied, svc.resetCarpoolGroupWindow(context.Background(), carpoolSub(target.Add(-72*time.Hour)), target))
 }
 
 // 装配自检：两个可选注入缺失时必须能被查出来，而不是静默降级。

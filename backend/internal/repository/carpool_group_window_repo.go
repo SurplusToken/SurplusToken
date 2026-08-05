@@ -18,7 +18,7 @@ import (
 // 第 3 步写的是同一个值，这正是整件事的意义：全车窗口从此逐字节相同，
 // 公共池计数器的 key 不会再裂开。
 func (r *carpoolUpstreamWindowRepository) ResetGroupWeeklyWindow(
-	ctx context.Context, groupID int64, target time.Time, tolerance time.Duration,
+	ctx context.Context, groupID int64, target time.Time, minAdvance time.Duration,
 ) (*service.CarpoolGroupWindowReset, error) {
 	if r == nil || r.db == nil || groupID <= 0 || target.IsZero() {
 		return &service.CarpoolGroupWindowReset{}, nil
@@ -71,13 +71,13 @@ FOR UPDATE`, groupID)
 		return &service.CarpoolGroupWindowReset{}, nil
 	}
 
-	// 并发去重：已经有人把窗口推到 target 附近了，就不要再推一次。
-	// 少了这一步，两个并发请求算出的 target 相差几秒，后到的会把用量二次清零。
-	if diff := target.Sub(newest); diff <= tolerance && diff >= -tolerance {
-		return &service.CarpoolGroupWindowReset{}, nil
-	}
-	// 窗口只向前推进。target 落在当前窗口之前说明上游数据回退了，宁可不动。
-	if !target.After(newest) {
+	// 只在窗口真正前移足够多时才写。minAdvance 同时兼顾两件事：
+	//   - 并发去重：已经有人把窗口推过去了，后到的算出的 target 与之相差很小，
+	//     不会再触发一次清零；
+	//   - 抗抖动：上游 reset_at 会在同一个窗口内小幅前后跳（生产实测 12 分 43 秒），
+	//     那不是新窗口。窗口也只前移，回退一律不动，否则会把已结算的一周重新
+	//     打开并写出倒挂周期。
+	if target.Sub(newest) < minAdvance {
 		return &service.CarpoolGroupWindowReset{}, nil
 	}
 
