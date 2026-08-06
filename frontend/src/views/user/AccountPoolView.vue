@@ -387,8 +387,9 @@
               <div class="min-w-36 space-y-1 text-sm">
                 <UsageProgressBar
                   label="5h"
-                  :utilization="account.contribution_5h_usage_percent || 0"
+                  :utilization="remainingUsagePercent(account.contribution_5h_usage_percent)"
                   :resets-at="account.five_hour_resets_at"
+                  :remaining-capacity="true"
                   color="indigo"
                 />
                 <div v-if="account.window_cost_limit > 0" class="text-xs text-gray-500 dark:text-dark-400">
@@ -404,8 +405,9 @@
               <div class="min-w-44 space-y-1 text-sm">
                 <UsageProgressBar
                   label="7d"
-                  :utilization="account.contribution_weekly_usage_percent || 0"
+                  :utilization="remainingUsagePercent(account.contribution_weekly_usage_percent)"
                   :resets-at="account.weekly_resets_at"
+                  :remaining-capacity="true"
                   color="emerald"
                 />
                 <!-- Budget mode: show others' weekly spend against the shared budget -->
@@ -447,19 +449,21 @@
                     <UsageProgressBar
                       v-if="ownerUsage[account.id]?.five_hour"
                       label="5h"
-                      :utilization="ownerUsage[account.id]?.five_hour?.utilization ?? 0"
+                      :utilization="remainingUsagePercent(ownerUsage[account.id]?.five_hour?.utilization)"
                       :resets-at="ownerUsage[account.id]?.five_hour?.resets_at"
                       :window-stats="ownerUsage[account.id]?.five_hour?.window_stats"
                       :show-now-when-idle="true"
+                      :remaining-capacity="true"
                       color="indigo"
                     />
                     <UsageProgressBar
                       v-if="ownerUsage[account.id]?.seven_day"
                       label="7d"
-                      :utilization="ownerUsage[account.id]?.seven_day?.utilization ?? 0"
+                      :utilization="remainingUsagePercent(ownerUsage[account.id]?.seven_day?.utilization)"
                       :resets-at="ownerUsage[account.id]?.seven_day?.resets_at"
                       :window-stats="ownerUsage[account.id]?.seven_day?.window_stats"
                       :show-now-when-idle="true"
+                      :remaining-capacity="true"
                       color="emerald"
                     />
                     <div
@@ -1804,7 +1808,20 @@ const loadOwnerUsage = async (id: number): Promise<void> => {
   if (ownerUsageLoading[id]) return
   ownerUsageLoading[id] = true
   try {
-    ownerUsage[id] = await accountsAPI.getOwnerAccountUsage(id, true)
+    const usage = await accountsAPI.getOwnerAccountUsage(id, true)
+    ownerUsage[id] = usage
+
+    // Keep the contribution bars in the row aligned with the freshly queried
+    // upstream snapshot instead of leaving the list-load values on screen.
+    const account = accounts.value.find((item) => item.id === id)
+    if (account && usage.five_hour) {
+      account.contribution_5h_usage_percent = usage.five_hour.utilization
+      account.five_hour_resets_at = usage.five_hour.resets_at
+    }
+    if (account && usage.seven_day) {
+      account.contribution_weekly_usage_percent = usage.seven_day.utilization
+      account.weekly_resets_at = usage.seven_day.resets_at
+    }
   } catch (err) {
     ownerUsage[id] = { error: extractApiErrorMessage(err) } as AccountUsageInfo
   } finally {
@@ -2369,6 +2386,12 @@ function formatPercent(value: number | null | undefined): string {
   const n = Number(value)
   if (!Number.isFinite(n)) return '-'
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`
+}
+
+function remainingUsagePercent(usedPercent: number | null | undefined): number {
+  const used = Number(usedPercent)
+  if (!Number.isFinite(used)) return 100
+  return 100 - Math.max(0, Math.min(100, used))
 }
 
 function formatSharingRate(value: number | null | undefined): string {

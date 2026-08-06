@@ -19,6 +19,7 @@ const {
   replaceGroupQrCodeMock,
   rosterMock,
   recommendationMock,
+  sharedPoolMock,
   notifyCustomRuleInterestMock,
   unconfirmMock,
   pendingLaunchMock,
@@ -42,6 +43,7 @@ const {
   replaceGroupQrCodeMock: vi.fn(),
   rosterMock: vi.fn(),
   recommendationMock: vi.fn(),
+  sharedPoolMock: vi.fn(),
   notifyCustomRuleInterestMock: vi.fn(),
   unconfirmMock: vi.fn(),
   pendingLaunchMock: vi.fn(),
@@ -69,6 +71,7 @@ vi.mock('@/api/carpools', () => ({
     roster: rosterMock,
     launch: launchMock,
     declarationRecommendation: recommendationMock,
+    sharedPool: sharedPoolMock,
     notifyCustomRuleInterest: notifyCustomRuleInterestMock,
     settlement: settlementMock,
     settle: settleMock,
@@ -211,6 +214,14 @@ describe('CarpoolView', () => {
       basis: 'usage_history',
       message: '',
     })
+    sharedPoolMock.mockReset()
+    sharedPoolMock.mockResolvedValue({
+      capacityUsd: 480,
+      usedUsd: 168,
+      remainingUsd: 312,
+      windowStart: '2026-08-04T03:00:00Z',
+      resetsAt: '2026-08-11T03:00:00Z',
+    })
     notifyCustomRuleInterestMock.mockReset()
     notifyCustomRuleInterestMock.mockResolvedValue(undefined)
     unconfirmMock.mockReset()
@@ -275,6 +286,34 @@ describe('CarpoolView', () => {
     expect(card.text()).toContain('carpool.fields.effectiveRate')
     expect(card.text()).toContain('carpool.fields.carMonthlyFee')
     expect(card.text()).not.toContain('carpool.fields.seatsRemaining')
+  })
+
+  it('shows the active car shared pool by remaining quota in the detail dialog', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ status: 'active', memberRole: 'member', groupName: 'carpool-10' })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(sharedPoolMock).toHaveBeenCalledWith(10)
+    const panel = wrapper.get('[data-testid="carpool-shared-pool"]')
+    expect(panel.text()).toContain('carpool.detailDialog.sharedPoolRemaining')
+    expect(panel.text()).toContain('$312 / $480')
+    expect(panel.text()).not.toContain('$168')
+    expect(panel.get('.bg-emerald-500').attributes('style')).toContain('width: 65%')
+  })
+
+  it('does not request the car-internal shared pool for a non-member', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ status: 'active', memberRole: null })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(sharedPoolMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="carpool-shared-pool"]').exists()).toBe(false)
   })
 
   it('hides the join action when no joinable quota remains', async () => {

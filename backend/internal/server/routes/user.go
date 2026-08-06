@@ -275,6 +275,7 @@ func RegisterUserRoutes(
 			carpools.PUT("/:id/qr-code", middleware.RequestBodyLimit(carpoolCreateMaxBodyBytes), h.Carpool.ReplaceGroupQRCode)
 			carpools.GET("/:id/roster", h.Carpool.Roster)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
+			carpools.GET("/:id/shared-pool", h.Carpool.SharedPool)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)
 			carpools.POST("/:id/settlement/unsettle", h.Carpool.Unsettle)

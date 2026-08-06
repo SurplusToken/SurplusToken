@@ -238,7 +238,13 @@ export default {
       title: 'Carpool details',
       runtime: 'Launch status',
       linkedGroup: 'Linked group',
-      pendingGroup: 'Will be linked by an administrator at launch'
+      pendingGroup: 'Will be linked by an administrator at launch',
+      sharedPool: 'Shared pool quota',
+      sharedPoolHint: 'Shared by the whole car, first come first served; the bar shows quota remaining',
+      sharedPoolRemaining: 'Remaining now',
+      sharedPoolResetsAt: 'Next refresh',
+      sharedPoolLoading: 'Loading…',
+      sharedPoolUnavailable: 'Live shared-pool data is temporarily unavailable. Try again later.'
     },
     settlement: {
       title: 'Monthly settlement',

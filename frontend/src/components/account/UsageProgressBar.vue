@@ -161,15 +161,20 @@ const displayPercent = computed(() => {
   return percent > 999 ? '>999%' : `${percent}%`
 })
 
+const isIdle = computed(() => {
+  return props.remainingCapacity ? props.utilization >= 100 : props.utilization <= 0
+})
+
 const shouldShowResetTime = computed(() => {
   if (props.resetsAt) return true
-  return Boolean(props.showNowWhenIdle && props.utilization <= 0)
+  return Boolean(props.showNowWhenIdle && isIdle.value)
 })
 
 // Format reset time
 const formatResetTime = computed(() => {
-  // For rolling windows, when utilization is 0%, treat as immediately available.
-  if (props.showNowWhenIdle && props.utilization <= 0) {
+  // For rolling windows, an idle window is immediately available. In usage mode
+  // that means 0%; in remaining-capacity mode it means 100%.
+  if (props.showNowWhenIdle && isIdle.value) {
     return t('usage.resetNow')
   }
 
@@ -178,10 +183,10 @@ const formatResetTime = computed(() => {
   const date = new Date(props.resetsAt)
   const diffMs = date.getTime() - now.value.getTime()
 
-  // resetsAt 已过期：utilization>0 说明后端窗口数据还没刷新（active poll 没回写），
+  // resetsAt 已过期但窗口仍非空闲，说明后端数据还没刷新，
   // 显示「待刷新」以区别于真正可用的「现在」。
   if (diffMs <= 0) {
-    return props.utilization > 0 ? t('usage.resetPending') : t('usage.resetNow')
+    return isIdle.value ? t('usage.resetNow') : t('usage.resetPending')
   }
 
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
