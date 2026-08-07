@@ -2704,8 +2704,19 @@ func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluat
 		return out
 	}
 
+	// Always expose the latest upstream utilization for account-pool display.
+	// Budget mode uses these values for visibility only; its sharing gate remains
+	// based exclusively on non-owner weekly spend below.
+	if percent, ok := a.contributionUsagePercent("5h", time.Now()); ok {
+		out.FiveHourUsagePercent = &percent
+	}
+	if percent, ok := a.contributionUsagePercent("weekly", time.Now()); ok {
+		out.WeeklyUsagePercent = &percent
+	}
+
 	// Budget mode: gate NON-owner sharing by an absolute weekly USD budget instead
-	// of the percent-reserve checks below. Percent-mode logic is skipped entirely.
+	// of the percent-reserve checks below. The usage percentages populated above
+	// are display-only in this mode.
 	if a.GetContributionShareMode() == ContributionShareModeBudget {
 		budget := a.GetContributionWeeklyShareBudget()
 		// Fail OPEN if not hydrated (OthersWeeklySpend == nil) — never wrongly block.
@@ -2714,13 +2725,6 @@ func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluat
 			out.Reason = "weekly_budget_exhausted"
 		}
 		return out
-	}
-
-	if percent, ok := a.contributionUsagePercent("5h", time.Now()); ok {
-		out.FiveHourUsagePercent = &percent
-	}
-	if percent, ok := a.contributionUsagePercent("weekly", time.Now()); ok {
-		out.WeeklyUsagePercent = &percent
 	}
 
 	if blocked, reason := a.contributionReserveExceeded("5h", a.GetContributionFiveHourReservePercent(), out.FiveHourUsagePercent); blocked {
