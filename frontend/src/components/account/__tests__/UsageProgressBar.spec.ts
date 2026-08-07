@@ -133,6 +133,27 @@ describe('UsageProgressBar', () => {
     expect(wrapper.get('.h-1\\.5 > div').classes()).toContain('bg-red-500')
   })
 
+  it('剩余容量模式把 100% 视为空闲，0% 视为耗尽', async () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '7d',
+        utilization: 100,
+        resetsAt: '2026-03-16T22:00:00Z',
+        showNowWhenIdle: true,
+        remainingCapacity: true,
+        color: 'emerald'
+      }
+    })
+
+    expect(wrapper.text()).toContain('usage.resetNow')
+    expect(wrapper.text()).not.toContain('usage.resetPending')
+
+    await wrapper.setProps({ utilization: 0 })
+
+    expect(wrapper.text()).toContain('usage.resetPending')
+    expect(wrapper.text()).not.toContain('usage.resetNow')
+  })
+
   it('默认利用率模式仍把超限显示为满格红色', () => {
     const wrapper = mount(UsageProgressBar, {
       props: {

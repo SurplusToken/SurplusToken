@@ -754,6 +754,36 @@
             <div class="h-full rounded-full" :class="quotaProgressClass(selectedCarpool)" :style="{ width: `${quotaProgress(selectedCarpool)}%` }" />
           </div>
         </div>
+        <div
+          v-if="canViewSharedPool(selectedCarpool)"
+          data-testid="carpool-shared-pool"
+          class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-800/60"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-medium text-gray-800 dark:text-dark-100">{{ t('carpool.detailDialog.sharedPool') }}</div>
+              <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.detailDialog.sharedPoolHint') }}</div>
+            </div>
+            <span v-if="sharedPoolLoading" class="text-xs text-gray-400">{{ t('carpool.detailDialog.sharedPoolLoading') }}</span>
+          </div>
+          <div v-if="sharedPoolData" class="mt-3">
+            <div class="flex items-baseline justify-between gap-3">
+              <span class="text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.detailDialog.sharedPoolRemaining') }}</span>
+              <span class="font-semibold text-emerald-600 dark:text-emerald-400">
+                {{ formatUsd(sharedPoolData.remainingUsd) }} / {{ formatUsd(sharedPoolData.capacityUsd) }}
+              </span>
+            </div>
+            <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+              <div class="h-full rounded-full bg-emerald-500" :style="{ width: `${sharedPoolRemainingPercent}%` }" />
+            </div>
+            <div class="mt-2 text-right text-xs text-gray-500 dark:text-dark-300">
+              <span>{{ t('carpool.detailDialog.sharedPoolResetsAt') }}: {{ formatDateTime(sharedPoolData.resetsAt) }}</span>
+            </div>
+          </div>
+          <p v-else-if="sharedPoolFailed" class="mt-3 text-xs text-amber-600 dark:text-amber-400">
+            {{ t('carpool.detailDialog.sharedPoolUnavailable') }}
+          </p>
+        </div>
         <dl class="grid grid-cols-2 gap-4 border-y border-gray-100 py-4 text-sm dark:border-dark-700">
           <div>
             <dt class="text-xs text-gray-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
@@ -977,6 +1007,7 @@ import Icon from '@/components/icons/Icon.vue'
 import carpoolAPI, {
   type Carpool,
   type CarpoolSettlement,
+  type CarpoolSharedPool,
   type CarpoolVisibility,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
@@ -1054,6 +1085,9 @@ const customRuleNotified = ref(false)
 const joinDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
+const sharedPoolLoading = ref(false)
+const sharedPoolFailed = ref(false)
+const sharedPoolData = ref<CarpoolSharedPool | null>(null)
 const settlementDialogOpen = ref(false)
 const settlementLoading = ref(false)
 const settlementData = ref<CarpoolSettlement | null>(null)
@@ -1084,6 +1118,8 @@ const overduePendingCount = computed(() => pendingLaunches.value.filter((item) =
 let recommendationSeq = 0
 // 花名册同样要丢弃过期响应：连点两辆车会把 A 车的成员显示在 B 车的弹窗里。
 let rosterSeq = 0
+// 详情快照也要防止连点两辆车时旧请求覆盖新车。
+let sharedPoolSeq = 0
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -1180,6 +1216,11 @@ const filteredCarpools = computed(() => {
       : item.memberRole !== null || item.ownerUserId === authStore.user?.id)
     .filter((item) => !statusFilter.value || item.status === statusFilter.value)
     .filter((item) => !query || item.name.toLowerCase().includes(query) || item.organizer.toLowerCase().includes(query))
+})
+const sharedPoolRemainingPercent = computed(() => {
+  const snapshot = sharedPoolData.value
+  if (!snapshot || snapshot.capacityUsd <= 0) return 0
+  return Math.min(100, Math.max(0, snapshot.remainingUsd / snapshot.capacityUsd * 100))
 })
 const createFormValid = computed(() => (
   createForm.name.length > 0
@@ -1645,9 +1686,34 @@ async function openInvite(carpool: Carpool, token = ''): Promise<void> {
   }
 }
 
+function canViewSharedPool(carpool: Carpool): boolean {
+  return isQuotaCar(carpool)
+    && carpool.status === 'active'
+    && (carpool.memberRole !== null || carpool.ownerUserId === authStore.user?.id || authStore.isAdmin)
+}
+
 function openDetails(carpool: Carpool): void {
   selectedCarpool.value = carpool
   detailDialogOpen.value = true
+  sharedPoolData.value = null
+  sharedPoolFailed.value = false
+  sharedPoolLoading.value = false
+  const seq = ++sharedPoolSeq
+  if (!canViewSharedPool(carpool)) return
+
+  sharedPoolLoading.value = true
+  carpoolAPI.sharedPool(carpool.id)
+    .then((snapshot) => {
+      if (seq !== sharedPoolSeq) return
+      sharedPoolData.value = snapshot
+    })
+    .catch(() => {
+      if (seq !== sharedPoolSeq) return
+      sharedPoolFailed.value = true
+    })
+    .finally(() => {
+      if (seq === sharedPoolSeq) sharedPoolLoading.value = false
+    })
 }
 
 function inviteURL(_carpool: Carpool): string {
