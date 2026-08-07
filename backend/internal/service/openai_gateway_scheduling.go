@@ -1355,7 +1355,7 @@ func (s *OpenAIGatewayService) hydrateCoOwners(ctx context.Context, accounts []A
 }
 
 // hydrateOthersWeeklySpend populates OthersWeeklySpend (rolling-7-day NON-owner
-// SUM(actual_cost)) for accounts in "budget" contribution share mode, so the
+// SUM(total_cost), i.e. original model cost) for accounts in "budget" contribution share mode, so the
 // budget gate in EvaluateContributionProtection can fire. Percent-mode accounts
 // are skipped entirely (ZERO extra SQL/cache work on the hot path).
 //

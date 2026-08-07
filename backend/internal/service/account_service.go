@@ -134,7 +134,7 @@ type AccountRepository interface {
 	SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error
 
 	// SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner 之外）
-	// 产生的 SUM(actual_cost)（美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。
+	// 产生的 SUM(total_cost)（原始模型成本，美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。
 	SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error)
 	// GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”，缓存未命中时调用 SumOthersWeeklySpend。
 	// 缓存错误优雅降级为直接计算。

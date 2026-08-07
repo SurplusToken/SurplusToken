@@ -80,8 +80,8 @@ type Account struct {
 	// The full owner set of an account is its primary OwnerUserID ∪ CoOwnerUserIDs.
 	CoOwnerUserIDs []int64
 
-	// OthersWeeklySpend holds the rolling-7-day SUM(actual_cost) consumed by
-	// NON-owners (owner + co-owners excluded) of this account, in USD.
+	// OthersWeeklySpend holds the rolling-7-day SUM(total_cost), i.e. original
+	// model cost, consumed by NON-owners (owner + co-owners excluded), in USD.
 	// Non-persisted: hydrated on demand (scheduler + pool-display paths) only for
 	// accounts in "budget" contribution share mode. nil means "not hydrated" —
 	// callers must FAIL OPEN (never block) when it is nil.
