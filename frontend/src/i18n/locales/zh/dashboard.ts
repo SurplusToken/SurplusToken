@@ -890,7 +890,7 @@ export default {
       shareModePercent: '按百分比预留',
       shareModeBudget: '按周预算',
       weeklyShareBudgetLabel: '每周可被他人消费(美元)',
-      weeklyShareBudgetHint: '按原始模型成本统计他人的用量，不受用户、分组或共享报价倍率影响；你自己和共有者的用量不计入，按滚动 7 天周期重置。',
+      weeklyShareBudgetHint: '仅统计他人的用量，你自己和共有者的用量不计入；按滚动 7 天周期重置。',
       othersUsed: '他人已用',
       budget: '预算',
       budgetExhausted: '预算已用完',

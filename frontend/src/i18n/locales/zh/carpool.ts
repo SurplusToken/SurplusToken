@@ -238,13 +238,7 @@ export default {
       title: '拼车详情',
       runtime: '开车状态',
       linkedGroup: '关联分组',
-      pendingGroup: '等待管理员开车时绑定',
-      sharedPool: '公共池额度',
-      sharedPoolHint: '全车共享、先到先得，进度条按剩余额度显示',
-      sharedPoolRemaining: '当前剩余',
-      sharedPoolResetsAt: '下次刷新',
-      sharedPoolLoading: '正在读取…',
-      sharedPoolUnavailable: '公共池实时数据暂不可用，请稍后重试'
+      pendingGroup: '等待管理员开车时绑定'
     },
     settlement: {
       title: '月度结算单',

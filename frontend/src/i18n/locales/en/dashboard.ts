@@ -885,7 +885,7 @@ export default {
       shareModePercent: 'Reserve by percent',
       shareModeBudget: 'Weekly budget',
       weeklyShareBudgetLabel: 'Weekly spend allowed for others ($)',
-      weeklyShareBudgetHint: "Others' usage counts at the original model cost, before user, group, or sharing-price multipliers. Your own and co-owners' usage does not count. Resets on a rolling 7-day basis.",
+      weeklyShareBudgetHint: "Only others' usage counts toward this budget; your own and co-owners' usage does not. Resets on a rolling 7-day basis.",
       othersUsed: 'Others used',
       budget: 'Budget',
       budgetExhausted: 'Budget used up',
