@@ -129,22 +129,6 @@ export interface DeclarationRecommendation {
   message: string
 }
 
-export interface CarpoolSharedPool {
-  capacityUsd: number
-  usedUsd: number
-  remainingUsd: number
-  windowStart: string
-  resetsAt: string
-}
-
-interface CarpoolSharedPoolResponse {
-  capacity_usd: number
-  used_usd: number
-  remaining_usd: number
-  window_start: string
-  resets_at: string
-}
-
 export interface SettlementMember {
   userId: number
   // 仅 owner/admin 的全量视图会带上，用于把结算行对应到微信群里的真人收款
@@ -544,18 +528,6 @@ export async function declarationRecommendation(): Promise<DeclarationRecommenda
   }
 }
 
-// 车内公共池实时快照：仅本车成员、车主或管理员可读取。
-export async function sharedPool(id: number): Promise<CarpoolSharedPool> {
-  const { data } = await apiClient.get<CarpoolSharedPoolResponse>(`/carpools/${id}/shared-pool`)
-  return {
-    capacityUsd: data.capacity_usd,
-    usedUsd: data.used_usd,
-    remainingUsd: data.remaining_usd,
-    windowStart: data.window_start,
-    resetsAt: data.resets_at,
-  }
-}
-
 // 自定义规则咨询入口：通知全部 admin（邮件），不创建车辆；后端在邮件不可用时优雅降级。
 export async function notifyCustomRuleInterest(note?: string): Promise<void> {
   await apiClient.post('/carpools/custom-rule-interest', note ? { note } : {})
@@ -606,7 +578,6 @@ export default {
   transferOwner,
   launch,
   declarationRecommendation,
-  sharedPool,
   notifyCustomRuleInterest,
   settlement,
   settle,

@@ -80,8 +80,8 @@ type Account struct {
 	// The full owner set of an account is its primary OwnerUserID ∪ CoOwnerUserIDs.
 	CoOwnerUserIDs []int64
 
-	// OthersWeeklySpend holds the rolling-7-day SUM(total_cost), i.e. original
-	// model cost, consumed by NON-owners (owner + co-owners excluded), in USD.
+	// OthersWeeklySpend holds the rolling-7-day SUM(actual_cost) consumed by
+	// NON-owners (owner + co-owners excluded) of this account, in USD.
 	// Non-persisted: hydrated on demand (scheduler + pool-display paths) only for
 	// accounts in "budget" contribution share mode. nil means "not hydrated" —
 	// callers must FAIL OPEN (never block) when it is nil.
@@ -2725,19 +2725,8 @@ func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluat
 		return out
 	}
 
-	// Always expose the latest upstream utilization for account-pool display.
-	// Budget mode uses these values for visibility only; its sharing gate remains
-	// based exclusively on non-owner weekly spend below.
-	if percent, ok := a.contributionUsagePercent("5h", time.Now()); ok {
-		out.FiveHourUsagePercent = &percent
-	}
-	if percent, ok := a.contributionUsagePercent("weekly", time.Now()); ok {
-		out.WeeklyUsagePercent = &percent
-	}
-
 	// Budget mode: gate NON-owner sharing by an absolute weekly USD budget instead
-	// of the percent-reserve checks below. The usage percentages populated above
-	// are display-only in this mode.
+	// of the percent-reserve checks below. Percent-mode logic is skipped entirely.
 	if a.GetContributionShareMode() == ContributionShareModeBudget {
 		budget := a.GetContributionWeeklyShareBudget()
 		// Fail OPEN if not hydrated (OthersWeeklySpend == nil) — never wrongly block.
@@ -2746,6 +2735,13 @@ func (a *Account) EvaluateContributionProtection() ContributionProtectionEvaluat
 			out.Reason = "weekly_budget_exhausted"
 		}
 		return out
+	}
+
+	if percent, ok := a.contributionUsagePercent("5h", time.Now()); ok {
+		out.FiveHourUsagePercent = &percent
+	}
+	if percent, ok := a.contributionUsagePercent("weekly", time.Now()); ok {
+		out.WeeklyUsagePercent = &percent
 	}
 
 	if blocked, reason := a.contributionReserveExceeded("5h", a.GetContributionFiveHourReservePercent(), out.FiveHourUsagePercent); blocked {

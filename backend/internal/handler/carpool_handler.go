@@ -393,24 +393,6 @@ func (h *CarpoolHandler) DeclarationRecommendation(c *gin.Context) {
 	response.Success(c, rec)
 }
 
-// SharedPool 返回车内当前周窗口的公共池剩余快照。仅本车成员、车主或 admin 可读。
-func (h *CarpoolHandler) SharedPool(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not found in context")
-		return
-	}
-	id, ok := parseCarpoolID(c)
-	if !ok {
-		return
-	}
-	snapshot, err := h.service.GetSharedPool(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c))
-	if response.ErrorFrom(c, err) {
-		return
-	}
-	response.Success(c, snapshot)
-}
-
 // Settlement 月度结算单（设计文档 §4.5）：成员仅见自己，owner/admin 见全车。
 func (h *CarpoolHandler) Settlement(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
