@@ -141,7 +141,7 @@ func (s *SubscriptionService) ListCarpoolUsageSnapshots(ctx context.Context, use
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	snapshots := make([]CarpoolUsageSnapshot, 0)
 	bySubscriptionID := make(map[int64]int)
@@ -240,7 +240,7 @@ func (s *SubscriptionService) listEligibleCarpoolViewerSubscriptionIDs(ctx conte
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	subscriptionIDs := make([]int64, 0)
 	for rows.Next() {
