@@ -734,9 +734,30 @@ func ProvideBillingCacheService(
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	carpoolCommons CarpoolCommonsCounter,
+	carpoolUpstreamWindows CarpoolUpstreamWindowSource,
 ) *BillingCacheService {
 	svc := NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
 	svc.SetCarpoolCommonsCounter(carpoolCommons)
+	if capacitySource, ok := carpoolUpstreamWindows.(CarpoolObservedCapacitySource); ok {
+		svc.SetCarpoolObservedCapacitySource(capacitySource)
+	}
+	return svc
+}
+
+// ProvideSubscriptionService wires all carpool window dependencies at the
+// source-provider layer so regenerating wire_gen.go cannot silently drop them.
+func ProvideSubscriptionService(
+	groupRepo GroupRepository,
+	userSubRepo UserSubscriptionRepository,
+	billingCacheService *BillingCacheService,
+	entClient *dbent.Client,
+	cfg *config.Config,
+	carpoolUpstreamWindows CarpoolUpstreamWindowSource,
+	carpoolBillingCycles CarpoolBillingCycleRecorder,
+) *SubscriptionService {
+	svc := NewSubscriptionService(groupRepo, userSubRepo, billingCacheService, entClient, cfg)
+	svc.SetCarpoolUpstreamWindowSource(carpoolUpstreamWindows)
+	svc.SetCarpoolBillingCycleRecorder(carpoolBillingCycles)
 	return svc
 }
 
@@ -857,7 +878,7 @@ var ProviderSet = wire.NewSet(
 	NewTurnstileService,
 	NewTencentCaptchaService,
 	NewAliyunCaptchaService,
-	NewSubscriptionService,
+	ProvideSubscriptionService,
 	NewCarpoolService,
 	wire.Bind(new(DefaultSubscriptionAssigner), new(*SubscriptionService)),
 	ProvideConcurrencyService,

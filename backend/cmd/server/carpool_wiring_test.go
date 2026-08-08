@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,63 +16,41 @@ import (
 //     （线上有整整一辆车两天的台账为空）；
 //   - 实测容量源缺失 → 公共池容量退回静态值。
 //
-// 这三行都在生成文件里，靠人工 review diff 很容易漏掉，所以在这里对生成结果本身
-// 做断言：wire 重新生成后只要少了任何一处，这个测试立刻失败。
+// 注入现在固定在 service provider 源文件中，生成文件只负责调用 provider。测试同时
+// 断言这两层，避免重新生成 wire_gen.go 时再次静默丢失。
 func TestWireGenWiresCarpoolDependencies(t *testing.T) {
 	src, err := os.ReadFile("wire_gen.go")
 	require.NoError(t, err, "读取 wire_gen.go 失败")
 	code := string(src)
 
-	for _, want := range []struct {
-		snippet string
-		why     string
-	}{
-		{
-			"subscriptionService.SetCarpoolUpstreamWindowSource(",
-			"拼车周窗口将不跟随上游重置，成员会被我们自己的计数器挡住",
-		},
-		{
-			"subscriptionService.SetCarpoolBillingCycleRecorder(",
-			"已关闭周期不落台账，月底结算会丢掉按周期的 80% 地板",
-		},
-		{
-			"billingCacheService.SetCarpoolObservedCapacitySource(",
-			"公共池容量退回静态值，不再跟随实测容量",
-		},
-	} {
-		require.Containsf(t, code, want.snippet,
-			"wire_gen.go 里缺少 %q —— %s", want.snippet, want.why)
-	}
-
-	// 注入必须发生在 subscriptionService 构造之后，否则是对 nil 调用。
-	ctorIdx := strings.Index(code, "subscriptionService := service.NewSubscriptionService(")
-	require.GreaterOrEqual(t, ctorIdx, 0, "找不到 subscriptionService 的构造")
-	for _, setter := range []string{
-		"subscriptionService.SetCarpoolUpstreamWindowSource(",
-		"subscriptionService.SetCarpoolBillingCycleRecorder(",
-	} {
-		require.Greaterf(t, strings.Index(code, setter), ctorIdx,
-			"%s 出现在 subscriptionService 构造之前", setter)
-	}
+	require.Contains(t, code, "service.ProvideSubscriptionService(",
+		"生成结果必须通过源级 provider 构造 SubscriptionService")
+	require.Contains(t, code, "service.ProvideBillingCacheService(",
+		"生成结果必须通过源级 provider 构造 BillingCacheService")
+	require.NotContains(t, code, "service.NewSubscriptionService(",
+		"生成结果绕过 provider 会再次丢失拼车依赖")
 }
 
 // 兜底：确保上面断言的 setter 名字没有被重命名——名字改了而测试没跟着改，
 // 断言会变成对一个不存在的方法做字符串匹配，等于白测。
 func TestCarpoolWiringSettersExistOnService(t *testing.T) {
-	src, err := os.ReadFile("../../internal/service/subscription_service.go")
+	src, err := os.ReadFile("../../internal/service/wire.go")
 	require.NoError(t, err)
 	code := string(src)
 
-	for _, sig := range []string{
-		`func (s *SubscriptionService) SetCarpoolUpstreamWindowSource(`,
-		`func (s *SubscriptionService) SetCarpoolBillingCycleRecorder(`,
+	for _, snippet := range []string{
+		`func ProvideSubscriptionService(`,
+		`svc.SetCarpoolUpstreamWindowSource(carpoolUpstreamWindows)`,
+		`svc.SetCarpoolBillingCycleRecorder(carpoolBillingCycles)`,
+		`svc.SetCarpoolObservedCapacitySource(capacitySource)`,
 	} {
-		require.Containsf(t, code, sig, "subscription_service.go 里找不到 %q", sig)
+		require.Containsf(t, code, snippet, "service/wire.go 里找不到 %q", snippet)
 	}
 
-	// 缺失时必须有告警，不能静默降级
-	require.Regexp(t, regexp.MustCompile(`warnMissingUpstreamWindows\(\)`), code,
+	warningSrc, err := os.ReadFile("../../internal/service/subscription_service.go")
+	require.NoError(t, err)
+	require.Regexp(t, regexp.MustCompile(`warnMissingUpstreamWindows\(\)`), string(warningSrc),
 		"上游窗口缺失时没有告警")
-	require.Regexp(t, regexp.MustCompile(`warnMissingCycleRecorder\(\)`), code,
+	require.Regexp(t, regexp.MustCompile(`warnMissingCycleRecorder\(\)`), string(warningSrc),
 		"台账记录器缺失时没有告警")
 }

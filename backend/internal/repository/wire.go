@@ -111,6 +111,7 @@ var ProviderSet = wire.NewSet(
 	NewCarpoolRepository,
 	NewCarpoolCommonsCache,             // 拼车组级公共池计数器（Redis + DB 重建）
 	NewCarpoolUpstreamWindowRepository, // 拼车组绑定账号的上游周窗口
+	NewCarpoolBillingCycleRepository,   // 拼车周周期结算台账
 
 	// Cache implementations
 	NewGatewayCache,
