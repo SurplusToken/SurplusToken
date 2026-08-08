@@ -28,6 +28,8 @@
         <div
           v-for="subscription in subscriptions"
           :key="subscription.id"
+          data-testid="subscription-card"
+          :data-subscription-id="subscription.id"
           class="overflow-hidden rounded-2xl border bg-white dark:bg-dark-800"
           :class="platformBorderClass(subscription.group?.platform || '')"
         >
@@ -138,7 +140,11 @@
             </div>
 
             <!-- Weekly Usage -->
-            <div v-if="subscription.group?.weekly_limit_usd" class="space-y-2">
+            <div
+              v-if="!isActiveCarpool(subscription) && subscription.group?.weekly_limit_usd"
+              data-testid="weekly-usage"
+              class="space-y-2"
+            >
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('userSubscriptions.weekly') }}
@@ -177,6 +183,14 @@
                 }}
               </p>
             </div>
+
+            <CarpoolUsagePanel
+              v-if="isActiveCarpool(subscription)"
+              :snapshot="carpoolUsageBySubscriptionId[subscription.id]"
+              :loading="carpoolUsageLoading"
+              :error="carpoolUsageErrorFor(subscription)"
+              @retry="loadCarpoolUsage"
+            />
 
             <!-- Monthly Usage -->
             <div v-if="subscription.group?.monthly_limit_usd" class="space-y-2">
@@ -222,10 +236,12 @@
             <!-- No limits configured - Unlimited badge -->
             <div
               v-if="
+                !isActiveCarpool(subscription) &&
                 !subscription.group?.daily_limit_usd &&
                 !subscription.group?.weekly_limit_usd &&
                 !subscription.group?.monthly_limit_usd
               "
+              data-testid="unlimited-usage"
               class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
             >
               <div class="flex items-center gap-3">
@@ -253,9 +269,10 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import subscriptionsAPI from '@/api/subscriptions'
-import type { UserSubscription } from '@/types'
+import type { CarpoolUsageSnapshot, UserSubscription } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CarpoolUsagePanel from '@/components/user/subscriptions/CarpoolUsagePanel.vue'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
@@ -282,6 +299,10 @@ const appStore = useAppStore()
 
 const subscriptions = ref<UserSubscription[]>([])
 const loading = ref(true)
+const carpoolUsageBySubscriptionId = ref<Record<number, CarpoolUsageSnapshot>>({})
+const carpoolUsageLoading = ref(false)
+const carpoolUsageError = ref<string | null>(null)
+let carpoolUsageRequestSequence = 0
 
 function subscriptionHasPeakRate(subscription: UserSubscription): boolean {
   return hasPeakRate(subscription.group)
@@ -295,12 +316,56 @@ async function loadSubscriptions() {
   try {
     loading.value = true
     subscriptions.value = await subscriptionsAPI.getMySubscriptions()
+    loading.value = false
+
+    if (subscriptions.value.some(isActiveCarpool)) {
+      void loadCarpoolUsage()
+    }
   } catch (error) {
     console.error('Failed to load subscriptions:', error)
     appStore.showError(t('userSubscriptions.failedToLoad'))
   } finally {
     loading.value = false
   }
+}
+
+function isActiveCarpool(subscription: UserSubscription): boolean {
+  return subscription.status === 'active' && subscription.is_carpool === true
+}
+
+async function loadCarpoolUsage() {
+  const requestSequence = ++carpoolUsageRequestSequence
+  carpoolUsageLoading.value = true
+  carpoolUsageError.value = null
+
+  try {
+    const snapshots = await subscriptionsAPI.getCarpoolUsage()
+    if (requestSequence !== carpoolUsageRequestSequence) return
+
+    const snapshotsBySubscriptionId: Record<number, CarpoolUsageSnapshot> = {}
+    for (const snapshot of snapshots) {
+      snapshotsBySubscriptionId[snapshot.subscriptionId] = snapshot
+    }
+    carpoolUsageBySubscriptionId.value = snapshotsBySubscriptionId
+  } catch (error) {
+    if (requestSequence !== carpoolUsageRequestSequence) return
+
+    carpoolUsageError.value = error instanceof Error
+      ? error.message
+      : t('userSubscriptions.carpoolUsage.loadFailed')
+  } finally {
+    if (requestSequence === carpoolUsageRequestSequence) {
+      carpoolUsageLoading.value = false
+    }
+  }
+}
+
+function carpoolUsageErrorFor(subscription: UserSubscription): string | null {
+  if (carpoolUsageError.value) return carpoolUsageError.value
+  if (!carpoolUsageLoading.value && !carpoolUsageBySubscriptionId.value[subscription.id]) {
+    return t('userSubscriptions.carpoolUsage.loadFailed')
+  }
+  return null
 }
 
 function getProgressWidth(used: number | undefined, limit: number | null | undefined): string {

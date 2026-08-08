@@ -250,6 +250,7 @@ func RegisterUserRoutes(
 		subscriptions := authenticated.Group("/subscriptions")
 		{
 			subscriptions.GET("", h.Subscription.List)
+			subscriptions.GET("/carpool-usage", h.Subscription.ListCarpoolUsage)
 			subscriptions.GET("/active", h.Subscription.GetActive)
 			subscriptions.GET("/progress", h.Subscription.GetProgress)
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
