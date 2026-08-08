@@ -2065,6 +2065,7 @@ export interface UserSubscription {
   id: number
   user_id: number
   group_id: number
+  is_carpool?: boolean
   status: 'active' | 'expired' | 'revoked' | 'suspended'
   starts_at: string
   daily_usage_usd: number
@@ -2079,6 +2080,31 @@ export interface UserSubscription {
   expires_at: string | null
   user?: User
   group?: Group
+}
+
+export interface CarpoolUsageMember {
+  memberNumber: number
+  isCurrentUser: boolean
+  declaredQuotaUsd: number
+  reservedQuotaUsd: number
+  usageUsd: number
+  sharedPoolUsageUsd: number
+}
+
+export interface CarpoolSharedPoolUsage {
+  usageUsd: number
+  capacityUsd: number
+  remainingUsd: number
+}
+
+export interface CarpoolUsageSnapshot {
+  subscriptionId: number
+  windowStart: string
+  windowEnd: string
+  totalUsageUsd: number
+  totalCapacityUsd: number
+  sharedPool: CarpoolSharedPoolUsage
+  members: CarpoolUsageMember[]
 }
 
 export interface SubscriptionProgress {

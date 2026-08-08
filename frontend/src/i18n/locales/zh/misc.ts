@@ -132,7 +132,20 @@ export default {
     resetIn: '{time} 后重置',
     quotaEndsIn: '额度将在 {time} 后结束',
     windowNotActive: '等待首次使用',
-    usageOf: '已用 {used} / {limit}'
+    usageOf: '已用 {used} / {limit}',
+    carpoolUsage: {
+      totalUsage: '总车用量',
+      sharedPool: '公共池',
+      me: '我',
+      member: '成员 {number}',
+      declaredQuota: '申报总额度 {amount}',
+      memberQuota: '成员额度 {amount}',
+      remaining: '剩余 {amount}',
+      sharedPoolUsed: '已使用公共池 {amount}',
+      loading: '正在加载拼车用量',
+      loadFailed: '加载拼车用量失败',
+      retry: '重试'
+    }
   },
 
   // Onboarding Tour
