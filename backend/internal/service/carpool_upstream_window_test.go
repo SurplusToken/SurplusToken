@@ -23,6 +23,37 @@ func TestCarpoolWeeklyWindowTargetFollowsUpstream(t *testing.T) {
 	require.Equal(t, up.Start, target)
 }
 
+// reset_at 已过去但快照仍在可信年龄内时，直接用已知边界开启下一周。不能等待
+// 一个成功上游请求刷新快照，因为共享池预检查正发生在请求发往上游之前。
+func TestCarpoolWeeklyWindowTargetAdvancesPastExpiredResetBoundary(t *testing.T) {
+	resetAt := time.Date(2026, 8, 8, 3, 42, 27, 0, time.UTC)
+	now := resetAt.Add(2 * time.Hour)
+	prev := resetAt.Add(-7 * 24 * time.Hour)
+	up := &CarpoolUpstreamWindow{
+		Start:       prev,
+		End:         resetAt,
+		ObservedAt:  resetAt.Add(-19 * time.Hour),
+		UsedPercent: 100,
+	}
+
+	target, fromUpstream := CarpoolWeeklyWindowTarget(prev, up, now)
+	require.True(t, fromUpstream)
+	require.Equal(t, resetAt, target)
+	require.False(t, up.Fresh(now), "旧窗口 100% 使用率不得用于新窗口容量估算")
+}
+
+func TestCarpoolWeeklyWindowTargetAdvancesAcrossMultipleMissedPeriods(t *testing.T) {
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	week := 7 * 24 * time.Hour
+	up := upstreamWindow(start, week, start.Add(6*24*time.Hour))
+	now := start.Add(3*week + 2*time.Hour)
+	up.ObservedAt = now.Add(-time.Hour)
+
+	target, fromUpstream := CarpoolWeeklyWindowTarget(start, up, now)
+	require.True(t, fromUpstream)
+	require.Equal(t, start.Add(3*week), target)
+}
+
 // 上游数据陈旧时退回本地 7 天网格——宁可用旧规则，也不要拿一份过期的
 // 重置时刻去清空全车用量。
 func TestCarpoolWeeklyWindowTargetFallsBackWhenStale(t *testing.T) {
