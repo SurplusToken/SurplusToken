@@ -1529,6 +1529,19 @@ func stickyAccountSharingIneligible(ctx context.Context, account *Account) bool 
 	return !account.IsSharingEligibleForConsumer(requesterID, acceptedMin, acceptedMax, filterEnabled)
 }
 
+// stickyAccountContributionIneligible reports whether a contributed account may
+// still serve this requester under its owner-configured sharing protection. The
+// regular candidate-list path applies the same gate in
+// filterSurplusAISchedulableAccounts; direct sticky lookups must repeat it because
+// they bypass that list filter. Owners and co-owners always retain self-use.
+func stickyAccountContributionIneligible(ctx context.Context, account *Account) bool {
+	if account == nil || !account.IsUserContributed() {
+		return false
+	}
+	requesterID := RequestingUserIDFromContext(ctx)
+	return !account.IsSurplusAIOwner(requesterID) && !account.IsSurplusAIContributionProtectionSchedulable()
+}
+
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
 	if account == nil || s.schedulerSnapshot == nil {
 		return account, nil

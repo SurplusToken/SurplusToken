@@ -88,6 +88,86 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_QuotaAutoPausedM
 	require.Equal(t, account.ID, boundAccountID)
 }
 
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_SharingBudgetExhaustedMiss(t *testing.T) {
+	ctx := WithRequestingUserID(context.Background(), 168)
+	groupID := int64(23)
+	ownerID := int64(223)
+	spend := 653.56
+	account := Account{
+		ID:                170,
+		Platform:          PlatformOpenAI,
+		Type:              AccountTypeOAuth,
+		Status:            StatusActive,
+		Schedulable:       true,
+		Concurrency:       2,
+		OwnerUserID:       &ownerID,
+		OthersWeeklySpend: &spend,
+		Extra: map[string]any{
+			"openai_oauth_responses_websockets_v2_enabled": true,
+			"contribution_share_mode":                      ContributionShareModeBudget,
+			"contribution_weekly_share_budget":             400.0,
+		},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
+		cache:              cache,
+		cfg:                newOpenAIWSV2TestConfig(),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_budget", account.ID, time.Hour))
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_budget", "gpt-5.1", nil, false)
+	require.NoError(t, err)
+	require.Nil(t, selection, "exhausted sharing budget must stop previous_response_id reuse for non-owners")
+	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_budget")
+	require.NoError(t, getErr)
+	require.Zero(t, boundAccountID, "exhausted sharing budget should clear the stale response binding")
+}
+
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_SharingBudgetOwnerBypass(t *testing.T) {
+	ownerID := int64(223)
+	ctx := WithRequestingUserID(context.Background(), ownerID)
+	groupID := int64(23)
+	spend := 653.56
+	account := Account{
+		ID:                170,
+		Platform:          PlatformOpenAI,
+		Type:              AccountTypeOAuth,
+		Status:            StatusActive,
+		Schedulable:       true,
+		Concurrency:       2,
+		OwnerUserID:       &ownerID,
+		OthersWeeklySpend: &spend,
+		Extra: map[string]any{
+			"openai_oauth_responses_websockets_v2_enabled": true,
+			"contribution_share_mode":                      ContributionShareModeBudget,
+			"contribution_weekly_share_budget":             400.0,
+		},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
+		cache:              cache,
+		cfg:                newOpenAIWSV2TestConfig(),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_budget_owner", account.ID, time.Hour))
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_budget_owner", "gpt-5.1", nil, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection, "owner self-use must remain available after the sharing budget is exhausted")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(23)

@@ -495,7 +495,7 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	if s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 		return 0, nil, "", nil
 	}
-	if shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account) || !account.IsOpenAI() || !account.IsSchedulable() {
+	if shouldClearStickySession(account, requestedModel) || stickyAccountSharingIneligible(ctx, account) || stickyAccountContributionIneligible(ctx, account) || !account.IsOpenAI() || !account.IsSchedulable() {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
@@ -528,7 +528,12 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
-		if shouldClearStickySession(latest, requestedModel) || stickyAccountSharingIneligible(ctx, latest) || !latest.IsOpenAI() || !latest.IsSchedulable() {
+		// GetByID does not hydrate co-owners or the rolling non-owner spend used by
+		// budget-mode sharing protection. Carry the owner set forward and refresh
+		// the spend before the DB recheck so this path cannot fail open.
+		latest.CoOwnerUserIDs = account.CoOwnerUserIDs
+		s.hydrateOthersWeeklySpendSingle(ctx, latest)
+		if shouldClearStickySession(latest, requestedModel) || stickyAccountSharingIneligible(ctx, latest) || stickyAccountContributionIneligible(ctx, latest) || !latest.IsOpenAI() || !latest.IsSchedulable() {
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
