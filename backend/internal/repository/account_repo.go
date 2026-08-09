@@ -41,10 +41,11 @@ import (
 )
 
 const (
-	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。
-	// 格式: others_weekly_spend:account:{accountID}
+	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。v2 表示预算按
+	// usage_logs.total_cost（原始模型成本）累计，避免复用旧 actual_cost 口径的缓存。
+	// 格式: others_weekly_spend:v2:account:{accountID}
 	// 镜像 session_limit_cache.go 中 window_cost 缓存的 rdb 用法与 30s TTL。
-	othersWeeklySpendKeyPrefix = "others_weekly_spend:account:"
+	othersWeeklySpendKeyPrefix = "others_weekly_spend:v2:account:"
 
 	// othersWeeklySpendCacheTTL 是“他人周消费”缓存 TTL（30 秒），与窗口费用缓存一致。
 	othersWeeklySpendCacheTTL = 30 * time.Second
@@ -4071,13 +4072,13 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 
 // ListCoOwnerUserIDsByAccount 返回指定账号的全部 co-owner 用户 ID。
 // SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner
-// 之外的用户）产生的 SUM(actual_cost)（美元）。ownerUserIDs 为账号 owner 集合
+// 之外的用户）产生的 SUM(total_cost)（原始模型成本，美元）。ownerUserIDs 为账号 owner 集合
 // （主 owner ∪ co-owner）；为空时不排除任何用户（即统计全部消费）。
 // 使用 idx_usage_logs_account_created_at 命中 (account_id, created_at) 索引。
 func (r *accountRepository) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
 	// (user_id <> ALL($3)) 在数组为空时对所有行成立 -> 不排除任何用户。
 	const query = `
-		SELECT COALESCE(SUM(actual_cost), 0) FROM usage_logs
+		SELECT COALESCE(SUM(total_cost), 0) FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND (user_id <> ALL($3))
 	`
 	owners := ownerUserIDs
@@ -4103,7 +4104,7 @@ func othersWeeklySpendKey(accountID int64) string {
 }
 
 // GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”。
-// 缓存键 others_weekly_spend:account:<id>，TTL 30s，镜像 session_limit_cache.go
+// 缓存键 others_weekly_spend:v2:account:<id>，TTL 30s，镜像 session_limit_cache.go
 // 中 window_cost 的 rdb 用法。缓存错误优雅降级：直接计算，不影响业务。
 func (r *accountRepository) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
 	// rdb 缺失时直接查询 DB（不缓存）。
