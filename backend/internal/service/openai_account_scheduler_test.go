@@ -2690,6 +2690,34 @@ func TestOpenAIAccountScheduler_SkipsAccountBlockedForRequestedModel(t *testing.
 	require.True(t, scheduler.isAccountRequestCompatible(context.Background(), account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"}))
 }
 
+func TestOpenAIAccountScheduler_SkipsNonOwnerAfterSharingBudgetExhausted(t *testing.T) {
+	ownerID := int64(223)
+	spend := 677.44
+	account := &Account{
+		ID:                170,
+		Platform:          PlatformOpenAI,
+		Type:              AccountTypeOAuth,
+		Status:            StatusActive,
+		Schedulable:       true,
+		OwnerUserID:       &ownerID,
+		OthersWeeklySpend: &spend,
+		Extra: map[string]any{
+			"contribution_share_mode":          ContributionShareModeBudget,
+			"contribution_weekly_share_budget": 400.0,
+		},
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{}}
+	req := OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"}
+
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(WithRequestingUserID(context.Background(), 168), account, req)
+	require.False(t, compatible)
+	require.Equal(t, "contribution_protection", reason)
+
+	compatible, reason = scheduler.isAccountRequestCompatibleReason(WithRequestingUserID(context.Background(), ownerID), account, req)
+	require.True(t, compatible, "owner self-use must bypass the sharing budget")
+	require.Empty(t, reason)
+}
+
 func TestReportOpenAIAccountScheduleResult_SuccessClearsModelTransientState(t *testing.T) {
 	svc := &OpenAIGatewayService{openaiModelTransient: newOpenAIAccountModelTransientState(128)}
 	now := time.Now()

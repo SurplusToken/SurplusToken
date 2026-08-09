@@ -1782,6 +1782,16 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
+	// The advanced scheduler can receive accounts straight from its snapshot,
+	// bypassing listSchedulableAccounts and its contribution-protection filter.
+	// Hydrate budget-mode spend here and apply the same non-owner gate before any
+	// sticky/load-balancing path may select the account.
+	if s != nil && s.service != nil {
+		s.service.hydrateOthersWeeklySpendSingle(ctx, account)
+	}
+	if stickyAccountContributionIneligible(ctx, account) {
+		return false, "contribution_protection"
+	}
 	if !matchesOpenAIAccountEligibility(ctx, account, req.AccountEligible) {
 		return false, "account_ineligible"
 	}
