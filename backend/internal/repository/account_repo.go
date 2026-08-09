@@ -41,11 +41,11 @@ import (
 )
 
 const (
-	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。v2 表示预算按
-	// usage_logs.total_cost（原始模型成本）累计，避免复用旧 actual_cost 口径的缓存。
-	// 格式: others_weekly_spend:v2:account:{accountID}
+	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。v3 表示预算按
+	// usage_logs.total_cost 累计且缓存键包含上游周窗口起点，防止跨周复用旧值。
+	// 格式: others_weekly_spend:v3:account:{accountID}:window:{30s-bucket}
 	// 镜像 session_limit_cache.go 中 window_cost 缓存的 rdb 用法与 30s TTL。
-	othersWeeklySpendKeyPrefix = "others_weekly_spend:v2:account:"
+	othersWeeklySpendKeyPrefix = "others_weekly_spend:v3:account:"
 
 	// othersWeeklySpendCacheTTL 是“他人周消费”缓存 TTL（30 秒），与窗口费用缓存一致。
 	othersWeeklySpendCacheTTL = 30 * time.Second
@@ -4099,8 +4099,8 @@ func (r *accountRepository) SumOthersWeeklySpend(ctx context.Context, accountID 
 }
 
 // othersWeeklySpendKey 生成“他人周消费”缓存的 Redis 键。
-func othersWeeklySpendKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", othersWeeklySpendKeyPrefix, accountID)
+func othersWeeklySpendKey(accountID int64, since time.Time) string {
+	return fmt.Sprintf("%s%d:window:%d", othersWeeklySpendKeyPrefix, accountID, since.UTC().Unix()/int64(othersWeeklySpendCacheTTL/time.Second))
 }
 
 // GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”。
@@ -4111,7 +4111,7 @@ func (r *accountRepository) GetOthersWeeklySpendCached(ctx context.Context, acco
 	if r.rdb == nil {
 		return r.SumOthersWeeklySpend(ctx, accountID, ownerUserIDs, since)
 	}
-	key := othersWeeklySpendKey(accountID)
+	key := othersWeeklySpendKey(accountID, since)
 	if val, err := r.rdb.Get(ctx, key).Float64(); err == nil {
 		return val, nil
 	} else if err != redis.Nil {

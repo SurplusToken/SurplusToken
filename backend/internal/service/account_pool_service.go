@@ -1089,7 +1089,9 @@ func UserAccountPoolItemFromAccount(account *Account, currentUserID int64) UserA
 // ContributionProtectionBlocked) reflect the correct budget-gate state in the
 // pool display. No-op for percent-mode accounts (ZERO extra work) or when already
 // hydrated. Best-effort: on any error the value stays nil and the budget gate
-// fails open. since = now - 7d; owners excluded via SurplusAIOwnerUserIDs().
+// fails open. The spend window follows the account's current upstream 7d cycle;
+// missing upstream boundaries fall back to rolling 7d. Owners are excluded via
+// SurplusAIOwnerUserIDs().
 func (s *AccountService) hydrateOthersWeeklySpend(ctx context.Context, account *Account) {
 	if account == nil || s.accountRepo == nil {
 		return
@@ -1100,7 +1102,7 @@ func (s *AccountService) hydrateOthersWeeklySpend(ctx context.Context, account *
 	if account.OthersWeeklySpend != nil {
 		return
 	}
-	since := time.Now().Add(-7 * 24 * time.Hour)
+	since := account.contributionWeeklyBudgetWindowStart(time.Now())
 	spend, err := s.accountRepo.GetOthersWeeklySpendCached(ctx, account.ID, account.SurplusAIOwnerUserIDs(), since)
 	if err != nil {
 		return

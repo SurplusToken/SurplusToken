@@ -1381,12 +1381,12 @@ func (s *OpenAIGatewayService) hydrateOthersWeeklySpend(ctx context.Context, acc
 	if len(accounts) == 0 || s.accountRepo == nil {
 		return accounts
 	}
-	since := time.Now().Add(-7 * 24 * time.Hour)
 	for i := range accounts {
 		if accounts[i].GetContributionShareMode() != ContributionShareModeBudget {
 			continue
 		}
 		acc := &accounts[i]
+		since := acc.contributionWeeklyBudgetWindowStart(time.Now())
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -1420,7 +1420,7 @@ func (s *OpenAIGatewayService) hydrateOthersWeeklySpendSingle(ctx context.Contex
 	if account.OthersWeeklySpend != nil {
 		return
 	}
-	since := time.Now().Add(-7 * 24 * time.Hour)
+	since := account.contributionWeeklyBudgetWindowStart(time.Now())
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Warn("hydrate others-weekly-spend (single) panicked; budget gate fails open",

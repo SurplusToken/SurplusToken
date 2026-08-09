@@ -2694,6 +2694,44 @@ func (a *Account) GetContributionWeeklyShareBudget() float64 {
 	return v
 }
 
+// contributionWeeklyBudgetWindowStart returns the current upstream weekly
+// window start used by budget-mode sharing. OpenAI reports the next reset time;
+// subtracting the reported 7d window length anchors local USD spend to the same
+// cycle. If the snapshot is missing or malformed, retain the historical rolling
+// seven-day fallback rather than disabling protection.
+func (a *Account) contributionWeeklyBudgetWindowStart(now time.Time) time.Time {
+	fallback := now.Add(-7 * 24 * time.Hour)
+	if a == nil || a.Extra == nil {
+		return fallback
+	}
+	resetAt, ok := parseExtraRFC3339Time(a.Extra["codex_7d_reset_at"])
+	if !ok {
+		resetAt, ok = parseExtraRFC3339Time(a.Extra["codex_primary_reset_at"])
+	}
+	if !ok {
+		return fallback
+	}
+
+	windowMinutes := parseExtraFloat64(a.Extra["codex_7d_window_minutes"])
+	if windowMinutes <= 0 {
+		windowMinutes = parseExtraFloat64(a.Extra["codex_primary_window_minutes"])
+	}
+	window := time.Duration(windowMinutes * float64(time.Minute))
+	if window < 24*time.Hour || window > 14*24*time.Hour {
+		window = 7 * 24 * time.Hour
+	}
+
+	if resetAt.After(now) {
+		start := resetAt.Add(-window)
+		if !start.After(now) {
+			return start
+		}
+		return fallback
+	}
+	periodsAfterReset := now.Sub(resetAt) / window
+	return resetAt.Add(periodsAfterReset * window)
+}
+
 func clampContributionReservePercent(value float64) float64 {
 	if value < 0 {
 		return 0

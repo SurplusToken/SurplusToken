@@ -28,5 +28,6 @@ func TestAccountRepositorySumOthersWeeklySpendUsesOriginalModelCost(t *testing.T
 }
 
 func TestOthersWeeklySpendCacheKeyVersionsOriginalCostSemantics(t *testing.T) {
-	require.Equal(t, "others_weekly_spend:v2:account:170", othersWeeklySpendKey(170))
+	since := time.Date(2026, time.August, 9, 4, 31, 0, 0, time.FixedZone("CST", 8*60*60))
+	require.Equal(t, "others_weekly_spend:v3:account:170:window:59540702", othersWeeklySpendKey(170, since))
 }
