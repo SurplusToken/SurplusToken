@@ -16,7 +16,8 @@ func TestContributionWeeklyBudgetWindowStartFollowsUpstreamReset(t *testing.T) {
 		"codex_7d_window_minutes": 10080.0,
 	}}
 
-	require.Equal(t, time.Date(2026, time.August, 9, 4, 31, 0, 0, location), account.contributionWeeklyBudgetWindowStart(now))
+	expected := time.Date(2026, time.August, 9, 4, 31, 0, 0, location)
+	require.True(t, expected.Equal(account.contributionWeeklyBudgetWindowStart(now)))
 }
 
 func TestContributionWeeklyBudgetWindowStartAdvancesExpiredBoundary(t *testing.T) {

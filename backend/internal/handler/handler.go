@@ -56,6 +56,7 @@ type Handlers struct {
 	Announcement     *AnnouncementHandler
 	Chat             *ChatHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
+	ChannelMonitorV2 *ChannelMonitorV2Handler
 	AccountPool      *AccountPoolHandler
 	Carpool          *CarpoolHandler
 	Admin            *AdminHandlers

@@ -1011,6 +1011,10 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
 			accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
+			accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
+			if platform == PlatformGrok || strings.EqualFold(platform, PlatformGrok) {
+				accounts = s.filterGrokFreeQuotaAccountsForGateway(ctx, accounts)
+			}
 			slog.Debug("account_scheduling_list_snapshot",
 				"group_id", derefGroupID(groupID),
 				"platform", platform,
@@ -1080,7 +1084,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 					"tls_fingerprint", acc.IsTLSFingerprintEnabled())
 			}
 		}
-		return filtered, useMixed, nil
+		return s.filterAccountsBySchedulingThreshold(ctx, filtered), useMixed, nil
 	}
 
 	var accounts []Account
@@ -1115,6 +1119,10 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 				"status", acc.Status,
 				"tls_fingerprint", acc.IsTLSFingerprintEnabled())
 		}
+	}
+	accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
+	if platform == PlatformGrok || strings.EqualFold(platform, PlatformGrok) {
+		accounts = s.filterGrokFreeQuotaAccountsForGateway(ctx, accounts)
 	}
 	return accounts, useMixed, nil
 }
@@ -1502,23 +1510,20 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	if !account.IsSurplusAISchedulableType() {
 		return nil, nil
 	}
+	if s.isAccountBlockedBySchedulingThreshold(ctx, account) {
+		return nil, nil
+	}
+	// Sticky / non-list selection must honor free soft-gate (same as listSchedulableAccounts).
+	if account.IsGrok() {
+		if gated := s.filterGrokFreeQuotaAccountsForGateway(ctx, []Account{*account}); len(gated) == 0 {
+			return nil, nil
+		}
+	}
 	return account, nil
 }
 
 // stickyAccountSharingIneligible reports whether a sticky-bound account has
-// fallen outside the requesting consumer's accepted sharing-rate range since
-// the binding was created (e.g. the owner repriced it, or the requester's
-// accepted range / the marketplace filter toggle changed since). System
-// accounts and owner/co-owner self-use are always eligible — this only ever
-// rejects an external consumer's now-stale sticky binding to a contributed
-// account.
-//
-// Shared by every gateway service's legacy per-ID sticky lookup
-// (GatewayService.selectAccountForModelWithPlatform / selectAccountWithMixedScheduling,
-// GeminiMessagesCompatService.tryStickySessionHit): they all fetch the sticky
-// account directly by ID (getSchedulableAccount) and never pass through the
-// corresponding listSchedulableAccounts*'s filterSurplusAISchedulableAccounts,
-// so they must re-check eligibility here before honoring the binding.
+// fallen outside the requesting consumer's accepted sharing-rate range.
 func stickyAccountSharingIneligible(ctx context.Context, account *Account) bool {
 	if account == nil {
 		return false
@@ -1529,17 +1534,36 @@ func stickyAccountSharingIneligible(ctx context.Context, account *Account) bool 
 	return !account.IsSharingEligibleForConsumer(requesterID, acceptedMin, acceptedMax, filterEnabled)
 }
 
-// stickyAccountContributionIneligible reports whether a contributed account may
-// still serve this requester under its owner-configured sharing protection. The
-// regular candidate-list path applies the same gate in
-// filterSurplusAISchedulableAccounts; direct sticky lookups must repeat it because
-// they bypass that list filter. Owners and co-owners always retain self-use.
+// stickyAccountContributionIneligible applies owner-configured contribution
+// protection to direct sticky lookups, which bypass the normal list filter.
 func stickyAccountContributionIneligible(ctx context.Context, account *Account) bool {
 	if account == nil || !account.IsUserContributed() {
 		return false
 	}
 	requesterID := RequestingUserIDFromContext(ctx)
 	return !account.IsSurplusAIOwner(requesterID) && !account.IsSurplusAIContributionProtectionSchedulable()
+}
+
+func (s *GatewayService) filterAccountsBySchedulingThreshold(ctx context.Context, accounts []Account) []Account {
+	if len(accounts) == 0 {
+		return accounts
+	}
+
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if s.isAccountBlockedBySchedulingThreshold(ctx, &accounts[i]) {
+			continue
+		}
+		filtered = append(filtered, accounts[i])
+	}
+	return filtered
+}
+
+func (s *GatewayService) isAccountBlockedBySchedulingThreshold(ctx context.Context, account *Account) bool {
+	if s == nil || s.rateLimitService == nil || account == nil {
+		return false
+	}
+	return s.rateLimitService.ApplyAccountSchedulingThreshold(ctx, account)
 }
 
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
