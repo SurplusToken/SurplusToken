@@ -747,14 +747,6 @@
           <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
             <button
               type="button"
-              @click="selectCreatePlatform('openai')"
-              :class="platformButtonClass('openai', 'green')"
-            >
-              <Icon name="key" size="sm" />
-              OpenAI
-            </button>
-            <button
-              type="button"
               @click="selectCreatePlatform('kimi')"
               :class="platformButtonClass('kimi', 'amber')"
             >
@@ -2167,7 +2159,9 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
 
 const createForm = reactive({
   name: '',
-  platform: 'openai' as AccountPlatform,
+  // OpenAI OAuth contribution creation is temporarily closed. Existing OpenAI
+  // accounts and their re-authorization flow remain available.
+  platform: 'kimi' as AccountPlatform,
   accountType: 'oauth' as 'oauth' | 'apikey',
   apiKey: '',
   kimiAPIProtocol: 'openai' as KimiAPIProtocol,
@@ -3396,7 +3390,7 @@ async function handleImportCodexSession(content: string) {
 
 function resetCreateForm() {
   createForm.name = ''
-  createForm.platform = 'openai'
+  createForm.platform = 'kimi'
   createForm.accountType = 'oauth'
   createForm.apiKey = ''
   createForm.kimiAPIProtocol = 'openai'

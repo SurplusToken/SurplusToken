@@ -87,7 +87,7 @@ describe('AccountPoolView OAuth options', () => {
     getAvailableGroups.mockResolvedValue([])
   })
 
-  it('shows original sub2api OpenAI authorization input methods for user contributions', async () => {
+  it('hides the OpenAI OAuth contribution entry and defaults to Kimi', async () => {
     const wrapper = shallowMount(AccountPoolView, {
       global: {
         stubs: {
@@ -112,13 +112,17 @@ describe('AccountPoolView OAuth options', () => {
 
     await flushPromises()
     await wrapper.find('button').trigger('click')
+
+    const createForm = wrapper.find('form')
+    const createButtons = createForm.findAll('button').map((button) => button.text().trim())
+    expect(createButtons).toContain('Kimi')
+    expect(createButtons).not.toContain('OpenAI')
+
     await wrapper.find('form').trigger('submit.prevent')
     await flushPromises()
 
     const flow = wrapper.findComponent(OAuthAuthorizationFlowStub)
-    expect(flow.props('showRefreshTokenOption')).toBe(true)
-    expect(flow.props('showMobileRefreshTokenOption')).toBe(true)
-    expect(flow.props('showCodexSessionImportOption')).toBe(true)
-    expect(flow.props('platform')).toBe('openai')
+    expect(flow.exists()).toBe(false)
+    expect(wrapper.text()).toContain('accountPool.kimi.startAuthorization')
   })
 })
