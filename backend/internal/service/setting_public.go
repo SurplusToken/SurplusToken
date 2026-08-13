@@ -619,12 +619,12 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
 	// ChannelMonitorHideThroughput is public so the user UI can hide RPM/TPM
 	// without waiting for API redaction alone (defense in depth).
-	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
-	AvailableChannelsEnabled     bool `json:"available_channels_enabled"`
-	ModelPlazaEnabled            bool `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth        bool `json:"model_plaza_require_auth"`
-	AffiliateEnabled             bool `json:"affiliate_enabled"`
-	RiskControlEnabled           bool `json:"risk_control_enabled"`
+	ChannelMonitorHideThroughput bool    `json:"channel_monitor_hide_throughput"`
+	AvailableChannelsEnabled     bool    `json:"available_channels_enabled"`
+	ModelPlazaEnabled            bool    `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth        bool    `json:"model_plaza_require_auth"`
+	AffiliateEnabled             bool    `json:"affiliate_enabled"`
+	RiskControlEnabled           bool    `json:"risk_control_enabled"`
 	SharingPoolDisplayEnabled    bool    `json:"sharing_pool_display_enabled"`
 	SharingRangeFilterEnabled    bool    `json:"sharing_range_filter_enabled"`
 	SharingPoolBillingEnabled    bool    `json:"sharing_pool_billing_enabled"`
