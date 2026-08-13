@@ -274,7 +274,8 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
-	// Channel pricing is atomic: omitted fields stay zero and are not filled by LiteLLM.
+	// Partial channel pricing overrides only configured fields; omitted fields keep
+	// the official/LiteLLM base price.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -293,7 +294,7 @@ func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
 	require.NotNil(t, resolved.BasePricing)
 	// InputPrice overridden by channel
 	require.InDelta(t, 20e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
-	require.Zero(t, resolved.BasePricing.OutputPricePerToken)
+	require.InDelta(t, 15e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 }
 
 func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
@@ -533,8 +534,8 @@ func TestGetIntervalPricing_WithChannelIntervals(t *testing.T) {
 }
 
 func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
-	// Channel intervals don't match token count → falls back to the channel's
-	// atomic BasePricing, not to LiteLLM.
+	// Channel intervals don't match token count → falls back to the official
+	// base pricing.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -552,10 +553,10 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 
 	// Token count 1000 doesn't match any interval (1000 <= 50000 minTokens)
 	pricing := r.GetIntervalPricing(resolved, 1000)
-	// Should fall back to the channel-owned BasePricing.
+	// Should fall back to BasePricing.
 	require.NotNil(t, pricing)
 	require.Equal(t, resolved.BasePricing, pricing)
-	require.Zero(t, pricing.InputPricePerToken)
+	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12)
 }
 
 // ===========================================================================
@@ -863,6 +864,9 @@ func TestResolve_GroupLongContextUsesPresetNotCustomIntervals(t *testing.T) {
 	bs.fallbackPrices["claude-sonnet-4"].LongContextThresholdInclusive = true
 	bs.fallbackPrices["claude-sonnet-4"].LongContextInputMultiplier = 2
 	bs.fallbackPrices["claude-sonnet-4"].LongContextOutputMultiplier = 2
+	// Force this test through the configured built-in preset instead of the
+	// lightweight dynamic-pricing fixture used by other resolver tests.
+	bs.pricingService = nil
 	r := NewModelPricingResolver(nil, bs)
 	group := &Group{ID: 100, ModelPricing: []ChannelModelPricing{{
 		Models: []string{"claude-sonnet-4"}, BillingMode: BillingModeToken,

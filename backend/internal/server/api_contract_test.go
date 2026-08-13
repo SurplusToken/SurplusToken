@@ -440,6 +440,7 @@ func TestAPIContracts(t *testing.T) {
 						"starts_at": "2025-01-02T03:04:05Z",
 						"expires_at": "2099-01-02T03:04:05Z",
 						"status": "active",
+						"is_carpool": false,
 						"daily_window_start": null,
 						"weekly_window_start": null,
 						"monthly_window_start": null,

@@ -1089,6 +1089,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			"gpt-5",
 			sql.NullString{Valid: true, String: "gpt-5"},
 			sql.NullString{}, // upstream_model
+			sql.NullString{}, // upstream_response_model
+			sql.NullBool{},   // upstream_model_mismatch
 			sql.NullInt64{},  // group_id
 			sql.NullInt64{},  // subscription_id
 			1, 2, 3, 4, 5, 6,
@@ -1143,7 +1145,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{Valid: true, String: "req-no-sharing-rate"},
 			"gpt-5",
 			sql.NullString{Valid: true, String: "gpt-5"},
-			sql.NullString{},
+			sql.NullString{}, // upstream_model
+			sql.NullString{}, // upstream_response_model
+			sql.NullBool{},   // upstream_model_mismatch
 			sql.NullInt64{},
 			sql.NullInt64{},
 			1, 2, 3, 4, 5, 6,

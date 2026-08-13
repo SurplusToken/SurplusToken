@@ -46,6 +46,7 @@ func TestGatewayService_ListSchedulableAccounts_DoesNotFilterUnsupportedThreshol
 			{
 				ID:          3101,
 				Platform:    PlatformKiro,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Credentials: map[string]any{
@@ -59,6 +60,7 @@ func TestGatewayService_ListSchedulableAccounts_DoesNotFilterUnsupportedThreshol
 			{
 				ID:          3102,
 				Platform:    PlatformKiro,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Extra: map[string]any{
@@ -99,6 +101,7 @@ func TestOpenAIGatewayService_ListSchedulableAccounts_FiltersThresholdBlockedAcc
 			{
 				ID:          4101,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Extra: map[string]any{
@@ -109,6 +112,7 @@ func TestOpenAIGatewayService_ListSchedulableAccounts_FiltersThresholdBlockedAcc
 			{
 				ID:          4102,
 				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: true,
 				Extra: map[string]any{
