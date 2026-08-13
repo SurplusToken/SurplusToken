@@ -102,7 +102,7 @@ export const FeatureFlags = {
   availableChannels: defineFlag({
     key: 'available_channels_enabled',
     mode: 'opt-in',
-    label: 'Model Square',
+    label: 'Available Channels',
   }),
   modelPlaza: defineFlag({
     key: 'model_plaza_enabled',
