@@ -29,7 +29,7 @@ func TestStrictPricingAcceptsCompleteChannelEntry(t *testing.T) {
 	}
 }
 
-func TestStrictResolverUsesLiteLLMWithoutFallback(t *testing.T) {
+func TestResolverUsesLiteLLMThenBuiltInFallback(t *testing.T) {
 	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"priced-model": {
 			InputCostPerToken:  1e-6,
@@ -44,14 +44,18 @@ func TestStrictResolverUsesLiteLLMWithoutFallback(t *testing.T) {
 		t.Fatalf("expected usable LiteLLM pricing, got source=%q", priced.Source)
 	}
 
-	unpriced := resolver.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4"})
-	if unpriced.Source != PricingSourceUnavailable || resolvedPricingUsable(unpriced) {
-		t.Fatalf("built-in pricing must not enter strict resolver, got source=%q", unpriced.Source)
+	fallback := resolver.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4"})
+	if !resolvedPricingUsable(fallback) {
+		t.Fatalf("expected usable built-in fallback pricing, got source=%q", fallback.Source)
 	}
 
+	unpriced := resolver.Resolve(context.Background(), PricingInput{Model: "totally-unknown-model"})
+	if unpriced.Source != PricingSourceUnavailable || resolvedPricingUsable(unpriced) {
+		t.Fatalf("unknown model must remain unavailable, got source=%q", unpriced.Source)
+	}
 	_, err := billing.CalculateCostUnified(CostInput{
 		Ctx:      context.Background(),
-		Model:    "claude-sonnet-4",
+		Model:    "totally-unknown-model",
 		Resolver: resolver,
 	})
 	if !errors.Is(err, ErrModelPricingUnavailable) {
