@@ -3,98 +3,83 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-// capacitySourceStub 返回预设的实测容量快照。
-type capacitySourceStub struct {
-	snapshot *CarpoolCapacitySnapshot
-	err      error
-	calls    int
-}
-
-func (s *capacitySourceStub) GroupObservedCapacity(ctx context.Context, groupID int64, windowStart time.Time) (*CarpoolCapacitySnapshot, error) {
-	s.calls++
-	return s.snapshot, s.err
-}
-
-func newCapacityTestService(counter CarpoolCommonsCounter, capacity CarpoolObservedCapacitySource) *SubscriptionService {
+func newCapacityTestService(counter CarpoolCommonsCounter) *SubscriptionService {
 	billingCacheSvc := &BillingCacheService{cfg: &config.Config{}}
 	billingCacheSvc.SetCarpoolCommonsCounter(counter)
-	billingCacheSvc.SetCarpoolObservedCapacitySource(capacity)
 	return NewSubscriptionService(groupRepoNoop{}, userSubRepoNoop{}, billingCacheSvc, nil, nil)
 }
 
-// 公共池容量为零时必须**拒绝**越过保底的用量，而不是跳过检查。
+// 公共池容量就是订阅上锁定的 C = 周限额 − 保底，边界两侧都要对。
 //
-// 早先的实现在 capacity <= 0 时直接放行——当时容量只可能因参数配错而为零。
-// 引入实测容量后它会随上游缩水动态跌到 Σr 以下，再跳过就等于"容量越紧、
-// 约束越松"，正好反了。
+// 这里不再有"实测反推"那一路：反推只在一辆车对应一个上游账号时成立，组里
+// 有第二个账号时分子是全部账号的用量、分母只是其中一个账号的百分比，用得越多
+// 推出的容量越大，限额等于自动放开。现在车的上限只由 weekly_limit_usd 决定。
+func TestCommonsCapacityComesFromSubscriptionOnly(t *testing.T) {
+	group := carpoolTestGroup(91)
+
+	t.Run("已用量低于容量时放行", func(t *testing.T) {
+		counter := &fakeCarpoolCommonsCounter{used: 479.99}
+		svc := newCapacityTestService(counter)
+		sub := newCarpoolTestSub(91, 192, 480, 250) // C = 480
+		_, err := svc.ValidateAndCheckLimits(context.Background(), sub, group)
+		require.NoError(t, err)
+	})
+
+	t.Run("已用量达到容量时拒绝", func(t *testing.T) {
+		counter := &fakeCarpoolCommonsCounter{used: 480}
+		svc := newCapacityTestService(counter)
+		sub := newCarpoolTestSub(91, 192, 480, 250)
+		_, err := svc.ValidateAndCheckLimits(context.Background(), sub, group)
+		require.ErrorIs(t, err, ErrCarpoolSharedPoolExhausted)
+	})
+}
+
+// 调小车周限额必须真的收紧公共池——这正是运营手上唯一的那个旋钮。
+//
+// 同一辆车、同样的保底、同样的已用量，只把周限额调小，原本放行的请求必须
+// 转为拒绝。若这条挂了，说明容量又从别处（上游读数）取值，旋钮就失灵了。
+func TestLoweringWeeklyLimitTightensCommons(t *testing.T) {
+	group := carpoolTestGroup(91)
+	const reserved, used = 1280.0, 300.0
+
+	// 宽：C = 1600 − 1280 = 320 > 已用 300
+	svc := newCapacityTestService(&fakeCarpoolCommonsCounter{used: used})
+	_, err := svc.ValidateAndCheckLimits(context.Background(),
+		newCarpoolTestSub(91, reserved, 320, reserved+10), group)
+	require.NoError(t, err, "C=320 > 已用 300，应放行")
+
+	// 紧：C = 1480 − 1280 = 200 < 已用 300
+	svc = newCapacityTestService(&fakeCarpoolCommonsCounter{used: used})
+	_, err = svc.ValidateAndCheckLimits(context.Background(),
+		newCarpoolTestSub(91, reserved, 200, reserved+10), group)
+	require.ErrorIs(t, err, ErrCarpoolSharedPoolExhausted, "C=200 < 已用 300，必须拒绝")
+}
+
+// 周限额被下调到 Σ保底 及以下时，公共池归零：越过保底的用量一律拒绝。
+// 必须是拒绝而不是跳过检查，否则"限额越紧、约束越松"，正好反了。
 func TestCommonsCheckRejectsWhenCapacityIsZero(t *testing.T) {
 	counter := &fakeCarpoolCommonsCounter{used: 0}
-	capacity := &capacitySourceStub{snapshot: &CarpoolCapacitySnapshot{
-		ObservedTotalUSD: 1500, ReservedTotalUSD: 1920, CommonsUSD: 0,
-		Trusted: true, Oversold: true,
-	}}
-	svc := newCapacityTestService(counter, capacity)
+	svc := newCapacityTestService(counter)
 
-	// 周用量已达保底 → 接下来要吃公共池，而公共池容量为零
-	sub := newCarpoolTestSub(91, 192, 480, 192)
+	sub := newCarpoolTestSub(91, 192, 0, 192) // 周限额 = 保底 → C = 0
 	_, err := svc.ValidateAndCheckLimits(context.Background(), sub, carpoolTestGroup(91))
 	require.ErrorIs(t, err, ErrCarpoolSharedPoolExhausted)
+	require.Zero(t, counter.getCalls, "容量为零就该直接拒绝，不必再读计数器")
 }
 
-// 保底之内仍然无条件放行——容量缩水不得侵蚀已经承诺出去的保底。
-func TestCommonsCheckStillHonoursReserveWhenOversold(t *testing.T) {
+// 保底之内仍然无条件放行——限额下调不得侵蚀已经承诺出去的保底。
+// 保底本身要跟着限额一起降（等比缩水），而不是靠这里的检查去削。
+func TestCommonsCheckStillHonoursReserveWhenCapacityIsZero(t *testing.T) {
 	counter := &fakeCarpoolCommonsCounter{used: 0}
-	capacity := &capacitySourceStub{snapshot: &CarpoolCapacitySnapshot{
-		ObservedTotalUSD: 1500, ReservedTotalUSD: 1920, CommonsUSD: 0,
-		Trusted: true, Oversold: true,
-	}}
-	svc := newCapacityTestService(counter, capacity)
+	svc := newCapacityTestService(counter)
 
-	sub := newCarpoolTestSub(91, 192, 480, 100) // 100 < 保底 192
+	sub := newCarpoolTestSub(91, 192, 0, 100) // 100 < 保底 192
 	_, err := svc.ValidateAndCheckLimits(context.Background(), sub, carpoolTestGroup(91))
 	require.NoError(t, err)
-	require.Zero(t, capacity.calls, "保底内根本不该去问容量")
-}
-
-// 实测容量比发车时锁定的更小时，按实测执行（公共池被压缩）。
-func TestCommonsCheckUsesObservedCapacityOverLaunchTime(t *testing.T) {
-	// 发车时锁定 C=480；实测只有 180，而计数器已用 200
-	counter := &fakeCarpoolCommonsCounter{used: 200}
-	capacity := &capacitySourceStub{snapshot: &CarpoolCapacitySnapshot{
-		ObservedTotalUSD: 2100, ReservedTotalUSD: 1920, CommonsUSD: 180, Trusted: true,
-	}}
-	svc := newCapacityTestService(counter, capacity)
-
-	sub := newCarpoolTestSub(91, 192, 480, 250)
-	_, err := svc.ValidateAndCheckLimits(context.Background(), sub, carpoolTestGroup(91))
-	require.ErrorIs(t, err, ErrCarpoolSharedPoolExhausted,
-		"按发车时的 480 会放行，按实测的 180 必须拒绝")
-}
-
-// 实测不可信时退回发车时锁定的容量，行为与引入实测前一致。
-func TestCommonsCheckFallsBackToLaunchCapacityWhenUntrusted(t *testing.T) {
-	counter := &fakeCarpoolCommonsCounter{used: 200}
-	capacity := &capacitySourceStub{snapshot: &CarpoolCapacitySnapshot{Trusted: false}}
-	svc := newCapacityTestService(counter, capacity)
-
-	sub := newCarpoolTestSub(91, 192, 480, 250)
-	_, err := svc.ValidateAndCheckLimits(context.Background(), sub, carpoolTestGroup(91))
-	require.NoError(t, err, "锁定容量 480 > 已用 200，应放行")
-}
-
-// 实测查询失败同样退回锁定容量，不阻断请求。
-func TestCommonsCheckFallsBackWhenCapacityLookupFails(t *testing.T) {
-	counter := &fakeCarpoolCommonsCounter{used: 200}
-	capacity := &capacitySourceStub{err: context.DeadlineExceeded}
-	svc := newCapacityTestService(counter, capacity)
-
-	sub := newCarpoolTestSub(91, 192, 480, 250)
-	_, err := svc.ValidateAndCheckLimits(context.Background(), sub, carpoolTestGroup(91))
-	require.NoError(t, err)
+	require.Zero(t, counter.getCalls, "保底内根本不该去读计数器")
 }
