@@ -36,10 +36,6 @@ func TestWireGenWiresCarpoolDependencies(t *testing.T) {
 			"subscriptionService.SetCarpoolBillingCycleRecorder(",
 			"已关闭周期不落台账，月底结算会丢掉按周期的 80% 地板",
 		},
-		{
-			"billingCacheService.SetCarpoolObservedCapacitySource(",
-			"公共池容量退回静态值，不再跟随实测容量",
-		},
 	} {
 		require.Containsf(t, code, want.snippet,
 			"wire_gen.go 里缺少 %q —— %s", want.snippet, want.why)

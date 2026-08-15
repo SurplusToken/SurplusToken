@@ -81,9 +81,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	subscriptionService.SetCarpoolUpstreamWindowSource(carpoolUpstreamWindows)
 	carpoolBillingCycles := repository.NewCarpoolBillingCycleRepository(db)
 	subscriptionService.SetCarpoolBillingCycleRecorder(carpoolBillingCycles)
-	if capacitySource, ok := carpoolUpstreamWindows.(service.CarpoolObservedCapacitySource); ok {
-		billingCacheService.SetCarpoolObservedCapacitySource(capacitySource)
-	}
 	affiliateRepository := repository.NewAffiliateRepository(client, db)
 	affiliateService := service.NewAffiliateService(affiliateRepository, settingService, apiKeyAuthCacheInvalidator, billingCacheService)
 	authService := service.NewAuthService(client, userRepository, redeemCodeRepository, refreshTokenCache, configConfig, settingService, emailService, turnstileService, emailQueueService, promoService, subscriptionService, affiliateService, serviceUserPlatformQuotaRepository)

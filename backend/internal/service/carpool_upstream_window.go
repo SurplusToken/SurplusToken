@@ -50,9 +50,6 @@ type CarpoolUpstreamWindow struct {
 	// ObservedAt 是这份数据最后一次从上游响应头刷新的时刻（codex_usage_updated_at），
 	// 用于判断是否已经陈旧。
 	ObservedAt time.Time
-	// UsedPercent 是上游报告的本窗口已用百分比（0–100）。
-	// 与全车美元用量一起可反推整车真实容量，见 CarpoolObservedTotalCapacityUSD。
-	UsedPercent float64
 }
 
 // Fresh 报告快照是否新到可以用来重锚全车窗口。
