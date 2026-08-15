@@ -89,6 +89,17 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	}
 }
 
+func TestOpenAIFirstOutputHeaderGuardPropagatesParentCancel(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	guarded, guard := newOpenAIFirstOutputHeaderGuard(parent, time.Now().Add(time.Hour))
+	defer guard.close()
+
+	cancelParent()
+	require.Eventually(t, func() bool {
+		return errors.Is(guarded.Err(), context.Canceled)
+	}, 500*time.Millisecond, 10*time.Millisecond)
+}
+
 func TestOpenAINativeFirstOutputTimeoutDisabledPreservesSynchronousStream(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
