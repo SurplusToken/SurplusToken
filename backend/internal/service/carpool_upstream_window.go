@@ -50,9 +50,6 @@ type CarpoolUpstreamWindow struct {
 	// ObservedAt 是这份数据最后一次从上游响应头刷新的时刻（codex_usage_updated_at），
 	// 用于判断是否已经陈旧。
 	ObservedAt time.Time
-	// UsedPercent 是上游报告的本窗口已用百分比（0–100）。
-	// 与全车美元用量一起可反推整车真实容量，见 CarpoolObservedTotalCapacityUSD。
-	UsedPercent float64
 }
 
 // usablePeriod 验证快照是否足以确定上游周期边界。
@@ -75,8 +72,8 @@ func (w *CarpoolUpstreamWindow) usablePeriod(now time.Time) (time.Duration, bool
 	return length, true
 }
 
-// Fresh 报告快照是否仍描述当前尚未结束的窗口。已越过 End 的快照可以用其
-// 周期边界推导新窗口起点，但旧窗口的 UsedPercent 不能再用于新窗口容量估算。
+// Fresh 报告快照是否仍描述当前尚未结束的窗口。已越过 End 的快照仍可用其
+// 周期边界推导新窗口起点（见 CurrentStartAt）。
 func (w *CarpoolUpstreamWindow) Fresh(now time.Time) bool {
 	_, ok := w.usablePeriod(now)
 	return ok && w.End.After(now)

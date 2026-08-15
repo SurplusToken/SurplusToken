@@ -42,7 +42,6 @@ func TestCarpoolWiringSettersExistOnService(t *testing.T) {
 		`func ProvideSubscriptionService(`,
 		`svc.SetCarpoolUpstreamWindowSource(carpoolUpstreamWindows)`,
 		`svc.SetCarpoolBillingCycleRecorder(carpoolBillingCycles)`,
-		`svc.SetCarpoolObservedCapacitySource(capacitySource)`,
 	} {
 		require.Containsf(t, code, snippet, "service/wire.go 里找不到 %q", snippet)
 	}

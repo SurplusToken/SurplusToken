@@ -223,11 +223,9 @@ func (s *SubscriptionService) ListCarpoolUsageSnapshots(ctx context.Context, use
 			weeklyLimitUSD := viewer.viewerWeeklyLimitUSD.Float64
 			sub.WeeklyLimitUSD = &weeklyLimitUSD
 		}
-		capacityUSD := sub.CarpoolSharedPoolCapacityUSD()
-		if s.billingCacheService != nil {
-			capacityUSD = s.billingCacheService.carpoolCommonsCapacity(ctx, sub)
-		}
-		snapshot.SharedPool.CapacityUSD = math.Max(0, capacityUSD)
+		// 与执行侧同源：公共池容量 = 车周限额 − Σ保底（见 checkCarpoolCommonsEligibility）。
+		// 展示值和拦截值必须出自同一处，否则界面显示还有余量、请求却已经被拒。
+		snapshot.SharedPool.CapacityUSD = math.Max(0, sub.CarpoolSharedPoolCapacityUSD())
 		snapshot.SharedPool.RemainingUSD = math.Max(0, snapshot.SharedPool.CapacityUSD-snapshot.SharedPool.UsageUSD)
 		snapshot.TotalCapacityUSD = reservedTotals[snapshot.SubscriptionID] + snapshot.SharedPool.CapacityUSD
 	}
