@@ -202,6 +202,23 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 	return s
 }
 
+// deepSeekV4PrePeakCNYPrices 是 DeepSeek V4 峰谷调价前的官方 CNY 价格。
+// 部署口径为 CNY 1 = USD 1，计费 fallback 与模型广场官方参考价共用这一份。
+var deepSeekV4PrePeakCNYPrices = map[string]ModelPricing{
+	"deepseek-v4-pro": {
+		InputPricePerToken:     3e-6,   // ¥3.00/MTok (cache miss) -> $3.00/MTok
+		OutputPricePerToken:    6e-6,   // ¥6.00/MTok -> $6.00/MTok
+		CacheReadPricePerToken: 2.5e-8, // ¥0.025/MTok (cache hit) -> $0.025/MTok
+		SupportsCacheBreakdown: false,
+	},
+	"deepseek-v4-flash": {
+		InputPricePerToken:     1e-6, // ¥1.00/MTok (cache miss) -> $1.00/MTok
+		OutputPricePerToken:    2e-6, // ¥2.00/MTok -> $2.00/MTok
+		CacheReadPricePerToken: 2e-8, // ¥0.02/MTok (cache hit) -> $0.02/MTok
+		SupportsCacheBreakdown: false,
+	},
+}
+
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
@@ -395,17 +412,9 @@ func (s *BillingService) initFallbackPricing() {
 	// 采用 2026-08-17 峰谷调价前的官方 CNY 价格，按本部署 CNY 1 = USD 1 记录。
 	// 峰谷新价生效后需单独支持按时段计价，在此之前不要跟随官方调价。
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
-	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     3e-6,   // ¥3.00/MTok (cache miss) -> $3.00/MTok
-		OutputPricePerToken:    6e-6,   // ¥6.00/MTok -> $6.00/MTok
-		CacheReadPricePerToken: 2.5e-8, // ¥0.025/MTok (cache hit) -> $0.025/MTok
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1e-6, // ¥1.00/MTok (cache miss) -> $1.00/MTok
-		OutputPricePerToken:    2e-6, // ¥2.00/MTok -> $2.00/MTok
-		CacheReadPricePerToken: 2e-8, // ¥0.02/MTok (cache hit) -> $0.02/MTok
-		SupportsCacheBreakdown: false,
+	for model, pricing := range deepSeekV4PrePeakCNYPrices {
+		pricing := pricing
+		s.fallbackPrices[model] = &pricing
 	}
 
 	// ---- 智谱 GLM（中国大陆开放平台）----

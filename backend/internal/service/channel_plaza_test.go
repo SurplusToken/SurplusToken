@@ -235,6 +235,49 @@ func TestListPlazaGroups_OfficialPricingFill(t *testing.T) {
 	require.Nil(t, byName["token-absent"].OfficialPricing)
 }
 
+func TestListPlazaGroups_DeepSeekOfficialPricingUsesCNYReference(t *testing.T) {
+	// LiteLLM 数据源里 DeepSeek V4 仍是 USD 价，广场官方参考价必须改用
+	// 部署口径 CNY 1 = USD 1 的峰谷调价前 CNY 价格，和计费 fallback 一致。
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"deepseek-v4-flash": {
+			Mode:                    "chat",
+			InputCostPerToken:       1.4e-7,
+			OutputCostPerToken:      2.8e-7,
+			CacheReadInputTokenCost: 2.8e-9,
+		},
+		"deepseek-v4-pro": {
+			Mode:                    "chat",
+			InputCostPerToken:       4.35e-7,
+			OutputCostPerToken:      8.7e-7,
+			CacheReadInputTokenCost: 3.625e-9,
+		},
+	})
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, "openai", "deepseek-v4-flash", "deepseek-v4-pro"),
+	}
+	groups := []Group{{ID: 10, Name: "deepseek", Platform: "openai", RateMultiplier: 1}}
+	svc := newPlazaChannelService(channels, groups, pricingSvc)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+
+	byName := map[string]PlazaModel{}
+	for _, m := range out[0].Models {
+		byName[m.Name] = m
+	}
+	flash := byName["deepseek-v4-flash"].OfficialPricing
+	require.NotNil(t, flash)
+	require.InDelta(t, 1e-6, *flash.InputPrice, 1e-12)
+	require.InDelta(t, 2e-6, *flash.OutputPrice, 1e-12)
+	require.InDelta(t, 2e-8, *flash.CacheReadPrice, 1e-12)
+
+	pro := byName["deepseek-v4-pro"].OfficialPricing
+	require.NotNil(t, pro)
+	require.InDelta(t, 3e-6, *pro.InputPrice, 1e-12)
+	require.InDelta(t, 6e-6, *pro.OutputPrice, 1e-12)
+	require.InDelta(t, 2.5e-8, *pro.CacheReadPrice, 1e-12)
+}
+
 func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
 	// 图片计费模型:档位价按实收口径合成(分组图片价 > 渠道档位价 > 渠道默认按次价),
 	// 分组独立倍率字段透传;未配图片价的分组保持渠道定价原样。

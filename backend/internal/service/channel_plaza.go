@@ -231,11 +231,17 @@ func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPri
 // lookupOfficialPricing 查询模型的 LiteLLM 官方参考价，带 memo 避免同名模型重复转换。
 // pricingService 为 nil（测试场景）或查不到时返回 nil。
 func (s *ChannelService) lookupOfficialPricing(modelName string, memo map[string]*PlazaOfficialPricing) *PlazaOfficialPricing {
-	if s.pricingService == nil {
-		return nil
-	}
 	if cached, ok := memo[modelName]; ok {
 		return cached
+	}
+	// DeepSeek V4 走部署口径 CNY 1 = USD 1 的官方参考价，不受 LiteLLM USD
+	// 价格源影响；否则官方参考价列会与计费 fallback/渠道实付价互相矛盾。
+	if local := plazaDeepSeekOfficialPricing(modelName); local != nil {
+		memo[modelName] = local
+		return local
+	}
+	if s.pricingService == nil {
+		return nil
 	}
 	var result *PlazaOfficialPricing
 	if lp := s.pricingService.GetModelPricing(modelName); lp != nil && !lp.TokenPricingAbsent {
@@ -253,4 +259,18 @@ func (s *ChannelService) lookupOfficialPricing(modelName string, memo map[string
 	}
 	memo[modelName] = result
 	return result
+}
+
+// plazaDeepSeekOfficialPricing 返回 DeepSeek V4 峰谷调价前的官方 CNY 参考价，
+// 数值按部署口径 CNY 1 = USD 1 记录。未命中返回 nil。
+func plazaDeepSeekOfficialPricing(modelName string) *PlazaOfficialPricing {
+	pricing, ok := deepSeekV4PrePeakCNYPrices[strings.ToLower(strings.TrimSpace(modelName))]
+	if !ok {
+		return nil
+	}
+	return &PlazaOfficialPricing{
+		InputPrice:     nonZeroPtr(pricing.InputPricePerToken),
+		OutputPrice:    nonZeroPtr(pricing.OutputPricePerToken),
+		CacheReadPrice: nonZeroPtr(pricing.CacheReadPricePerToken),
+	}
 }
