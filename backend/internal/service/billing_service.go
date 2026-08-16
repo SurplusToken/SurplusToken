@@ -385,24 +385,26 @@ func (s *BillingService) initFallbackPricing() {
 	}
 
 	// ============================================================
-	// 国产 LLM 兜底定价（数据源：各家官方定价页/USD 口径）
+	// 国产 LLM 兜底定价（部署口径：国内官方 CNY 数值按 USD 1:1 记录）
 	// 顺序：DeepSeek → 智谱 GLM → 月之暗面 Kimi → MiniMax
 	// 覆盖逻辑见同文件 getFallbackPricing()
 	// ============================================================
 
 	// ---- DeepSeek V4 系列 ----
-	// Source: https://api-docs.deepseek.com/quick_start/pricing
+	// Source: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
+	// 采用 2026-08-17 峰谷调价前的官方 CNY 价格，按本部署 CNY 1 = USD 1 记录。
+	// 峰谷新价生效后需单独支持按时段计价，在此之前不要跟随官方调价。
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
 	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.35e-7,  // $0.435 per MTok (cache miss)
-		OutputPricePerToken:    8.7e-7,   // $0.87 per MTok
-		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
+		InputPricePerToken:     3e-6,   // ¥3.00/MTok (cache miss) -> $3.00/MTok
+		OutputPricePerToken:    6e-6,   // ¥6.00/MTok -> $6.00/MTok
+		CacheReadPricePerToken: 2.5e-8, // ¥0.025/MTok (cache hit) -> $0.025/MTok
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
-		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
-		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
+		InputPricePerToken:     1e-6, // ¥1.00/MTok (cache miss) -> $1.00/MTok
+		OutputPricePerToken:    2e-6, // ¥2.00/MTok -> $2.00/MTok
+		CacheReadPricePerToken: 2e-8, // ¥0.02/MTok (cache hit) -> $0.02/MTok
 		SupportsCacheBreakdown: false,
 	}
 
@@ -980,16 +982,10 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
 
-	// Kimi's public rate card is denominated in CNY, while this deployment
-	// intentionally records the same numeric values as USD. Keep those local
-	// rates ahead of LiteLLM's market-USD feed so a pricing refresh cannot
-	// silently reintroduce currency conversion.
-	if isCurrentKimiOfficialModel(model) {
-		if pricing := s.getFallbackPricing(model); pricing != nil {
-			return pricing, nil
-		}
-	}
-	if isCurrentZhipuOfficialModel(model) {
+	// Kimi / 智谱 / DeepSeek 的公开价目表以 CNY 计价，而本部署刻意把相同
+	// 数值记录为 USD（CNY 1 = USD 1）。将这些本地价格放在 LiteLLM 的
+	// market-USD 数据源之前，避免价格刷新悄悄恢复汇率换算。
+	if isCurrentKimiOfficialModel(model) || isCurrentZhipuOfficialModel(model) || isCurrentDeepSeekOfficialModel(model) {
 		if pricing := s.getFallbackPricing(model); pricing != nil {
 			return pricing, nil
 		}
@@ -1066,6 +1062,14 @@ func isCurrentZhipuOfficialModel(model string) bool {
 		strings.Contains(model, "glm-5") ||
 		strings.Contains(model, "glm-4.7") ||
 		strings.Contains(model, "glm-4.5-air") || strings.Contains(model, "glm-4.5air")
+}
+
+func isCurrentDeepSeekOfficialModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "deepseek-v4-flash") ||
+		strings.Contains(model, "deepseek-v4-pro") ||
+		strings.Contains(model, "deepseek-chat") ||
+		strings.Contains(model, "deepseek-reasoner")
 }
 
 // GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值

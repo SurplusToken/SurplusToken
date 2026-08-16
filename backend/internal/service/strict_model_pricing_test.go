@@ -29,6 +29,37 @@ func TestStrictPricingAcceptsCompleteChannelEntry(t *testing.T) {
 	}
 }
 
+func TestGetModelPricing_DeepSeekCNYPricePrecedesLiteLLM(t *testing.T) {
+	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"deepseek-v4-pro":   {InputCostPerToken: 4.35e-7, OutputCostPerToken: 8.7e-7, CacheReadInputTokenCost: 3.625e-9},
+		"deepseek-v4-flash": {InputCostPerToken: 1.4e-7, OutputCostPerToken: 2.8e-7, CacheReadInputTokenCost: 2.8e-9},
+		"deepseek-chat":     {InputCostPerToken: 2.8e-7, OutputCostPerToken: 4.2e-7, CacheReadInputTokenCost: 2.8e-8},
+	}}
+	billing := NewBillingService(nil, pricingService)
+
+	tests := []struct {
+		model       string
+		wantInput   float64
+		wantOutput  float64
+		wantCacheIn float64
+	}{
+		{"deepseek-v4-pro", 3e-6, 6e-6, 2.5e-8},
+		{"deepseek-v4-flash", 1e-6, 2e-6, 2e-8},
+		{"deepseek-chat", 1e-6, 2e-6, 2e-8},
+	}
+	for _, tt := range tests {
+		pricing, err := billing.GetModelPricing(tt.model)
+		if err != nil {
+			t.Fatalf("GetModelPricing(%s): %v", tt.model, err)
+		}
+		if pricing.InputPricePerToken != tt.wantInput || pricing.OutputPricePerToken != tt.wantOutput || pricing.CacheReadPricePerToken != tt.wantCacheIn {
+			t.Fatalf("GetModelPricing(%s) = input %v output %v cache %v, want %v/%v/%v",
+				tt.model, pricing.InputPricePerToken, pricing.OutputPricePerToken, pricing.CacheReadPricePerToken,
+				tt.wantInput, tt.wantOutput, tt.wantCacheIn)
+		}
+	}
+}
+
 func TestResolverUsesLiteLLMThenBuiltInFallback(t *testing.T) {
 	pricingService := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"priced-model": {
