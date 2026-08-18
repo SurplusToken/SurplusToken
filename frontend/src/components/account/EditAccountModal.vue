@@ -3424,10 +3424,6 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
-  if (props.account?.platform === 'kimi') {
-    return props.account.type === 'oauth' ? 'https://api.kimi.com/coding/v1' : 'https://api.moonshot.cn/v1'
-  }
-  if (props.account?.platform === 'zhipu') return 'https://open.bigmodel.cn/api/coding/paas/v4'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
@@ -3811,10 +3807,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
-        : newAccount.platform === 'kimi'
-          ? 'https://api.moonshot.cn/v1'
-        : newAccount.platform === 'zhipu'
-          ? 'https://open.bigmodel.cn/api/coding/paas/v4'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'

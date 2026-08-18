@@ -4724,7 +4724,6 @@ watch(
       openAICompatibleProvider.value = 'openai'
     }
     const openAIPreset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[openAICompatibleProvider.value]
-    const openAIBaseUrl = getOpenAIProviderBaseUrl(openAICompatibleProvider.value)
     const openAIModelCatalog = getOpenAIProviderModelCatalog(openAICompatibleProvider.value)
     // Reset base URL based on platform
     if (newPlatform === 'kimi' || newPlatform === 'zhipu' || newPlatform === 'deepseek') {
