@@ -44,10 +44,18 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsZhipuCoding() {
 		return s.forwardNativeAnthropicCompatible(ctx, c, account, body, defaultMappedModel)
 	}
-	// 入口分流：Kimi 账号或上游不支持 Responses API 的 APIKey 账号走 CC
-	// 直转（与 ForwardAsChatCompletions 对称）。否则 /v1/messages 会被转为
-	// Responses 格式发往上游 /v1/responses。
-	if account.IsKimi() || account.IsZhipu() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
+	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
+	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
+	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
+	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
+	if account.IsAnthropicProtocol() {
+		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+	}
+
+	// 入口分流：国产 OpenAI 兼容账号或上游不支持 Responses API 的 APIKey 账号
+	// 走 CC 直转（与 ForwardAsChatCompletions 对称）。
+	if account.IsKimi() || account.IsZhipu() || account.IsDeepseek() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
