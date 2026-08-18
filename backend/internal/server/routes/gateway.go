@@ -187,7 +187,7 @@ func RegisterGatewayRoutes(
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
-			if isOpenAIMessagesBridgePlatform(c) {
+			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				h.OpenAIGateway.Messages(c)
 				return
 			}

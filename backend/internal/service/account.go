@@ -654,21 +654,22 @@ func (a *Account) OpenAICompatibleProvider() string {
 }
 
 // IsKimi / IsZhipu / IsDeepseek 标识国产 OpenAI 兼容供应商账号。
+// 兼容历史 platform=openai + extra.openai_compatible_provider 的存量账号。
 func (a *Account) IsKimi() bool {
-	return a.Platform == PlatformKimi
+	return a != nil && (a.Platform == PlatformKimi || a.OpenAICompatibleProvider() == "kimi")
 }
 
 func (a *Account) IsZhipu() bool {
-	return a.Platform == PlatformZhipu
+	return a != nil && (a.Platform == PlatformZhipu || a.OpenAICompatibleProvider() == "zhipu")
 }
 
 func (a *Account) IsDeepseek() bool {
-	return a.Platform == PlatformDeepseek
+	return a != nil && (a.Platform == PlatformDeepseek || a.OpenAICompatibleProvider() == "deepseek")
 }
 
 // IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）。
 func (a *Account) IsCNProvider() bool {
-	return a != nil && IsCNProvider(a.Platform)
+	return a != nil && (IsCNProvider(a.Platform) || a.IsKimi() || a.IsZhipu() || a.IsDeepseek())
 }
 
 // IsZhipuCoding reports whether this account uses GLM Coding Plan's dedicated
@@ -1757,18 +1758,19 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return KimiCodeBaseURL
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
-	switch a.Platform {
-	case PlatformKimi:
+	// 历史 platform=openai + openai_compatible_provider 的账号同样按供应商分支处理。
+	switch {
+	case a.IsKimi():
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultKimiCodingBaseURL
 		}
 		return DefaultKimiPayGBaseURL
-	case PlatformZhipu:
+	case a.IsZhipu():
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultZhipuCodingBaseURL
 		}
 		return DefaultZhipuPayGBaseURL
-	case PlatformDeepseek:
+	case a.IsDeepseek():
 		return DefaultDeepseekBaseURL
 	default:
 		return "https://api.openai.com"

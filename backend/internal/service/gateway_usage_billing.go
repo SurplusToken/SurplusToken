@@ -1242,7 +1242,7 @@ func (s *GatewayService) calculateTokenCost(
 		if resolved.Source == PricingSourceChannel {
 			cost, err = s.billingService.CalculateCostUnified(CostInput{
 				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group, AccountID: &accountID,
-				Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+				Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
 				Resolver: s.resolver, Resolved: resolved,
 			})
 			if err == nil {

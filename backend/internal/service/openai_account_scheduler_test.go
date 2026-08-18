@@ -1743,7 +1743,7 @@ func TestOpenAIGatewayService_KimiQuotaAutoPauseAndPerWindowDisable(t *testing.T
 	secondary := Account{ID: 35812, Platform: PlatformKimi, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
-	account, err := svc.selectAccountForModelWithExclusions(ctx, nil, PlatformKimi, "", "k3", nil, false, 0, OpenAIEndpointCapabilityChatCompletions)
+	account, err := svc.selectAccountForModelWithExclusions(ctx, nil, PlatformKimi, "", "k3", nil, false, 0, OpenAIEndpointCapabilityChatCompletions, false)
 
 	require.NoError(t, err)
 	require.NotNil(t, account)

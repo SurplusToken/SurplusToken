@@ -1387,14 +1387,18 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
-	if len(accounts) == 0 {
-		if sharingFilterActive {
-			// Preserve non-nil emptiness for the HTTP layer. nil still means the
-			// ordinary "no model mapping, use platform defaults" fallback.
-			return []string{}
+	// 仅在共享池/市场倍率过滤真正启用时做 per-consumer 账号裁剪；
+	// 普通 /v1/models 口径与上游一致，不额外要求 SurplusAI 贡献账号类型。
+	if sharingFilterActive || DynamicSharingPoolEnabledFromContext(ctx) {
+		accounts = filterSurplusAISchedulableAccounts(ctx, accounts)
+		if len(accounts) == 0 {
+			if sharingFilterActive {
+				// Preserve non-nil emptiness for the HTTP layer. nil still means the
+				// ordinary "no model mapping, use platform defaults" fallback.
+				return []string{}
+			}
+			return nil
 		}
-		return nil
 	}
 
 	// Collect unique models from all accounts

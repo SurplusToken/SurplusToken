@@ -60,8 +60,9 @@ func TestGroupResolveMessagesDispatchModel_KimiUsesNativeCodeModel(t *testing.T)
 		},
 	}
 
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	// v0.1.178 起 CN 分组不再应用调度级模型映射，模型改写交给账号级 mapping。
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("kimi-for-coding"))
 }
