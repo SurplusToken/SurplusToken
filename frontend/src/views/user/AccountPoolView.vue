@@ -745,26 +745,12 @@
           />
         </div>
 
-        <div>
-          <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-          <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
-            <button
-              type="button"
-              @click="selectCreatePlatform('kimi')"
-              :class="platformButtonClass('kimi', 'amber')"
-            >
-              <Icon name="globe" size="sm" />
-              Kimi
-            </button>
-          </div>
-        </div>
 
         <div>
           <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
-              v-if="createForm.platform !== 'kimi'"
-              type="button"
+                            type="button"
               class="flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all"
               :class="createForm.accountType === 'oauth' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
               @click="selectCreateAccountType('oauth')"
@@ -777,45 +763,6 @@
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauthSetupToken') }}</span>
               </div>
             </button>
-            <button
-              v-if="createForm.platform === 'kimi'"
-              type="button"
-              class="flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all"
-              :class="createForm.accountType === 'apikey' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 hover:border-amber-300 dark:border-dark-600'"
-              @click="selectCreateAccountType('apikey')"
-            >
-              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500 text-white">
-                <Icon name="key" size="sm" />
-              </div>
-              <div>
-                <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('accountPool.kimi.apiKeyDescription') }}</span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="createForm.platform === 'kimi' && createForm.accountType === 'apikey'" class="space-y-4 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
-          <label class="block">
-            <span class="input-label">Kimi API Key</span>
-            <input v-model.trim="createForm.apiKey" type="password" required autocomplete="off" class="input font-mono" placeholder="sk-..." />
-          </label>
-          <div>
-            <label class="input-label">{{ t('accountPool.kimi.protocol') }}</label>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <button
-                v-for="option in kimiAPIProtocolOptions"
-                :key="option.value"
-                type="button"
-                class="rounded-md border-2 px-3 py-2.5 text-left transition-colors"
-                :class="createForm.kimiAPIProtocol === option.value ? 'border-amber-500 bg-white dark:bg-dark-800' : 'border-gray-200 dark:border-dark-600'"
-                @click="createForm.kimiAPIProtocol = option.value"
-              >
-                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</span>
-                <span class="mt-0.5 block break-all font-mono text-[11px] text-gray-500 dark:text-dark-300">{{ option.baseUrl }}</span>
-              </button>
-            </div>
-            <p class="input-hint">{{ t('accountPool.kimi.fixedEndpointHint') }}</p>
           </div>
         </div>
 
@@ -1724,7 +1671,6 @@ import UserAccountActionMenu from '@/components/user/UserAccountActionMenu.vue'
 import accountsAPI, {
   type ContributionProbeFailurePolicy,
   type ContributionShareMode,
-  type KimiAPIProtocol,
   type UserDynamicPoolSummary,
   type UserOAuthAuthUrlRequest,
   type UserOAuthTokenInfo,
@@ -1807,7 +1753,7 @@ const sharingRateCooldownMinutes = computed(() => {
 const sharingRateClock = ref(Date.now())
 let sharingRateClockTimer: number | null = null
 
-const platforms: AccountPlatform[] = ['anthropic', 'openai', 'kimi']
+const platforms: AccountPlatform[] = ['anthropic', 'openai']
 const accounts = ref<UserAccountPoolItem[]>([])
 const dynamicPools = ref<UserDynamicPoolSummary[]>([])
 const dynamicPoolsLoading = ref(false)
@@ -2139,12 +2085,8 @@ async function disconnectRemoteSession(account: UserAccountPoolItem) {
 
 const createForm = reactive({
   name: '',
-  // OpenAI OAuth contribution creation is temporarily closed. Existing OpenAI
-  // accounts and their re-authorization flow remain available.
-  platform: 'kimi' as AccountPlatform,
+  platform: 'openai' as AccountPlatform,
   accountType: 'oauth' as 'oauth' | 'apikey',
-  apiKey: '',
-  kimiAPIProtocol: 'openai' as KimiAPIProtocol,
   oauthType: 'code_assist' as 'code_assist' | 'google_one' | 'ai_studio',
   projectId: '',
   tierId: '',
@@ -2218,10 +2160,6 @@ const geminiOAuthOptions = [
   { value: 'ai_studio' as const, label: 'AI Studio' },
 ]
 
-const kimiAPIProtocolOptions = [
-  { value: 'openai' as const, label: 'OpenAI Chat Completions', baseUrl: 'https://api.moonshot.cn/v1' },
-  { value: 'anthropic' as const, label: 'Anthropic Messages', baseUrl: 'https://api.moonshot.cn/anthropic' },
-]
 
 const probeFailurePolicyOptions = computed(() => [
   { value: 'continue', label: t('accountPool.policy.probeFailureContinue') },
@@ -2668,7 +2606,6 @@ function baseOpenAIAccountName(tokenInfo?: UserOAuthTokenInfo): string {
 function handleCreateClose() {
   showCreateForm.value = false
   createStep.value = 1
-  createForm.apiKey = ''
   resetOAuthSession()
   oauthFlowRef.value?.reset()
 }
@@ -2677,10 +2614,6 @@ async function handleCreateFirstStep() {
   createForm.groupIds = createForm.groupIds.filter((groupID) =>
     availableGroupsForPlatform.value.some((group) => group.id === groupID)
   )
-  if (createForm.platform === 'kimi' && createForm.accountType === 'apikey') {
-    await handleCreateKimiAPIKey()
-    return
-  }
   goToOAuthStep()
 }
 
@@ -2699,18 +2632,6 @@ function goBackToBasicInfo() {
   oauthFlowRef.value?.reset()
 }
 
-function selectCreatePlatform(platform: 'openai' | 'kimi' | 'gemini' | 'antigravity') {
-  createForm.platform = platform
-  // Kimi 走上游 API Key 模式（无设备授权 OAuth）。
-  createForm.accountType = platform === 'kimi' ? 'apikey' : 'oauth'
-  createForm.groupIds = []
-  resetModelWhitelist()
-  if (platform !== 'openai') {
-    createForm.codexCLIOnly = false
-  }
-  resetOAuthSession()
-  oauthFlowRef.value?.reset()
-}
 
 function selectCreateAccountType(accountType: 'oauth' | 'apikey') {
   createForm.accountType = accountType
@@ -2724,62 +2645,6 @@ function selectGeminiOAuthType(oauthType: 'code_assist' | 'google_one' | 'ai_stu
   oauthFlowRef.value?.reset()
 }
 
-function platformButtonClass(platform: 'openai' | 'kimi' | 'gemini' | 'antigravity', color: 'green' | 'amber' | 'blue' | 'purple') {
-  const active = createForm.platform === platform
-  const activeClass = {
-    green: 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400',
-    amber: 'bg-white text-amber-600 shadow-sm dark:bg-dark-600 dark:text-amber-400',
-    blue: 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400',
-    purple: 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400',
-  }[color]
-  return [
-    'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-    active ? activeClass : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
-  ]
-}
-
-function buildKimiContributionOptions() {
-  return {
-    name: createForm.name.trim(),
-    model_mapping: buildUserModelWhitelist(allowedModels.value),
-    proxy_id: createForm.proxyId,
-    concurrency: normalizeConcurrency(createForm.concurrency),
-    schedulable: createForm.schedulable,
-    group_ids: createForm.groupIds,
-    expires_at: createForm.expiresAt,
-    auto_pause_on_expired: createForm.autoPauseOnExpired,
-    ...buildContributionPayload(createForm),
-    contribution_probe_failure_policy: createForm.probeFailurePolicy,
-  }
-}
-
-async function finishKimiCreation() {
-  appStore.showSuccess(t('accountPool.createSuccess'))
-  resetCreateForm()
-  handleCreateClose()
-  reloadFirstPage()
-  await loadDynamicPools()
-}
-
-async function handleCreateKimiAPIKey() {
-  if (!createForm.apiKey.trim()) {
-    appStore.showError(t('accountPool.kimi.apiKeyRequired'))
-    return
-  }
-  creating.value = true
-  try {
-    await accountsAPI.createKimiAPIKey({
-      ...buildKimiContributionOptions(),
-      api_key: createForm.apiKey.trim(),
-      protocol: createForm.kimiAPIProtocol,
-    })
-    await finishKimiCreation()
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
-  } finally {
-    creating.value = false
-  }
-}
 
 function toggleClass(active: boolean) {
   return [
@@ -3348,11 +3213,8 @@ async function handleImportCodexSession(content: string) {
 
 function resetCreateForm() {
   createForm.name = ''
-  createForm.platform = 'kimi'
-  // Kimi 走上游 API Key 模式（无设备授权 OAuth）。
-  createForm.accountType = 'apikey'
-  createForm.apiKey = ''
-  createForm.kimiAPIProtocol = 'openai'
+  createForm.platform = 'openai'
+  createForm.accountType = 'oauth'
   createForm.oauthType = 'code_assist'
   createForm.projectId = ''
   createForm.tierId = ''

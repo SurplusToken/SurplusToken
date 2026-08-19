@@ -312,63 +312,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_BearerAuthScheme(t *testing.T
 }
 
 
-func TestGatewayService_KimiOpenPlatformBuildsNativeAnthropicRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	svc := &GatewayService{cfg: &config.Config{Security: config.SecurityConfig{
-		URLAllowlist: config.URLAllowlistConfig{Enabled: false},
-	}}}
-	account := &Account{
-		Platform: PlatformKimi,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "kimi-platform-key",
-			"base_url": KimiAPIAnthropicBaseURL,
-		},
-	}
-
-	req, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(
-		context.Background(), c, account, []byte(`{"model":"kimi-k3","messages":[]}`), "kimi-platform-key",
-	)
-	require.NoError(t, err)
-	require.Equal(t, "https://api.moonshot.cn/anthropic/v1/messages", req.URL.String())
-	require.JSONEq(t, `{"model":"kimi-k3","messages":[]}`, string(wireBody))
-	require.Equal(t, "kimi-platform-key", getHeaderRaw(req.Header, "x-api-key"))
-	require.Empty(t, getHeaderRaw(req.Header, "authorization"))
-}
-
-func TestGatewayService_ZhipuCodingBuildsNativeAnthropicRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	c.Request.Header.Set("X-Api-Key", "inbound-key")
-
-	svc := &GatewayService{cfg: &config.Config{Security: config.SecurityConfig{
-		URLAllowlist: config.URLAllowlistConfig{Enabled: false},
-	}}}
-	account := &Account{
-		Platform: PlatformZhipu,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "glm-coding-key",
-			"base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
-		},
-	}
-
-	req, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(
-		context.Background(), c, account, []byte(`{"model":"glm-5.2","messages":[]}`), "glm-coding-key",
-	)
-	require.NoError(t, err)
-	require.Equal(t, "https://open.bigmodel.cn/api/anthropic/v1/messages", req.URL.String())
-	require.JSONEq(t, `{"model":"glm-5.2","messages":[]}`, string(wireBody))
-	require.Equal(t, "Bearer glm-coding-key", getHeaderRaw(req.Header, "authorization"))
-	require.Empty(t, getHeaderRaw(req.Header, "x-api-key"))
-}
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases 覆盖透传模式下模型映射的各种边界情况
 func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases(t *testing.T) {

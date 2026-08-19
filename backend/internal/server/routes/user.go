@@ -171,7 +171,6 @@ func RegisterUserRoutes(
 			accounts.POST("/oauth/refresh-token", h.AccountPool.RefreshOpenAIToken)
 			accounts.POST("/oauth/import/codex-session", h.AccountPool.ImportCodexSession)
 			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
-			accounts.POST("/kimi/api-key", h.AccountPool.CreateKimiAPIKey)
 			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
 			accounts.POST("/:id/test", h.AccountPool.Test)
 			accounts.POST("/:id/refresh", h.AccountPool.Refresh)

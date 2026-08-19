@@ -40,24 +40,6 @@ export interface CreateUserOAuthAccountRequest {
   contribution_weekly_share_budget?: number
 }
 
-export type KimiAPIProtocol = 'openai' | 'anthropic'
-
-export interface CreateUserKimiAccountOptions {
-  name: string
-  model_mapping?: Record<string, string>
-  proxy_id?: number | null
-  concurrency?: number
-  schedulable?: boolean
-  group_ids?: number[]
-  expires_at?: number | null
-  auto_pause_on_expired?: boolean
-  contribution_5h_reserve_percent?: number
-  contribution_weekly_reserve_percent?: number
-  contribution_probe_failure_policy?: ContributionProbeFailurePolicy
-  contribution_share_mode?: ContributionShareMode
-  contribution_weekly_share_budget?: number
-}
-
 export interface UserDynamicPoolSource {
   kind: string
   total: number
@@ -231,11 +213,6 @@ export async function updateDynamicPoolSharingRateRange(
     `/accounts/pool/dynamic-groups/${groupId}/sharing-rate-range`,
     range,
   )
-  return data
-}
-
-export async function createKimiAPIKey(payload: CreateUserKimiAccountOptions & { api_key: string; protocol: KimiAPIProtocol }): Promise<UserAccountPoolItem> {
-  const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/kimi/api-key', payload)
   return data
 }
 
@@ -519,7 +496,6 @@ export const accountsAPI = {
   listProxies,
   testProxy,
   createOAuth,
-  createKimiAPIKey,
   generateOAuthAuthUrl,
   exchangeOAuthCode,
   refreshOpenAIToken,

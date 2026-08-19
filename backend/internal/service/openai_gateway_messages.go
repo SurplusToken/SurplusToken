@@ -22,7 +22,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const kimiAnthropicMessagesEndpoint = "/v1/messages"
 
 // ForwardAsAnthropic accepts an Anthropic Messages request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
@@ -38,12 +37,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 
-	if account.IsKimiNativeAnthropic() {
-		return s.forwardNativeAnthropicCompatible(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.IsZhipuCoding() {
-		return s.forwardNativeAnthropicCompatible(ctx, c, account, body, defaultMappedModel)
-	}
 	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
 	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
 	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
@@ -55,7 +48,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// 入口分流：国产 OpenAI 兼容账号或上游不支持 Responses API 的 APIKey 账号
 	// 走 CC 直转（与 ForwardAsChatCompletions 对称）。
-	if account.IsKimi() || account.IsZhipu() || account.IsDeepseek() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -516,57 +509,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	return result, handleErr
 }
 
-func (s *OpenAIGatewayService) forwardNativeAnthropicCompatible(
-	ctx context.Context,
-	c *gin.Context,
-	account *Account,
-	body []byte,
-	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
-	if s.nativeGateway == nil {
-		return nil, errors.New("native Anthropic gateway is not configured")
-	}
-	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	forwardBody := body
-	if upstreamModel != "" && upstreamModel != originalModel {
-		forwardBody = ReplaceModelInBody(body, upstreamModel)
-	}
-	stream := gjson.GetBytes(forwardBody, "stream").Bool()
-	SetActualOpenAIUpstreamEndpoint(c, kimiAnthropicMessagesEndpoint)
-	result, err := s.nativeGateway.forwardAnthropicAPIKeyPassthrough(
-		ctx,
-		c,
-		account,
-		forwardBody,
-		upstreamModel,
-		originalModel,
-		stream,
-		time.Now(),
-	)
-	if err != nil || result == nil {
-		return nil, err
-	}
-	return &OpenAIForwardResult{
-		RequestID: result.RequestID,
-		Usage: OpenAIUsage{
-			InputTokens:              result.Usage.InputTokens,
-			OutputTokens:             result.Usage.OutputTokens,
-			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
-			ImageOutputTokens:        result.Usage.ImageOutputTokens,
-		},
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: kimiAnthropicMessagesEndpoint,
-		Stream:           result.Stream,
-		Duration:         result.Duration,
-		FirstTokenMs:     result.FirstTokenMs,
-		ClientDisconnect: result.ClientDisconnect,
-	}, nil
-}
 
 func ensureCodexOAuthInstructionsField(reqBody map[string]any) {
 	if reqBody == nil {

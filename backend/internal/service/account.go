@@ -120,7 +120,6 @@ const (
 	// require this capability so already-submitted requests remain queryable.
 	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
 	OpenAIEndpointCapabilityResponses           OpenAIEndpointCapability = "responses"
-	OpenAIEndpointCapabilityAnthropicMessages   OpenAIEndpointCapability = "anthropic_messages"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -650,55 +649,6 @@ func (a *Account) IsDeepseek() bool {
 // IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）。
 func (a *Account) IsCNProvider() bool {
 	return a != nil && IsCNProvider(a.Platform)
-}
-
-// IsZhipuCoding reports whether this account uses GLM Coding Plan's dedicated
-// endpoint. Coding Plan supports OpenAI Chat Completions and Anthropic Messages
-// natively on separate base URLs.
-func (a *Account) IsZhipuCoding() bool {
-	if a == nil || !a.IsZhipu() || a.Type != AccountTypeAPIKey {
-		return false
-	}
-	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
-	if err != nil || parsed == nil || !strings.EqualFold(parsed.Hostname(), "open.bigmodel.cn") {
-		return false
-	}
-	path := strings.ToLower(strings.Trim(parsed.Path, "/"))
-	return strings.Contains(path, "api/coding/") || strings.HasPrefix(path, "api/anthropic")
-}
-
-func (a *Account) GetZhipuAnthropicBaseURL() string {
-	if !a.IsZhipuCoding() {
-		return ""
-	}
-	return "https://open.bigmodel.cn/api/anthropic"
-}
-
-// IsKimiCode reports whether the account targets the subscription-backed Kimi
-// Code API. Unlike the pay-as-you-go Kimi platform API, Kimi Code exposes both
-// OpenAI Chat Completions and Anthropic Messages natively.
-func (a *Account) IsKimiCode() bool {
-	if a == nil || !a.IsKimi() {
-		return false
-	}
-	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
-	return err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "api.kimi.com") &&
-		strings.Contains(strings.Trim(parsed.Path, "/"), "coding")
-}
-
-func (a *Account) IsKimiAnthropicAPI() bool {
-	if a == nil || !a.IsKimi() || a.Type != AccountTypeAPIKey {
-		return false
-	}
-	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
-	if err != nil || parsed == nil || !strings.EqualFold(parsed.Hostname(), "api.moonshot.cn") {
-		return false
-	}
-	return strings.Trim(strings.ToLower(parsed.Path), "/") == "anthropic"
-}
-
-func (a *Account) IsKimiNativeAnthropic() bool {
-	return a != nil && (a.IsKimiCode() || a.IsKimiAnthropicAPI())
 }
 
 // IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
@@ -2067,7 +2017,7 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	}
 	if a.IsGrok() {
 		switch capability {
-		case OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityAnthropicMessages:
+		case OpenAIEndpointCapabilityChatCompletions:
 			// Grok serves Messages through the same compatibility bridge as
 			// Chat Completions, so both capabilities share the same account pool.
 			return true
@@ -2082,17 +2032,8 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 			return false
 		}
 	}
-	if capability == OpenAIEndpointCapabilityAnthropicMessages {
-		if a.IsKimiNativeAnthropic() {
-			return true
-		}
-		return a.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions)
-	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
-		if a.IsKimiAnthropicAPI() {
-			return false
-		}
 	case OpenAIEndpointCapabilityLive:
 		return a.Platform == PlatformOpenAI &&
 			a.Type == AccountTypeOAuth &&
@@ -2507,9 +2448,6 @@ func (a *Account) IsOpenAIOAuthPassthroughEnabled() bool {
 // 字段：accounts.extra.anthropic_passthrough。
 // 字段缺失或类型不正确时，按 false（关闭）处理。
 func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
-	if a != nil && a.IsKimiCode() {
-		return true
-	}
 	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
 		return false
 	}

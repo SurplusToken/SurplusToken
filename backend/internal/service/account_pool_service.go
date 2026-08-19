@@ -18,10 +18,6 @@ const (
 	maxUserAccountLimitUSD            = 1_000_000
 	defaultUserAccountConcurrency     = 5
 	minContributionAutoPauseThreshold = 0.000001
-	KimiAPIProtocolOpenAI             = "openai"
-	KimiAPIProtocolAnthropic          = "anthropic"
-	KimiAPIOpenAIBaseURL              = "https://api.moonshot.cn/v1"
-	KimiAPIAnthropicBaseURL           = "https://api.moonshot.cn/anthropic"
 )
 
 var (
@@ -138,23 +134,6 @@ type CreateUserOAuthAccountRequest struct {
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
-type CreateUserKimiAPIKeyAccountRequest struct {
-	Name                               string             `json:"name"`
-	APIKey                             string             `json:"api_key"`
-	Protocol                           string             `json:"protocol"`
-	ModelMapping                       *map[string]string `json:"model_mapping"`
-	ProxyID                            *int64             `json:"proxy_id"`
-	Concurrency                        *int               `json:"concurrency"`
-	Schedulable                        *bool              `json:"schedulable"`
-	GroupIDs                           []int64            `json:"group_ids"`
-	ExpiresAt                          *int64             `json:"expires_at"`
-	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
-	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
-	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
-	ContributionShareMode              *string            `json:"contribution_share_mode"`
-	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
-	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
-}
 
 type UserDynamicPoolSource struct {
 	Kind      string `json:"kind"`
@@ -440,12 +419,6 @@ func userDynamicPoolSourceKind(account *Account) string {
 	if account == nil {
 		return "other"
 	}
-	if account.IsKimi() && account.Type == AccountTypeAPIKey {
-		if strings.EqualFold(strings.TrimSpace(account.GetCredential("base_url")), KimiAPIAnthropicBaseURL) {
-			return "kimi_api_anthropic"
-		}
-		return "kimi_api_openai"
-	}
 	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
 		plan := strings.ToLower(strings.TrimSpace(account.GetCredential("plan_type")))
 		if plan != "" {
@@ -479,43 +452,6 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	}
 	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)}
 
-func (s *AccountService) CreateUserKimiAPIKeyAccount(ctx context.Context, userID int64, req CreateUserKimiAPIKeyAccountRequest) (*UserAccountPoolItem, error) {
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" {
-		return nil, infraerrors.BadRequest("ACCOUNT_API_KEY_REQUIRED", "Kimi API key is required")
-	}
-	protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
-	baseURL := KimiAPIOpenAIBaseURL
-	capabilities := []string{string(OpenAIEndpointCapabilityChatCompletions)}
-	switch protocol {
-	case KimiAPIProtocolOpenAI:
-	case KimiAPIProtocolAnthropic:
-		baseURL = KimiAPIAnthropicBaseURL
-		capabilities = []string{string(OpenAIEndpointCapabilityAnthropicMessages)}
-	default:
-		return nil, infraerrors.BadRequest("KIMI_API_PROTOCOL_INVALID", "Kimi API protocol must be openai or anthropic")
-	}
-
-	oauthReq := CreateUserOAuthAccountRequest{
-		Name:                               req.Name,
-		Platform:                           PlatformKimi,
-		Credentials:                        map[string]any{"api_key": apiKey, "base_url": baseURL, openAIEndpointCapabilitiesCredentialKey: capabilities},
-		ModelMapping:                       req.ModelMapping,
-		Extra:                              map[string]any{"openai_compatible_provider": "kimi", "openai_responses_mode": "force_chat_completions", "kimi_api_protocol": protocol},
-		ProxyID:                            req.ProxyID,
-		Concurrency:                        req.Concurrency,
-		Schedulable:                        req.Schedulable,
-		GroupIDs:                           req.GroupIDs,
-		ExpiresAt:                          req.ExpiresAt,
-		AutoPauseOnExpired:                 req.AutoPauseOnExpired,
-		ContributionFiveHourReservePercent: req.ContributionFiveHourReservePercent,
-		ContributionWeeklyReservePercent:   req.ContributionWeeklyReservePercent,
-		ContributionShareMode:              req.ContributionShareMode,
-		ContributionWeeklyShareBudget:      req.ContributionWeeklyShareBudget,
-		ContributionProbeFailurePolicy:     req.ContributionProbeFailurePolicy,
-	}
-	return s.createUserContributedAccount(ctx, userID, oauthReq, AccountTypeAPIKey)
-}
 
 func (s *AccountService) createUserContributedAccount(ctx context.Context, userID int64, req CreateUserOAuthAccountRequest, accountType string) (*UserAccountPoolItem, error) {
 	if userID <= 0 {

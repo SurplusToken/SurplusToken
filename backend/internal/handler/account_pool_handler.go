@@ -115,11 +115,6 @@ type userContributionAccountOptions struct {
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
-type createUserKimiAPIKeyAccountPayload struct {
-	userContributionAccountOptions
-	APIKey   string `json:"api_key" binding:"required"`
-	Protocol string `json:"protocol" binding:"required,oneof=openai anthropic"`
-}
 
 type setUserAccountSchedulablePayload struct {
 	Schedulable *bool `json:"schedulable"`
@@ -405,44 +400,6 @@ func (h *AccountPoolHandler) UpdateDynamicPoolSharingRateRange(c *gin.Context) {
 	response.Success(c, dynamicPoolSharingRateRangeResponse{Min: accepted.Min, Max: accepted.Max})
 }
 
-func (h *AccountPoolHandler) CreateKimiAPIKey(c *gin.Context) {
-	subject, ok := middleware.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	var payload createUserKimiAPIKeyAccountPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformKimi, payload.GroupIDs)
-	if !ok {
-		return
-	}
-	item, err := h.accountService.CreateUserKimiAPIKeyAccount(c.Request.Context(), subject.UserID, service.CreateUserKimiAPIKeyAccountRequest{
-		Name:                               payload.Name,
-		APIKey:                             payload.APIKey,
-		Protocol:                           payload.Protocol,
-		ModelMapping:                       payload.ModelMapping,
-		ProxyID:                            payload.ProxyID,
-		Concurrency:                        payload.Concurrency,
-		Schedulable:                        payload.Schedulable,
-		GroupIDs:                           groupIDs,
-		ExpiresAt:                          payload.ExpiresAt,
-		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
-		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
-		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
-		ContributionShareMode:              payload.ContributionShareMode,
-		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
-		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, item)
-}
 
 func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)

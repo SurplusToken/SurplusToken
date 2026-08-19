@@ -18,9 +18,6 @@ const (
 // (api_protocol=anthropic) share the same override knob — Kimi/DeepSeek default
 // to x-api-key, Zhipu can opt into Authorization: Bearer.
 func (a *Account) GetAnthropicAPIKeyAuthScheme() string {
-	if a != nil && a.IsZhipuCoding() {
-		return AnthropicAPIKeyAuthSchemeAuthorizationBearer
-	}
 	if a == nil || a.Type != AccountTypeAPIKey {
 		return AnthropicAPIKeyAuthSchemeXAPIKey
 	}

@@ -255,35 +255,6 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing
 }
 
 
-func TestAccountServiceCreateUserKimiAPIKeyUsesWhitelistedEndpoints(t *testing.T) {
-	for _, tt := range []struct {
-		protocol   string
-		baseURL    string
-		capability string
-	}{
-		{KimiAPIProtocolOpenAI, KimiAPIOpenAIBaseURL, "chat_completions"},
-		{KimiAPIProtocolAnthropic, KimiAPIAnthropicBaseURL, "anthropic_messages"},
-	} {
-		t.Run(tt.protocol, func(t *testing.T) {
-			repo := &accountPoolRepoStub{}
-			svc := &AccountService{accountRepo: repo}
-			item, err := svc.CreateUserKimiAPIKeyAccount(context.Background(), 42, CreateUserKimiAPIKeyAccountRequest{
-				Name: "Kimi API", APIKey: "secret", Protocol: tt.protocol,
-			})
-			require.NoError(t, err)
-			require.Equal(t, AccountTypeAPIKey, item.Type)
-			require.Equal(t, tt.baseURL, repo.created.Credentials["base_url"])
-			require.Equal(t, []string{tt.capability}, repo.created.Credentials[openAIEndpointCapabilitiesCredentialKey])
-		})
-	}
-
-	repo := &accountPoolRepoStub{}
-	_, err := (&AccountService{accountRepo: repo}).CreateUserKimiAPIKeyAccount(context.Background(), 42, CreateUserKimiAPIKeyAccountRequest{
-		Name: "bad", APIKey: "secret", Protocol: "custom",
-	})
-	require.Error(t, err)
-	require.Nil(t, repo.created)
-}
 
 func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	ownerID := int64(42)
@@ -292,8 +263,8 @@ func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	rateLow, rateHigh := 0.8, 1.2
 	repo := &accountPoolRepoStub{accounts: []Account{
 		{ID: 1, Name: "mine", Platform: PlatformKimi, Type: AccountTypeOAuth, OwnerUserID: &ownerID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, SharingRateMultiplier: &rateLow},
-		{ID: 2, Name: "api", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, SharingRateMultiplier: &rateHigh, Credentials: map[string]any{"base_url": KimiAPIOpenAIBaseURL}},
-		{ID: 3, Name: "limited", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, RateLimitResetAt: &limitedUntil, Credentials: map[string]any{"base_url": KimiAPIAnthropicBaseURL}},
+		{ID: 2, Name: "api", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, SharingRateMultiplier: &rateHigh, Credentials: map[string]any{"base_url": "https://api.moonshot.cn/v1"}},
+		{ID: 3, Name: "limited", Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &otherID, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}, RateLimitResetAt: &limitedUntil, Credentials: map[string]any{"base_url": "https://api.moonshot.cn/anthropic"}},
 		{ID: 4, Name: "system", Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, GroupIDs: []int64{7}},
 	}}
 	svc := &AccountService{accountRepo: repo}
@@ -310,7 +281,7 @@ func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	require.Equal(t, 1, summary.MineAvailable)
 	require.Equal(t, rateLow, *summary.MinSharingRate)
 	require.Equal(t, rateHigh, *summary.MaxSharingRate)
-	require.Len(t, summary.Sources, 3)
+	require.Len(t, summary.Sources, 2)
 	require.Len(t, summary.Accounts, 3)
 	require.Equal(t, int64(1), summary.Accounts[0].ID)
 	require.True(t, summary.Accounts[0].Available)
