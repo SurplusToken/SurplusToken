@@ -1723,32 +1723,6 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerWindowDisab
 	require.Equal(t, int64(35802), account.ID, "7d auto-pause must still fire even though 5h is disabled")
 }
 
-func TestOpenAIGatewayService_KimiQuotaAutoPauseAndPerWindowDisable(t *testing.T) {
-	ctx := context.Background()
-	primary := Account{
-		ID:          35811,
-		Platform:    PlatformKimi,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Priority:    0,
-		Extra: map[string]any{
-			"codex_5h_used_percent":   99.0,
-			"codex_7d_used_percent":   99.0,
-			"auto_pause_5h_disabled":  true,
-			"auto_pause_7d_threshold": 0.95,
-		},
-	}
-	secondary := Account{ID: 35812, Platform: PlatformKimi, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
-	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
-
-	account, err := svc.selectAccountForModelWithExclusions(ctx, nil, PlatformKimi, "", "k3", nil, false, 0, OpenAIEndpointCapabilityChatCompletions, false)
-
-	require.NoError(t, err)
-	require.NotNil(t, account)
-	require.Equal(t, int64(35812), account.ID, "Kimi 7d auto-pause must still fire when only 5h is disabled")
-}
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageWindowResetSkipsPause(t *testing.T) {
 	ctx := context.Background()

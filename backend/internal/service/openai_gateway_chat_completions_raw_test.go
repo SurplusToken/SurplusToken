@@ -738,69 +738,7 @@ func TestForwardAsChatCompletions_UnknownResponsesSupportFallbackUsesVersionedCh
 	require.Contains(t, rec.Body.String(), `"content":"ok"`)
 }
 
-func TestForwardAsChatCompletions_KimiOAuthUsesCodingChatEndpoint(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"k3","messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi","object":"chat.completion","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := kimiOAuthRawFallbackAccount()
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "conversation-1", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "kimi_code_cli", upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.Equal(t, "surplusai-kimi-code/1.0", upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "conversation-1", gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
-}
-
-func TestForwardAsChatCompletions_KimiAPIKeyUsesPlatformIdentity(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi_api","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := &Account{
-		ID: 203, Name: "kimi-api", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
-		Credentials: map[string]any{"api_key": "platform-api-key", "base_url": "https://api.moonshot.cn/v1"},
-		Extra:       map[string]any{"openai_compatible_provider": "kimi"},
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "https://api.moonshot.cn/v1/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer platform-api-key", upstream.lastReq.Header.Get("Authorization"))
-	require.Empty(t, upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.NotEqual(t, "surplusai-kimi-code/1.0", upstream.lastReq.Header.Get("User-Agent"))
-}
 
 func TestIsOpenAIChatUsageOnlyStreamChunk(t *testing.T) {
 	t.Parallel()
@@ -868,13 +806,6 @@ func rawChatCompletionsTestAccount() *Account {
 	}
 }
 
-func kimiOAuthRawFallbackAccount() *Account {
-	return &Account{
-		ID: 202, Name: "kimi-coding-plan", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
-		Credentials: map[string]any{"access_token": "oauth-access", "base_url": KimiCodeBaseURL},
-		Extra:       map[string]any{"openai_compatible_provider": "kimi"},
-	}
-}
 
 func largeRawChatCompletionsBody() []byte {
 	return []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"` +

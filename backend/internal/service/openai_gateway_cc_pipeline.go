@@ -215,9 +215,6 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		}
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
 	}
-	if account.IsKimiOAuth() {
-		applyKimiCodeHeaders(upstreamReq.Header, account.ID)
-	}
 
 	proxyURL := ""
 	if account.Proxy != nil {

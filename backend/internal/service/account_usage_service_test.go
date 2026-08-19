@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -68,24 +66,6 @@ func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 	}
 }
 
-func TestKimiCodeUsageSnapshotUpdates(t *testing.T) {
-	updatedAt := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
-	fiveHourReset := updatedAt.Add(2 * time.Hour)
-	sevenDayReset := updatedAt.Add(4 * 24 * time.Hour)
-
-	updates := kimiCodeUsageSnapshotUpdates(&UsageInfo{
-		FiveHour: &UsageProgress{Utilization: 31.5, ResetsAt: &fiveHourReset},
-		SevenDay: &UsageProgress{Utilization: 72, ResetsAt: &sevenDayReset},
-	}, updatedAt)
-
-	require.Equal(t, 31.5, updates["codex_5h_used_percent"])
-	require.Equal(t, 0.315, updates["session_window_utilization"])
-	require.Equal(t, fiveHourReset.Format(time.RFC3339), updates["codex_5h_reset_at"])
-	require.Equal(t, 72.0, updates["codex_7d_used_percent"])
-	require.Equal(t, 0.72, updates["passive_usage_7d_utilization"])
-	require.Equal(t, sevenDayReset.Format(time.RFC3339), updates["codex_7d_reset_at"])
-	require.Equal(t, updatedAt.Format(time.RFC3339), updates["codex_usage_updated_at"])
-}
 
 // TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2 外审第9轮 P1:spark 影子用量走
 // QueryUsage(/wham/usage,与 WSv2 无关),staleness 不得被 WSv2 门控,否则首刷后窗口永久冻结。

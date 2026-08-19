@@ -254,27 +254,6 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing
 	require.Nil(t, repo.created)
 }
 
-func TestAccountServiceCreateUserKimiOAuthForcesOfficialCodeEndpoint(t *testing.T) {
-	repo := &accountPoolRepoStub{}
-	svc := &AccountService{accountRepo: repo}
-
-	item, err := svc.CreateUserOAuthAccount(context.Background(), 42, CreateUserOAuthAccountRequest{
-		Name:     "Kimi Code",
-		Platform: PlatformKimi,
-		Type:     AccountTypeOAuth,
-		Credentials: map[string]any{
-			"access_token":  "access",
-			"refresh_token": "refresh",
-			"base_url":      "https://evil.example/v1",
-		},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, PlatformKimi, item.Platform)
-	require.Equal(t, KimiCodeBaseURL, repo.created.Credentials["base_url"])
-	require.Equal(t, []string{"chat_completions", "anthropic_messages"}, repo.created.Credentials[openAIEndpointCapabilitiesCredentialKey])
-	require.Equal(t, "kimi", repo.created.Extra["openai_compatible_provider"])
-}
 
 func TestAccountServiceCreateUserKimiAPIKeyUsesWhitelistedEndpoints(t *testing.T) {
 	for _, tt := range []struct {
@@ -331,8 +310,6 @@ func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	require.Equal(t, 1, summary.MineAvailable)
 	require.Equal(t, rateLow, *summary.MinSharingRate)
 	require.Equal(t, rateHigh, *summary.MaxSharingRate)
-	require.Contains(t, summary.Models, "k3")
-	require.Contains(t, summary.Models, "kimi-k3")
 	require.Len(t, summary.Sources, 3)
 	require.Len(t, summary.Accounts, 3)
 	require.Equal(t, int64(1), summary.Accounts[0].ID)

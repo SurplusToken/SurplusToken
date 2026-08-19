@@ -34,19 +34,6 @@ type GrokOAuthTokenService interface {
 	BuildAccountCredentials(tokenInfo *GrokTokenInfo) map[string]any
 }
 
-// KimiOAuthClient handles the Kimi Code RFC 8628 device authorization flow.
-type KimiOAuthClient interface {
-	RequestDeviceAuthorization(ctx context.Context, proxyURL string) (*KimiDeviceAuthorization, error)
-	PollDeviceToken(ctx context.Context, deviceCode, proxyURL string) (*KimiDeviceTokenResult, error)
-	RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*KimiTokenInfo, error)
-}
-
-// KimiOAuthTokenService is the narrow refresh port used by the token refresher.
-type KimiOAuthTokenService interface {
-	RefreshAccountToken(ctx context.Context, account *Account) (*KimiTokenInfo, error)
-	BuildAccountCredentials(tokenInfo *KimiTokenInfo) map[string]any
-}
-
 // ClaudeOAuthClient handles HTTP requests for Claude OAuth flows
 type ClaudeOAuthClient interface {
 	GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error)

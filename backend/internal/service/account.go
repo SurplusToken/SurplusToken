@@ -634,42 +634,22 @@ func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
-func (a *Account) OpenAICompatibleProvider() string {
-	if a == nil {
-		return ""
-	}
-	if a.Platform == PlatformKimi {
-		return "kimi"
-	}
-	if a.Platform == PlatformZhipu {
-		return "zhipu"
-	}
-	if a.Platform == PlatformDeepseek {
-		return "deepseek"
-	}
-	if a.Platform != PlatformOpenAI {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(a.getExtraString("openai_compatible_provider")))
-}
-
 // IsKimi / IsZhipu / IsDeepseek 标识国产 OpenAI 兼容供应商账号。
-// 兼容历史 platform=openai + extra.openai_compatible_provider 的存量账号。
 func (a *Account) IsKimi() bool {
-	return a != nil && (a.Platform == PlatformKimi || a.OpenAICompatibleProvider() == "kimi")
+	return a != nil && a.Platform == PlatformKimi
 }
 
 func (a *Account) IsZhipu() bool {
-	return a != nil && (a.Platform == PlatformZhipu || a.OpenAICompatibleProvider() == "zhipu")
+	return a != nil && a.Platform == PlatformZhipu
 }
 
 func (a *Account) IsDeepseek() bool {
-	return a != nil && (a.Platform == PlatformDeepseek || a.OpenAICompatibleProvider() == "deepseek")
+	return a != nil && a.Platform == PlatformDeepseek
 }
 
 // IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）。
 func (a *Account) IsCNProvider() bool {
-	return a != nil && (IsCNProvider(a.Platform) || a.IsKimi() || a.IsZhipu() || a.IsDeepseek())
+	return a != nil && IsCNProvider(a.Platform)
 }
 
 // IsZhipuCoding reports whether this account uses GLM Coding Plan's dedicated
@@ -694,19 +674,12 @@ func (a *Account) GetZhipuAnthropicBaseURL() string {
 	return "https://open.bigmodel.cn/api/anthropic"
 }
 
-func (a *Account) IsKimiOAuth() bool {
-	return a.IsKimi() && a.Type == AccountTypeOAuth
-}
-
 // IsKimiCode reports whether the account targets the subscription-backed Kimi
 // Code API. Unlike the pay-as-you-go Kimi platform API, Kimi Code exposes both
 // OpenAI Chat Completions and Anthropic Messages natively.
 func (a *Account) IsKimiCode() bool {
 	if a == nil || !a.IsKimi() {
 		return false
-	}
-	if a.Type == AccountTypeOAuth {
-		return true
 	}
 	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
 	return err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "api.kimi.com") &&
@@ -1749,16 +1722,12 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
-	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream || a.IsKimiOAuth() {
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
 		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 			return baseURL
 		}
 	}
-	if a.IsKimiOAuth() {
-		return KimiCodeBaseURL
-	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
-	// 历史 platform=openai + openai_compatible_provider 的账号同样按供应商分支处理。
 	switch {
 	case a.IsKimi():
 		if a.GetAccountMode() == AccountModeCoding {

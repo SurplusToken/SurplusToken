@@ -5,13 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -362,14 +359,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return nil, fmt.Errorf("account is required")
 	}
 	accountID := account.ID
-
-	if account.IsKimiOAuth() {
-		usage, usageErr := s.getKimiCodeUsage(ctx, account)
-		if usageErr == nil {
-			s.syncKimiCodeUsageSnapshot(ctx, account.ID, usage)
-		}
-		return usage, usageErr
-	}
 
 	// Dedicated UI load-test accounts must remain fully interactive without ever
 	// contacting Anthropic with synthetic credentials. Reuse the same persisted
@@ -820,207 +809,6 @@ func isOpenAICodexSnapshotStale(account *Account, now time.Time) bool {
 		return true
 	}
 	return now.Sub(ts) >= openAIProbeCacheTTL
-}
-
-func (s *AccountUsageService) getKimiCodeUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
-	if account == nil || !account.IsKimiOAuth() {
-		return nil, fmt.Errorf("account is not a Kimi Coding Plan OAuth account")
-	}
-	token := account.GetOpenAIAccessToken()
-	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("kimi account has no usable credential")
-	}
-
-	baseURL := strings.TrimRight(account.GetOpenAIBaseURL(), "/")
-	if baseURL == "" {
-		baseURL = KimiCodeBaseURL
-	}
-	parsedBaseURL, err := url.Parse(baseURL)
-	if err != nil || parsedBaseURL == nil || !strings.EqualFold(parsedBaseURL.Scheme, "https") || !strings.EqualFold(parsedBaseURL.Hostname(), "api.kimi.com") {
-		return nil, fmt.Errorf("invalid Kimi Code usage base URL")
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL+"/usages", nil)
-	if err != nil {
-		return nil, fmt.Errorf("create Kimi usage request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-	applyKimiCodeHeaders(req.Header, account.ID)
-
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-	client, err := httppool.GetClient(httppool.Options{
-		ProxyURL:              proxyURL,
-		Timeout:               15 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build Kimi usage client: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("kimi usage request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read Kimi usage response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("kimi usage request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("decode Kimi usage response: %w", err)
-	}
-	now := time.Now()
-	result := &UsageInfo{Source: "active", UpdatedAt: &now}
-	if summary, ok := kimiUsageMap(payload["usage"]); ok {
-		result.SevenDay = kimiUsageProgress(summary)
-	}
-	if limits, ok := payload["limits"].([]any); ok {
-		for _, rawLimit := range limits {
-			limit, ok := kimiUsageMap(rawLimit)
-			if !ok {
-				continue
-			}
-			detail, ok := kimiUsageMap(limit["detail"])
-			if !ok {
-				continue
-			}
-			name := strings.ToLower(kimiUsageString(detail["name"]))
-			window, _ := kimiUsageMap(limit["window"])
-			duration := kimiUsageNumber(window["duration"])
-			timeUnit := strings.ToLower(kimiUsageString(window["timeUnit"]))
-			if timeUnit == "" {
-				timeUnit = strings.ToLower(kimiUsageString(window["time_unit"]))
-			}
-			isFiveHour := strings.Contains(name, "5h") || strings.Contains(name, "5 h") ||
-				(duration == 300 && strings.Contains(timeUnit, "minute")) ||
-				(duration == 5 && strings.Contains(timeUnit, "hour"))
-			if isFiveHour {
-				result.FiveHour = kimiUsageProgress(detail)
-				break
-			}
-		}
-	}
-	if result.FiveHour == nil && result.SevenDay == nil {
-		return nil, fmt.Errorf("kimi usage response did not contain supported quota windows")
-	}
-	return result, nil
-}
-
-func (s *AccountUsageService) syncKimiCodeUsageSnapshot(ctx context.Context, accountID int64, usage *UsageInfo) {
-	updates := kimiCodeUsageSnapshotUpdates(usage, time.Now().UTC())
-	if len(updates) > 0 {
-		if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
-			slog.Warn("sync_kimi_usage_snapshot_failed", "account_id", accountID, "error", err)
-		}
-	}
-	if usage != nil && usage.FiveHour != nil && usage.FiveHour.ResetsAt != nil {
-		if err := s.accountRepo.UpdateSessionWindowEnd(ctx, accountID, *usage.FiveHour.ResetsAt); err != nil {
-			slog.Warn("sync_kimi_usage_session_window_end_failed", "account_id", accountID, "error", err)
-		}
-	}
-}
-
-func kimiCodeUsageSnapshotUpdates(usage *UsageInfo, updatedAt time.Time) map[string]any {
-	updates := make(map[string]any, 11)
-	if usage == nil {
-		return updates
-	}
-	if usage.FiveHour != nil {
-		updates["session_window_utilization"] = usage.FiveHour.Utilization / 100
-		updates["codex_5h_used_percent"] = usage.FiveHour.Utilization
-		updates["codex_5h_window_minutes"] = 300
-		if usage.FiveHour.ResetsAt != nil {
-			updates["codex_5h_reset_at"] = usage.FiveHour.ResetsAt.UTC().Format(time.RFC3339)
-		}
-	}
-	if usage.SevenDay != nil {
-		updates["passive_usage_7d_utilization"] = usage.SevenDay.Utilization / 100
-		updates["codex_7d_used_percent"] = usage.SevenDay.Utilization
-		updates["codex_7d_window_minutes"] = 7 * 24 * 60
-		if usage.SevenDay.ResetsAt != nil {
-			updates["passive_usage_7d_reset"] = usage.SevenDay.ResetsAt.Unix()
-			updates["codex_7d_reset_at"] = usage.SevenDay.ResetsAt.UTC().Format(time.RFC3339)
-		}
-	}
-	if len(updates) > 0 {
-		updates["codex_usage_updated_at"] = updatedAt.UTC().Format(time.RFC3339)
-		updates["passive_usage_sampled_at"] = updatedAt.UTC().Format(time.RFC3339)
-	}
-	return updates
-}
-
-func kimiUsageMap(value any) (map[string]any, bool) {
-	m, ok := value.(map[string]any)
-	return m, ok
-}
-
-func kimiUsageString(value any) string {
-	if value == nil {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprint(value))
-}
-
-func kimiUsageNumber(value any) float64 {
-	switch n := value.(type) {
-	case float64:
-		return n
-	case float32:
-		return float64(n)
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	case json.Number:
-		v, _ := n.Float64()
-		return v
-	case string:
-		v, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		return v
-	default:
-		return 0
-	}
-}
-
-func kimiUsageProgress(detail map[string]any) *UsageProgress {
-	limit := kimiUsageNumber(detail["limit"])
-	used := kimiUsageNumber(detail["used"])
-	if used == 0 {
-		if remaining := kimiUsageNumber(detail["remaining"]); limit > 0 && remaining >= 0 {
-			used = limit - remaining
-		}
-	}
-	progress := &UsageProgress{
-		UsedRequests:  int64(used),
-		LimitRequests: int64(limit),
-	}
-	if limit > 0 {
-		progress.Utilization = used / limit * 100
-	}
-	for _, key := range []string{"resetAt", "reset_at", "resetTime", "reset_time"} {
-		raw := kimiUsageString(detail[key])
-		if raw == "" {
-			continue
-		}
-		if resetAt, err := parseTime(raw); err == nil {
-			progress.ResetsAt = &resetAt
-			remaining := int(time.Until(resetAt).Seconds())
-			if remaining > 0 {
-				progress.RemainingSeconds = remaining
-			}
-			break
-		}
-	}
-	return progress
 }
 
 func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(accountID int64, now time.Time, force ...bool) bool {

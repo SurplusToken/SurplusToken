@@ -165,35 +165,6 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.False(t, result.Stream)
 }
 
-func TestForwardAsAnthropic_KimiOAuthRoutesToNativeMessages(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"k3","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"msg_kimi","type":"message","role":"assistant","model":"k3","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":2}}`,
-		)),
-	}}
-	nativeGateway := &GatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, nativeGateway: nativeGateway}
-
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, kimiOAuthRawFallbackAccount(), body, "", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/messages", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", getHeaderRaw(upstream.lastReq.Header, "authorization"))
-	require.Empty(t, upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
-}
 
 // Covers the fully-new streaming composition: text block is still open when
 // [DONE] arrives, so finalization must close it (content_block_stop) before

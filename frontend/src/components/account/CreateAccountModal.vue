@@ -437,23 +437,6 @@
           data-tour="account-form-type"
         >
           <button
-            type="button"
-            data-testid="kimi-account-type-oauth"
-            @click="accountCategory = 'oauth-based'"
-            :class="[
-              'flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all',
-              accountCategory === 'oauth-based'
-                ? 'border-gray-900 bg-gray-50 dark:border-gray-100 dark:bg-dark-700'
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-500'
-            ]"
-          >
-            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gray-950 text-xs font-semibold text-white dark:bg-white dark:text-gray-950">K</div>
-            <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauth.kimi.codingPlan') }}</span>
-            </div>
-          </button>
-          <button
             v-if="!surplusAIOAuthOnly"
             type="button"
             data-testid="kimi-account-type-api-key"
@@ -3433,47 +3416,9 @@
 
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
-      <div
-        v-if="form.platform === 'kimi'"
-        class="space-y-5"
-        data-testid="kimi-device-authorization"
-      >
-        <div class="border-b border-gray-200 pb-4 dark:border-dark-600">
-          <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.accounts.oauth.kimi.title') }}</h3>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.accounts.oauth.kimi.description') }}</p>
-        </div>
-
-        <div v-if="kimiOAuth.userCode.value" class="space-y-3">
-          <div>
-            <label class="input-label">{{ t('admin.accounts.oauth.kimi.userCode') }}</label>
-            <div class="mt-1 flex items-center gap-3">
-              <code class="min-w-0 flex-1 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-center text-xl font-semibold text-gray-950 dark:border-dark-500 dark:bg-dark-700 dark:text-white">{{ kimiOAuth.userCode.value }}</code>
-              <a :href="kimiOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary whitespace-nowrap">
-                {{ t('admin.accounts.oauth.kimi.openAuthorization') }}
-              </a>
-            </div>
-          </div>
-          <p class="text-sm text-gray-600 dark:text-gray-300">
-            {{ kimiOAuth.polling.value ? t('admin.accounts.oauth.kimi.waiting') : t('admin.accounts.oauth.kimi.ready') }}
-          </p>
-        </div>
-
-        <div v-if="kimiOAuth.error.value" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
-          {{ kimiOAuth.error.value }}
-        </div>
-
-        <button
-          type="button"
-          class="btn btn-primary w-full"
-          :disabled="kimiOAuth.loading.value || kimiOAuth.polling.value"
-          @click="handleKimiAuthorization"
-        >
-          {{ kimiOAuth.loading.value || kimiOAuth.polling.value ? t('admin.accounts.oauth.kimi.authorizing') : t('admin.accounts.oauth.kimi.start') }}
-        </button>
-      </div>
 
       <OAuthAuthorizationFlow
-        v-else
+      
         ref="oauthFlowRef"
         add-method="oauth"
         :auth-url="currentAuthUrl"
@@ -3847,7 +3792,6 @@ import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
-import { useKimiOAuth } from '@/composables/useKimiOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -4002,11 +3946,9 @@ const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
 const grokOAuth = useGrokOAuth() // For Grok OAuth
-const kimiOAuth = useKimiOAuth() // For Kimi Code device OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
-  if (form.platform === 'kimi') return kimiOAuth.authUrl.value
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
@@ -4015,7 +3957,6 @@ const currentAuthUrl = computed(() => {
 })
 
 const currentSessionId = computed(() => {
-  if (form.platform === 'kimi') return kimiOAuth.sessionId.value
   if (form.platform === 'openai') return openaiOAuth.sessionId.value
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
@@ -4024,7 +3965,6 @@ const currentSessionId = computed(() => {
 })
 
 const currentOAuthLoading = computed(() => {
-  if (form.platform === 'kimi') return kimiOAuth.loading.value || kimiOAuth.polling.value
   if (form.platform === 'openai') return openaiOAuth.loading.value
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
@@ -4033,7 +3973,6 @@ const currentOAuthLoading = computed(() => {
 })
 
 const currentOAuthError = computed(() => {
-  if (form.platform === 'kimi') return kimiOAuth.error.value
   if (form.platform === 'openai') return openaiOAuth.error.value
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
@@ -4585,8 +4524,9 @@ const selectOpenAICompatibleProvider = (provider: OpenAICompatibleProvider) => {
   form.platform = provider === 'kimi' || provider === 'zhipu' ? provider : 'openai'
 
   if (provider === 'kimi') {
-    accountCategory.value = 'oauth-based'
-    form.type = 'oauth'
+    // Kimi 跟随上游 API Key 模式（无设备授权 OAuth）。
+    accountCategory.value = 'apikey'
+    form.type = 'apikey'
   } else if (provider !== 'openai') {
     accountCategory.value = 'apikey'
     form.type = 'apikey'
@@ -4824,7 +4764,6 @@ watch(
     // Reset OAuth states
     oauth.resetState()
     openaiOAuth.resetState()
-    kimiOAuth.resetState()
 
     geminiOAuth.resetState()
     antigravityOAuth.resetState()
@@ -5296,7 +5235,6 @@ const resetForm = () => {
   geminiTierAIStudio.value = 'aistudio_free'
   oauth.resetState()
   openaiOAuth.resetState()
-  kimiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
@@ -5308,7 +5246,6 @@ const resetForm = () => {
 const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
-  kimiOAuth.resetState()
   emit('close')
 }
 
@@ -5771,51 +5708,10 @@ const goBackToBasicInfo = () => {
   step.value = 1
   oauth.resetState()
   openaiOAuth.resetState()
-  kimiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
-}
-
-const handleKimiAuthorization = async () => {
-  const token = await kimiOAuth.authorize(form.proxy_id)
-  if (!token) return
-
-  try {
-    const credentialExtras: Record<string, unknown> = {}
-    const modelMapping = buildModelMappingObject(
-      modelRestrictionMode.value,
-      allowedModels.value,
-      modelMappings.value
-    )
-    if (modelMapping) credentialExtras.model_mapping = modelMapping
-    if (!applyTempUnschedConfig(credentialExtras)) return
-    await adminAPI.kimi.createOAuthAccount({
-      name: form.name,
-      notes: form.notes || null,
-      token,
-      proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
-      priority: form.priority,
-      rate_multiplier: form.rate_multiplier,
-      load_factor: form.load_factor ?? undefined,
-      group_ids: form.group_ids,
-      expires_at: form.expires_at,
-      auto_pause_on_expired: autoPauseOnExpired.value,
-      credential_extras: credentialExtras
-    })
-    appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
-    handleClose()
-  } catch (error: any) {
-    kimiOAuth.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      t('admin.accounts.oauth.kimi.createFailed')
-    appStore.showError(kimiOAuth.error.value)
-  }
 }
 
 const handleGenerateUrl = async () => {

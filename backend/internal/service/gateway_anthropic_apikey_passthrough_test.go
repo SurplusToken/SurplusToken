@@ -311,40 +311,6 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_BearerAuthScheme(t *testing.T
 	require.Empty(t, getHeaderRaw(countReq.Header, "cookie"))
 }
 
-func TestGatewayService_KimiCodeOAuthBuildsNativeAnthropicRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	c.Request.Header.Set("X-Api-Key", "inbound-key")
-
-	svc := &GatewayService{
-		cfg: &config.Config{
-			Security: config.SecurityConfig{
-				URLAllowlist: config.URLAllowlistConfig{Enabled: false},
-			},
-		},
-	}
-	account := &Account{
-		Platform: PlatformKimi,
-		Type:     AccountTypeOAuth,
-		Credentials: map[string]any{
-			"access_token": "kimi-oauth-token",
-			"base_url":     "https://api.kimi.com/coding/v1",
-		},
-		Extra: map[string]any{"openai_compatible_provider": "kimi"},
-	}
-
-	req, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(
-		context.Background(), c, account, []byte(`{"model":"kimi-for-coding","messages":[]}`), "kimi-oauth-token",
-	)
-	require.NoError(t, err)
-	require.Equal(t, "https://api.kimi.com/coding/v1/messages", req.URL.String())
-	require.JSONEq(t, `{"model":"kimi-for-coding","messages":[]}`, string(wireBody))
-	require.Equal(t, "Bearer kimi-oauth-token", getHeaderRaw(req.Header, "authorization"))
-	require.Empty(t, getHeaderRaw(req.Header, "x-api-key"))
-}
 
 func TestGatewayService_KimiOpenPlatformBuildsNativeAnthropicRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)

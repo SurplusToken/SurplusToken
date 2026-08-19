@@ -15,7 +15,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -34,7 +33,6 @@ type AccountPoolHandler struct {
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
-	kimiOAuthService        *service.KimiOAuthService
 	accountTestService      *service.AccountTestService
 	scheduledTestService    *service.ScheduledTestService
 	rateLimitService        *service.RateLimitService
@@ -53,7 +51,6 @@ func NewAccountPoolHandler(
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
-	kimiOAuthService *service.KimiOAuthService,
 	accountTestService *service.AccountTestService,
 	scheduledTestService *service.ScheduledTestService,
 	rateLimitService *service.RateLimitService,
@@ -71,7 +68,6 @@ func NewAccountPoolHandler(
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
-		kimiOAuthService:        kimiOAuthService,
 		accountTestService:      accountTestService,
 		scheduledTestService:    scheduledTestService,
 		rateLimitService:        rateLimitService,
@@ -117,11 +113,6 @@ type userContributionAccountOptions struct {
 	ContributionShareMode              *string            `json:"contribution_share_mode"`
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
-}
-
-type createUserKimiOAuthAccountPayload struct {
-	userContributionAccountOptions
-	Token *service.KimiTokenInfo `json:"token" binding:"required"`
 }
 
 type createUserKimiAPIKeyAccountPayload struct {
@@ -412,99 +403,6 @@ func (h *AccountPoolHandler) UpdateDynamicPoolSharingRateRange(c *gin.Context) {
 		return
 	}
 	response.Success(c, dynamicPoolSharingRateRangeResponse{Min: accepted.Min, Max: accepted.Max})
-}
-
-func (h *AccountPoolHandler) StartKimiDeviceAuthorization(c *gin.Context) {
-	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.kimiOAuthService == nil {
-		response.InternalError(c, "Kimi OAuth service is not configured")
-		return
-	}
-	var payload struct {
-		ProxyID *int64 `json:"proxy_id"`
-	}
-	_ = c.ShouldBindJSON(&payload)
-	result, err := h.kimiOAuthService.StartDeviceAuthorization(c.Request.Context(), payload.ProxyID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
-}
-
-func (h *AccountPoolHandler) PollKimiDeviceToken(c *gin.Context) {
-	if _, ok := middleware.GetAuthSubjectFromContext(c); !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.kimiOAuthService == nil {
-		response.InternalError(c, "Kimi OAuth service is not configured")
-		return
-	}
-	var payload struct {
-		SessionID string `json:"session_id" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	result, err := h.kimiOAuthService.PollDeviceToken(c.Request.Context(), payload.SessionID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
-}
-
-func (h *AccountPoolHandler) CreateKimiOAuth(c *gin.Context) {
-	subject, ok := middleware.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.kimiOAuthService == nil {
-		response.InternalError(c, "Kimi OAuth service is not configured")
-		return
-	}
-	var payload createUserKimiOAuthAccountPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if payload.Token == nil || strings.TrimSpace(payload.Token.AccessToken) == "" || strings.TrimSpace(payload.Token.RefreshToken) == "" || payload.Token.ExpiresAt <= 0 {
-		response.BadRequest(c, "A complete Kimi OAuth token is required")
-		return
-	}
-	groupIDs, ok := h.validateUserAccountGroupIDs(c, subject.UserID, service.PlatformKimi, payload.GroupIDs)
-	if !ok {
-		return
-	}
-	item, err := h.accountService.CreateUserOAuthAccount(c.Request.Context(), subject.UserID, service.CreateUserOAuthAccountRequest{
-		Name:                               payload.Name,
-		Platform:                           service.PlatformKimi,
-		Type:                               service.AccountTypeOAuth,
-		Credentials:                        h.kimiOAuthService.BuildAccountCredentials(payload.Token),
-		ModelMapping:                       payload.ModelMapping,
-		ProxyID:                            payload.ProxyID,
-		Concurrency:                        payload.Concurrency,
-		Schedulable:                        payload.Schedulable,
-		GroupIDs:                           groupIDs,
-		ExpiresAt:                          payload.ExpiresAt,
-		AutoPauseOnExpired:                 payload.AutoPauseOnExpired,
-		ContributionFiveHourReservePercent: payload.ContributionFiveHourReservePercent,
-		ContributionWeeklyReservePercent:   payload.ContributionWeeklyReservePercent,
-		ContributionShareMode:              payload.ContributionShareMode,
-		ContributionWeeklyShareBudget:      payload.ContributionWeeklyShareBudget,
-		ContributionProbeFailurePolicy:     payload.ContributionProbeFailurePolicy,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, item)
 }
 
 func (h *AccountPoolHandler) CreateKimiAPIKey(c *gin.Context) {
@@ -1194,18 +1092,6 @@ func (h *AccountPoolHandler) GetAvailableModels(c *gin.Context) {
 
 	account, ok := h.requireOwnedUserAccount(c, subject.UserID, accountID)
 	if !ok {
-		return
-	}
-	if account.IsKimi() {
-		ids := kimi.APIModelIDs()
-		if account.IsKimiCode() {
-			ids = kimi.CodeModelIDs()
-		}
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
-		}
-		response.Success(c, models)
 		return
 	}
 

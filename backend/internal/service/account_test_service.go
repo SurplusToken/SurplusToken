@@ -32,7 +32,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/zhipu"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -607,15 +606,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
 	if testModelID == "" {
-		if account.IsKimiOAuth() {
-			testModelID = "kimi-for-coding"
-		} else if account.IsKimi() {
-			testModelID = "kimi-k3"
-		} else if account.IsZhipu() {
-			testModelID = zhipu.DefaultTestModel
-		} else {
-			testModelID = openai.DefaultTestModel
-		}
+		testModelID = openai.DefaultTestModel
 	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
@@ -653,20 +644,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	var apiURL string
 	var isOAuth bool
 
-	if credentialAccount.IsKimi() || credentialAccount.IsZhipu() {
-		authToken = credentialAccount.GetOpenAIAccessToken()
-		if credentialAccount.Type == AccountTypeAPIKey {
-			authToken = credentialAccount.GetOpenAIApiKey()
-		}
-		if authToken == "" {
-			return s.sendErrorAndEnd(c, "No OpenAI-compatible credential available")
-		}
-		baseURL, err := s.validateUpstreamBaseURL(credentialAccount.GetOpenAIBaseURL())
-		if err != nil {
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid OpenAI-compatible base URL: %s", err.Error()))
-		}
-		return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, baseURL, authToken)
-	} else if credentialAccount.IsOAuth() {
+	if credentialAccount.IsOAuth() {
 		isOAuth = true
 		// Agent Identity signs each request and does not retain the OAuth token.
 		if !credentialAccount.IsOpenAIAgentIdentity() {
@@ -1970,9 +1948,6 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
-	if account.IsKimiOAuth() {
-		applyKimiCodeHeaders(req.Header, account.ID)
-	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
@@ -2016,9 +1991,6 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, "Failed to resolve account credentials")
 		}
 		credentialAccount = resolved
-	}
-	if account.IsKimi() || account.IsZhipu() {
-		return s.sendErrorAndEnd(c, "This platform does not support the OpenAI compact endpoint")
 	}
 
 	authToken := ""

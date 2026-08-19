@@ -59,13 +59,11 @@ describe('CreateAccountModal OpenAI-compatible provider presets', () => {
     expect(badgeSource).toContain("props.platform === 'zhipu'")
   })
 
-  it('offers both Coding Plan OAuth and API Key authentication for Kimi', () => {
-    expect(modalSource).toContain('data-testid="kimi-account-type-oauth"')
+  it('offers API Key authentication for Kimi (Coding Plan OAuth removed)', () => {
     expect(modalSource).toContain('data-testid="kimi-account-type-api-key"')
-    expect(modalSource).toContain('data-testid="kimi-device-authorization"')
-    expect(modalSource).toContain("provider === 'kimi' && category === 'oauth-based'")
-    expect(modalSource).toContain("const token = await kimiOAuth.authorize(form.proxy_id)")
-    expect(modalSource).toContain('await adminAPI.kimi.createOAuthAccount')
+    expect(modalSource).not.toContain('data-testid="kimi-account-type-oauth"')
+    expect(modalSource).not.toContain('data-testid="kimi-device-authorization"')
+    expect(modalSource).not.toContain('await adminAPI.kimi.createOAuthAccount')
   })
 
   it('keeps whitelist auto-fill on the resolved Kimi catalog', () => {

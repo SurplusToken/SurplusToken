@@ -760,6 +760,7 @@
           <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
+              v-if="createForm.platform !== 'kimi'"
               type="button"
               class="flex items-center gap-3 rounded-md border-2 p-3 text-left transition-all"
               :class="createForm.accountType === 'oauth' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
@@ -1024,26 +1025,7 @@
       </form>
 
       <div v-else class="space-y-5">
-        <div v-if="createForm.platform === 'kimi'" class="space-y-4">
-          <div class="border-b border-gray-200 pb-3 dark:border-dark-600">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('accountPool.kimi.oauthTitle') }}</h3>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('accountPool.kimi.oauthDescription') }}</p>
-          </div>
-          <div v-if="kimiOAuth.userCode.value" class="space-y-2">
-            <label class="input-label">{{ t('accountPool.kimi.userCode') }}</label>
-            <div class="flex items-center gap-2">
-              <code class="min-w-0 flex-1 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-center text-xl font-semibold text-gray-950 dark:border-dark-500 dark:bg-dark-700 dark:text-white">{{ kimiOAuth.userCode.value }}</code>
-              <a :href="kimiOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary whitespace-nowrap">{{ t('accountPool.kimi.openAuthorization') }}</a>
-            </div>
-            <p class="text-sm text-gray-500 dark:text-dark-300">{{ t('accountPool.kimi.waiting') }}</p>
-          </div>
-          <div v-if="kimiOAuth.error.value" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">{{ kimiOAuth.error.value }}</div>
-          <button type="button" class="btn btn-primary w-full" :disabled="kimiOAuth.loading.value || kimiOAuth.polling.value || creating" @click="handleKimiAuthorization">
-            {{ kimiOAuth.loading.value || kimiOAuth.polling.value || creating ? t('accountPool.kimi.authorizing') : t('accountPool.kimi.startAuthorization') }}
-          </button>
-        </div>
         <OAuthAuthorizationFlow
-          v-else
           ref="oauthFlowRef"
           add-method="oauth"
           :auth-url="oauthSession.authUrl"
@@ -1764,7 +1746,6 @@ import {
 } from '@/composables/useModelWhitelist'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import type { CodexSessionImportMessage } from '@/types'
-import { useKimiOAuth } from '@/composables/useKimiOAuth'
 
 type UserAccountModalItem = UserAccountPoolItem & {
   credentials?: Record<string, unknown>
@@ -1951,10 +1932,6 @@ const oauthSession = reactive({
   authUrl: '',
   sessionId: '',
   state: '',
-})
-const kimiOAuth = useKimiOAuth({
-  startDeviceAuthorization: accountsAPI.startKimiDeviceAuthorization,
-  pollDeviceToken: accountsAPI.pollKimiDeviceToken,
 })
 let dynamicPoolRefreshTimer: number | null = null
 
@@ -2695,7 +2672,6 @@ function handleCreateClose() {
   createStep.value = 1
   createForm.apiKey = ''
   resetOAuthSession()
-  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
@@ -2722,27 +2698,25 @@ function goToOAuthStep() {
 function goBackToBasicInfo() {
   createStep.value = 1
   resetOAuthSession()
-  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
 function selectCreatePlatform(platform: 'openai' | 'kimi' | 'gemini' | 'antigravity') {
   createForm.platform = platform
-  createForm.accountType = 'oauth'
+  // Kimi 走上游 API Key 模式（无设备授权 OAuth）。
+  createForm.accountType = platform === 'kimi' ? 'apikey' : 'oauth'
   createForm.groupIds = []
   resetModelWhitelist()
   if (platform !== 'openai') {
     createForm.codexCLIOnly = false
   }
   resetOAuthSession()
-  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
 function selectCreateAccountType(accountType: 'oauth' | 'apikey') {
   createForm.accountType = accountType
   resetOAuthSession()
-  kimiOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
@@ -2801,20 +2775,6 @@ async function handleCreateKimiAPIKey() {
       api_key: createForm.apiKey.trim(),
       protocol: createForm.kimiAPIProtocol,
     })
-    await finishKimiCreation()
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
-  } finally {
-    creating.value = false
-  }
-}
-
-async function handleKimiAuthorization() {
-  const token = await kimiOAuth.authorize(createForm.proxyId)
-  if (!token) return
-  creating.value = true
-  try {
-    await accountsAPI.createKimiOAuth({ ...buildKimiContributionOptions(), token })
     await finishKimiCreation()
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('common.error')))
@@ -3391,7 +3351,8 @@ async function handleImportCodexSession(content: string) {
 function resetCreateForm() {
   createForm.name = ''
   createForm.platform = 'kimi'
-  createForm.accountType = 'oauth'
+  // Kimi 走上游 API Key 模式（无设备授权 OAuth）。
+  createForm.accountType = 'apikey'
   createForm.apiKey = ''
   createForm.kimiAPIProtocol = 'openai'
   createForm.oauthType = 'code_assist'

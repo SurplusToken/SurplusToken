@@ -23,12 +23,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/zhipu"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -53,7 +51,6 @@ type AccountHandler struct {
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService
-	kimiOAuthService        *service.KimiOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
 	grokOAuthService        service.GrokOAuthTokenService
@@ -84,7 +81,6 @@ func NewAccountHandler(
 	adminService service.AdminService,
 	oauthService *service.OAuthService,
 	openaiOAuthService *service.OpenAIOAuthService,
-	kimiOAuthService *service.KimiOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
 	rateLimitService *service.RateLimitService,
@@ -105,7 +101,6 @@ func NewAccountHandler(
 		adminService:            adminService,
 		oauthService:            oauthService,
 		openaiOAuthService:      openaiOAuthService,
-		kimiOAuthService:        kimiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
 		grokOAuthService:        grokOAuthService,
@@ -1225,18 +1220,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 	var newCredentials map[string]any
 
-	if account.IsKimi() {
-		tokenInfo, err := h.kimiOAuthService.RefreshAccountToken(ctx, account)
-		if err != nil {
-			return nil, "", err
-		}
-		newCredentials = h.kimiOAuthService.BuildAccountCredentials(tokenInfo)
-		for k, v := range account.Credentials {
-			if _, exists := newCredentials[k]; !exists {
-				newCredentials[k] = v
-			}
-		}
-	} else if account.IsOpenAI() {
+	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
 		if err != nil {
 			// 刷新失败但 access_token 可能仍有效，尝试设置隐私
@@ -2744,27 +2728,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
-		return
-	}
-	if account.IsKimi() {
-		ids := kimi.APIModelIDs()
-		if account.IsKimiCode() {
-			ids = kimi.CodeModelIDs()
-		}
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
-		}
-		response.Success(c, models)
-		return
-	}
-	if account.IsZhipu() {
-		ids := zhipu.DefaultModelIDs()
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
-		}
-		response.Success(c, models)
 		return
 	}
 

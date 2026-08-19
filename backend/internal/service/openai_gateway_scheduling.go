@@ -341,7 +341,7 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 	if stickyAccountSharingIneligible(ctx, account) {
 		return false
 	}
-	if account.IsOpenAI() || account.IsKimiOAuth() {
+	if account.IsOpenAI() {
 		// Owners use their own contributed account unrestricted: bypass contribution
 		// reserve protection and quota auto-pause. Non-owners remain gated by both.
 		ownerBypass := account.IsSurplusAIOwner(RequestingUserIDFromContext(ctx))
@@ -460,7 +460,7 @@ func grokQuotaSnapshotStaleForPause(snapshot *xai.QuotaSnapshot, now time.Time) 
 }
 
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
-	if account == nil || (!account.IsOpenAI() && !account.IsKimiOAuth()) {
+	if account == nil || !account.IsOpenAI() {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
 	// Per-account explicit-disable flags must take precedence over the global default.
