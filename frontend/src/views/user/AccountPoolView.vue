@@ -16,10 +16,13 @@
               </div>
             </div>
 
+            <!-- 添加贡献账号入口暂时隐藏；创建流程代码保留，恢复时取消注释即可。 -->
+            <!--
             <button type="button" class="btn btn-primary" @click="openCreateDialog">
               <Icon name="plus" size="sm" />
               <span>{{ t('accountPool.addAccount') }}</span>
             </button>
+            -->
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
@@ -2660,11 +2663,6 @@ function buildCreateOAuthPayload(
 function baseOpenAIAccountName(tokenInfo?: UserOAuthTokenInfo): string {
   const email = typeof tokenInfo?.email === 'string' ? tokenInfo.email.trim() : ''
   return createForm.name.trim() || email || 'OpenAI OAuth Account'
-}
-
-function openCreateDialog() {
-  showCreateForm.value = true
-  createStep.value = 1
 }
 
 function handleCreateClose() {

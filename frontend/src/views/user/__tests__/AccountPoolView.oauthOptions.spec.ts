@@ -87,7 +87,7 @@ describe('AccountPoolView OAuth options', () => {
     getAvailableGroups.mockResolvedValue([])
   })
 
-  it('hides the OpenAI OAuth contribution entry and defaults to Kimi', async () => {
+  it('hides the add-contribution account entry', async () => {
     const wrapper = shallowMount(AccountPoolView, {
       global: {
         stubs: {
@@ -111,18 +111,10 @@ describe('AccountPoolView OAuth options', () => {
     })
 
     await flushPromises()
-    await wrapper.find('button').trigger('click')
 
-    const createForm = wrapper.find('form')
-    const createButtons = createForm.findAll('button').map((button) => button.text().trim())
-    expect(createButtons).toContain('Kimi')
-    expect(createButtons).not.toContain('OpenAI')
-
-    await wrapper.find('form').trigger('submit.prevent')
-    await flushPromises()
-
-    const flow = wrapper.findComponent(OAuthAuthorizationFlowStub)
-    expect(flow.exists()).toBe(false)
-    expect(wrapper.text()).toContain('accountPool.kimi.startAuthorization')
+    // 添加贡献账号入口已隐藏：无入口按钮，创建表单无法打开，Kimi 设备授权流程不可达。
+    expect(wrapper.text()).not.toContain('accountPool.addAccount')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.findComponent(OAuthAuthorizationFlowStub).exists()).toBe(false)
   })
 })
