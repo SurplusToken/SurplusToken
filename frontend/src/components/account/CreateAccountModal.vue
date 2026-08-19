@@ -112,35 +112,6 @@
           </button>
           <button
             type="button"
-            data-testid="platform-kimi"
-            @click="selectOpenAICompatibleProvider('kimi')"
-            :class="[
-              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'kimi'
-                ? 'bg-white text-gray-950 shadow-sm dark:bg-dark-600 dark:text-white'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-          >
-            <span class="flex h-4 w-4 items-center justify-center rounded-sm bg-gray-950 text-[10px] font-semibold text-white dark:bg-white dark:text-gray-950">K</span>
-            Kimi
-          </button>
-          <button
-            v-if="!surplusAIOAuthOnly"
-            type="button"
-            data-testid="platform-zhipu"
-            @click="selectOpenAICompatibleProvider('zhipu')"
-            :class="[
-              'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'zhipu'
-                ? 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-          >
-            <span class="flex h-4 w-4 items-center justify-center rounded-sm bg-cyan-600 text-[10px] font-semibold text-white">Z</span>
-            智谱 GLM
-          </button>
-          <button
-            type="button"
             @click="form.platform = 'gemini'"
             :class="[
               'flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
@@ -4491,23 +4462,17 @@ const form = reactive({
 
 const getOpenAIProviderBaseUrl = (
   provider: OpenAICompatibleProvider,
-  category = accountCategory.value
+  _category = accountCategory.value
 ) => {
   const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
-  if (provider === 'kimi' && category === 'oauth-based') {
-    return preset.oauthBaseUrl || preset.baseUrl
-  }
   return preset.baseUrl
 }
 
 const getOpenAIProviderModelCatalog = (
   provider: OpenAICompatibleProvider,
-  category = accountCategory.value
+  _category = accountCategory.value
 ) => {
   const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
-  if (provider === 'kimi' && category === 'oauth-based') {
-    return preset.oauthModelCatalogPlatform || preset.modelCatalogPlatform
-  }
   return preset.modelCatalogPlatform
 }
 
@@ -4521,16 +4486,9 @@ const modelWhitelistPlatform = computed(() => {
 const selectOpenAICompatibleProvider = (provider: OpenAICompatibleProvider) => {
   const preset = OPENAI_COMPATIBLE_PROVIDER_PRESETS[provider]
   openAICompatibleProvider.value = provider
-  form.platform = provider === 'kimi' || provider === 'zhipu' ? provider : 'openai'
-
-  if (provider === 'kimi') {
-    // Kimi 跟随上游 API Key 模式（无设备授权 OAuth）。
-    accountCategory.value = 'apikey'
-    form.type = 'apikey'
-  } else if (provider !== 'openai') {
-    accountCategory.value = 'apikey'
-    form.type = 'apikey'
-  }
+  form.platform = 'openai'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
   const baseUrl = getOpenAIProviderBaseUrl(provider)
   const modelCatalog = getOpenAIProviderModelCatalog(provider)
   apiKeyBaseUrl.value = baseUrl
