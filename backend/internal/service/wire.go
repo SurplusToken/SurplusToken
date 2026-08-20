@@ -790,9 +790,13 @@ func ProvideBillingCacheService(
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	carpoolCommons CarpoolCommonsCounter,
+	carpoolUpstreamWindows CarpoolUpstreamWindowSource,
 ) *BillingCacheService {
 	svc := NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
 	svc.SetCarpoolCommonsCounter(carpoolCommons)
+	if capacitySource, ok := carpoolUpstreamWindows.(CarpoolObservedCapacitySource); ok {
+		svc.SetCarpoolObservedCapacitySource(capacitySource)
+	}
 	return svc
 }
 
