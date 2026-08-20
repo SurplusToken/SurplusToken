@@ -30,9 +30,10 @@ func TestCarpoolWeeklyWindowTargetAdvancesPastExpiredResetBoundary(t *testing.T)
 	now := resetAt.Add(2 * time.Hour)
 	prev := resetAt.Add(-7 * 24 * time.Hour)
 	up := &CarpoolUpstreamWindow{
-		Start:      prev,
-		End:        resetAt,
-		ObservedAt: resetAt.Add(-19 * time.Hour),
+		Start:       prev,
+		End:         resetAt,
+		ObservedAt:  resetAt.Add(-19 * time.Hour),
+		UsedPercent: 100,
 	}
 
 	target, fromUpstream := CarpoolWeeklyWindowTarget(prev, up, now)

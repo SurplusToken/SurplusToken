@@ -116,6 +116,9 @@ type BillingCacheService struct {
 	// carpoolCommons 拼车组级公共池计数器（可选注入）。
 	// 未注入时跳过公共池强制：保底/个人限额检查不受影响，行为与注入前一致。
 	carpoolCommons CarpoolCommonsCounter
+	// carpoolCapacity 提供按实测反推的整车容量（可选注入）。
+	// 未注入或不可信时公共池容量退回发车时锁定的值。
+	carpoolCapacity CarpoolObservedCapacitySource
 
 	cacheWriteChan     chan cacheWriteTask
 	cacheWriteWg       sync.WaitGroup
@@ -155,6 +158,40 @@ func NewBillingCacheService(
 	svc.circuitBreaker = newBillingCircuitBreaker(cfg.Billing.CircuitBreaker)
 	svc.startCacheWriteWorkers()
 	return svc
+}
+
+// SetCarpoolObservedCapacitySource 注入实测容量来源（wire 组装时调用）。
+func (s *BillingCacheService) SetCarpoolObservedCapacitySource(src CarpoolObservedCapacitySource) {
+	if s == nil {
+		return
+	}
+	s.carpoolCapacity = src
+}
+
+// carpoolCommonsCapacity 返回本次检查该采用的公共池容量。
+//
+// 优先用实测：$2400 是发车时的定价基准，上游到底给多少额度得看实测。保底 r
+// 始终按发车时锁定的值兑现，容量缩水全部由公共池吸收。实测不可用时退回发车
+// 时锁定的 C（sub.weekly_limit_usd − sub.weekly_reserved_usd）。
+func (s *BillingCacheService) carpoolCommonsCapacity(ctx context.Context, sub *UserSubscription) float64 {
+	locked := sub.CarpoolSharedPoolCapacityUSD()
+	if s.carpoolCapacity == nil || sub.WeeklyWindowStart == nil {
+		return locked
+	}
+	snapshot, err := s.carpoolCapacity.GroupObservedCapacity(ctx, sub.GroupID, *sub.WeeklyWindowStart)
+	if err != nil {
+		logger.LegacyPrintf("service.billing_cache", "ALERT: observed carpool capacity failed group=%d: %v (using launch-time capacity)", sub.GroupID, err)
+		return locked
+	}
+	if snapshot == nil || !snapshot.Trusted {
+		return locked
+	}
+	if snapshot.Oversold {
+		logger.LegacyPrintf("service.billing_cache",
+			"ALERT: carpool oversold group=%d observed=%.2f reserved=%.2f — 实测容量已低于全车保底之和，保底无法全部兑现",
+			sub.GroupID, snapshot.ObservedTotalUSD, snapshot.ReservedTotalUSD)
+	}
+	return snapshot.CommonsUSD
 }
 
 // SetCarpoolCommonsCounter 注入拼车组级公共池计数器（wire 组装时调用）。
@@ -199,17 +236,11 @@ func (s *BillingCacheService) checkCarpoolCommonsEligibility(ctx context.Context
 	if s == nil || sub == nil || !sub.NeedsCarpoolCommonsCheck(weeklyUsage) || sub.WeeklyWindowStart == nil {
 		return nil
 	}
-	// 公共池容量恒为发车时锁定的 C = 车周限额 − Σ保底，不再按上游实测反推。
-	//
-	// 反推（全车用量 ÷ 上游已用百分比）只在"一辆车 = 一个账号"时成立。组里有
-	// 多个账号时分子是所有账号的用量之和、分母却只是其中一个账号的百分比，
-	// 用得越多推出的容量越离谱地大，等于把上限自动放开——正好与限额的目的相反。
-	// 现在车的上限就是 weekly_limit_usd 这一个数，调它即可，不会被上游读数带偏。
-	capacity := sub.CarpoolSharedPoolCapacityUSD()
+	capacity := s.carpoolCommonsCapacity(ctx, sub)
 	if capacity <= 0 {
 		// 容量为零 = 公共池没有可用额度，只放行保底内用量（能走到这里说明
-		// 本次已经越过保底 r）。这里必须拒绝而不是跳过：车周限额可能被下调到
-		// Σ保底 附近甚至以下，一跳过就等于限额越紧、约束越松，正好反了。
+		// 本次已经越过保底 r）。这里必须拒绝而不是跳过：实测容量会随上游
+		// 缩水动态跌到 Σr 以下，一跳过就等于容量越紧、约束越松，正好反了。
 		return ErrCarpoolSharedPoolExhausted
 	}
 	used, ok, err := s.GetCarpoolCommonsUsage(ctx, sub.GroupID, *sub.WeeklyWindowStart)

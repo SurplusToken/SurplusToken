@@ -207,13 +207,10 @@ func TestListCarpoolUsageAggregatesAnonymousSnapshot(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// 展示给用户的共享池容量必须与执行侧同源：车周限额 − Σ保底。
-//
-// 早先这里会用"上游实测反推"的值覆盖静态值，于是界面显示的余量与真正用于
-// 拦截的余量可能对不上；多账号的车上反推值还会被推高（分子是所有账号的用量、
-// 分母只是其中一个账号的百分比），界面显示还有余量、请求却已经被拒。
-func TestListCarpoolUsageShowsStaticSharedPoolCapacity(t *testing.T) {
+func TestListCarpoolUsageUsesObservedSharedPoolCapacity(t *testing.T) {
+	capacity := &capacitySourceStub{snapshot: &CarpoolCapacitySnapshot{CommonsUSD: 350, Trusted: true}}
 	billingCacheService := &BillingCacheService{cfg: &config.Config{}}
+	billingCacheService.SetCarpoolObservedCapacitySource(capacity)
 	svc, mock := newCarpoolUsageTestService(t, billingCacheService)
 	window := *carpoolUsageRepo(t, svc).subscriptions[101].WeeklyWindowStart
 	expectCarpoolUsageQuery(mock, carpoolUsageRows(window))
@@ -221,8 +218,8 @@ func TestListCarpoolUsageShowsStaticSharedPoolCapacity(t *testing.T) {
 	snapshots, err := svc.ListCarpoolUsageSnapshots(context.Background(), 7)
 	require.NoError(t, err)
 	require.Len(t, snapshots, 1)
-	require.InDelta(t, 480.0, snapshots[0].SharedPool.CapacityUSD, 1e-9)
-	require.InDelta(t, 2400.0, snapshots[0].TotalCapacityUSD, 1e-9)
+	require.InDelta(t, 2270.0, snapshots[0].TotalCapacityUSD, 1e-9)
+	require.Equal(t, 1, capacity.calls)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
