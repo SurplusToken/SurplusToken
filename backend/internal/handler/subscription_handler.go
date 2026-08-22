@@ -64,6 +64,24 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 	response.Success(c, out)
 }
 
+// ListCarpoolUsage handles listing current-week carpool usage for the current user.
+// GET /api/v1/subscriptions/carpool-usage
+func (h *SubscriptionHandler) ListCarpoolUsage(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+
+	snapshots, err := h.subscriptionService.ListCarpoolUsageSnapshots(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, snapshots)
+}
+
 // GetActive handles getting current user's active subscriptions
 // GET /api/v1/subscriptions/active
 func (h *SubscriptionHandler) GetActive(c *gin.Context) {

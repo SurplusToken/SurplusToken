@@ -15,7 +15,6 @@ import type {
   UserAccountPoolItem,
 } from '@/types'
 import type { OpenAIQuotaUsage, OpenAIQuotaResetResult } from './admin/accounts'
-import type { KimiDeviceAuthorization, KimiDeviceTokenResult, KimiTokenInfo } from './admin/kimi'
 
 export type ContributionProbeFailurePolicy = 'continue' | 'pause' | 'local'
 
@@ -232,23 +231,6 @@ export async function updateDynamicPoolSharingRateRange(
     `/accounts/pool/dynamic-groups/${groupId}/sharing-rate-range`,
     range,
   )
-  return data
-}
-
-export async function startKimiDeviceAuthorization(proxyId?: number | null): Promise<KimiDeviceAuthorization> {
-  const payload: Record<string, unknown> = {}
-  if (proxyId) payload.proxy_id = proxyId
-  const { data } = await apiClient.post<KimiDeviceAuthorization>('/accounts/kimi/oauth/device-authorization', payload)
-  return data
-}
-
-export async function pollKimiDeviceToken(sessionId: string): Promise<KimiDeviceTokenResult> {
-  const { data } = await apiClient.post<KimiDeviceTokenResult>('/accounts/kimi/oauth/device-token', { session_id: sessionId })
-  return data
-}
-
-export async function createKimiOAuth(payload: CreateUserKimiAccountOptions & { token: KimiTokenInfo }): Promise<UserAccountPoolItem> {
-  const { data } = await apiClient.post<UserAccountPoolItem>('/accounts/kimi/oauth', payload)
   return data
 }
 
@@ -537,9 +519,6 @@ export const accountsAPI = {
   listProxies,
   testProxy,
   createOAuth,
-  startKimiDeviceAuthorization,
-  pollKimiDeviceToken,
-  createKimiOAuth,
   createKimiAPIKey,
   generateOAuthAuthUrl,
   exchangeOAuthCode,

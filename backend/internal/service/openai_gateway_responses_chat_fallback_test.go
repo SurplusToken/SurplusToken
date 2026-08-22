@@ -53,33 +53,49 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.False(t, result.Stream)
 }
 
-func TestForwardResponses_KimiOAuthRoutesToCodingChatCompletions(t *testing.T) {
+
+func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"k3","input":"hello","stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
+	for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5.4-channel","input":"hello","stream":false}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
 
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi","object":"chat.completion","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"id":"chatcmpl_mapping","object":"chat.completion","model":"gpt-5.4-account","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:          rawChatCompletionsTestConfig(),
+				httpUpstream: upstream,
+			}
+			account := rawChatCompletionsTestAccount()
+			account.Credentials["model_mapping"] = map[string]any{
+				"gpt-5.4-channel": "gpt-5.4-account",
+			}
+			account.Credentials["compact_model_mapping"] = map[string]any{
+				"gpt-5.4-account": "gpt-5.4-compact",
+			}
+			account.Extra = map[string]any{
+				"openai_passthrough":                     true,
+				openai_compat.ExtraKeyResponsesSupported: false,
+			}
 
-	result, err := svc.Forward(context.Background(), c, kimiOAuthRawFallbackAccount(), body)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "kimi_code_cli", upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+			require.Equal(t, "gpt-5.4-account", gjson.GetBytes(upstream.lastBody, "model").String())
+		})
+	}
 }
 
 func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {

@@ -87,7 +87,7 @@ describe('AccountPoolView OAuth options', () => {
     getAvailableGroups.mockResolvedValue([])
   })
 
-  it('shows original sub2api OpenAI authorization input methods for user contributions', async () => {
+  it('hides the add-contribution account entry', async () => {
     const wrapper = shallowMount(AccountPoolView, {
       global: {
         stubs: {
@@ -111,14 +111,10 @@ describe('AccountPoolView OAuth options', () => {
     })
 
     await flushPromises()
-    await wrapper.find('button').trigger('click')
-    await wrapper.find('form').trigger('submit.prevent')
-    await flushPromises()
 
-    const flow = wrapper.findComponent(OAuthAuthorizationFlowStub)
-    expect(flow.props('showRefreshTokenOption')).toBe(true)
-    expect(flow.props('showMobileRefreshTokenOption')).toBe(true)
-    expect(flow.props('showCodexSessionImportOption')).toBe(true)
-    expect(flow.props('platform')).toBe('openai')
+    // 添加贡献账号入口已隐藏：无入口按钮，创建表单无法打开，Kimi 设备授权流程不可达。
+    expect(wrapper.text()).not.toContain('accountPool.addAccount')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.findComponent(OAuthAuthorizationFlowStub).exists()).toBe(false)
   })
 })

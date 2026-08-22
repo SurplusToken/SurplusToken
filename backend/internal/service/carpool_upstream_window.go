@@ -50,23 +50,51 @@ type CarpoolUpstreamWindow struct {
 	// ObservedAt 是这份数据最后一次从上游响应头刷新的时刻（codex_usage_updated_at），
 	// 用于判断是否已经陈旧。
 	ObservedAt time.Time
+	// UsedPercent 是上游报告的本窗口已用百分比（0–100）。
+	// 与全车美元用量一起可反推整车真实容量，见 CarpoolObservedTotalCapacityUSD。
+	UsedPercent float64
 }
 
-// Fresh 报告快照是否新到可以用来重锚全车窗口。
-func (w *CarpoolUpstreamWindow) Fresh(now time.Time) bool {
+// usablePeriod 验证快照是否足以确定上游周期边界。
+func (w *CarpoolUpstreamWindow) usablePeriod(now time.Time) (time.Duration, bool) {
 	if w == nil || w.Start.IsZero() || w.End.IsZero() {
-		return false
+		return 0, false
 	}
 	if !w.End.After(w.Start) {
-		return false
+		return 0, false
 	}
 	// 长度得像个周窗口。月度套餐的账号会报 30 天，拿它当"一周"会让全车
 	// 的周用量整月不重置（见常量注释）。
 	length := w.End.Sub(w.Start)
 	if length < CarpoolUpstreamWindowMinLength || length > CarpoolUpstreamWindowMaxLength {
-		return false
+		return 0, false
 	}
-	return now.Sub(w.ObservedAt) <= CarpoolUpstreamWindowMaxAge
+	if w.ObservedAt.IsZero() || now.Sub(w.ObservedAt) > CarpoolUpstreamWindowMaxAge {
+		return 0, false
+	}
+	return length, true
+}
+
+// Fresh 报告快照是否仍描述当前尚未结束的窗口。已越过 End 的快照可以用其
+// 周期边界推导新窗口起点，但旧窗口的 UsedPercent 不能再用于新窗口容量估算。
+func (w *CarpoolUpstreamWindow) Fresh(now time.Time) bool {
+	_, ok := w.usablePeriod(now)
+	return ok && w.End.After(now)
+}
+
+// CurrentStartAt 返回 now 所处的上游周期起点。若最后一次已知 reset_at 已经过期，
+// 按可信窗口长度向前推进；这样共享池在上游重置后无需先成功打出一个请求来刷新
+// 快照，避免“本地先拦截 → 永远无法刷新上游快照”的闭环死锁。
+func (w *CarpoolUpstreamWindow) CurrentStartAt(now time.Time) (time.Time, bool) {
+	length, ok := w.usablePeriod(now)
+	if !ok {
+		return time.Time{}, false
+	}
+	if now.Before(w.End) {
+		return w.Start, true
+	}
+	periodsAfterEnd := now.Sub(w.End) / length
+	return w.End.Add(periodsAfterEnd * length), true
 }
 
 // CarpoolUpstreamWindowSource 提供拼车组对应上游账号的周窗口。
@@ -86,10 +114,10 @@ type CarpoolUpstreamWindowSource interface {
 // 优先跟随上游真实窗口；上游数据缺失或陈旧时退回原来的 7 天网格（发车日锚定），
 // 保证降级后全车仍然一致。第二个返回值表示是否采信了上游。
 func CarpoolWeeklyWindowTarget(prev time.Time, upstream *CarpoolUpstreamWindow, now time.Time) (time.Time, bool) {
-	if upstream.Fresh(now) {
+	if currentStart, ok := upstream.CurrentStartAt(now); ok {
 		// 上游窗口起点是全车共享的外部事实，各成员各自算也必然一致——
 		// 这正是原来那个 7 天网格想达到的效果，只是锚对了地方。
-		return upstream.Start, true
+		return currentStart, true
 	}
 	return CarpoolWeeklyWindowGridStart(prev, now), false
 }

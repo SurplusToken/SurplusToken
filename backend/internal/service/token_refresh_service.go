@@ -175,18 +175,6 @@ func (s *TokenRefreshService) SetRefreshAPI(api *OAuthRefreshAPI) {
 	s.refreshAPI = api
 }
 
-func (s *TokenRefreshService) SetKimiOAuthService(kimiOAuthService *KimiOAuthService) {
-	if s == nil || kimiOAuthService == nil {
-		return
-	}
-	refresher := NewKimiTokenRefresher(kimiOAuthService)
-	s.registrations = append(s.registrations, tokenRefreshRegistration{
-		platform:  PlatformKimi,
-		refresher: refresher,
-		executor:  refresher,
-	})
-}
-
 // SetRefreshPolicy 注入后台刷新调用侧策略（用于显式化平台/场景差异行为）。
 func (s *TokenRefreshService) SetRefreshPolicy(policy BackgroundRefreshPolicy) {
 	s.refreshPolicy = policy
@@ -1212,6 +1200,10 @@ func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *A
 	s.ensureOpenAIPrivacy(ctx, account)
 	// Antigravity OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则调用 setUserSettings
 	s.ensureAntigravityPrivacy(ctx, account)
+	// Grok: clear soft reauth flag after a successful credential refresh.
+	if account != nil && account.Platform == PlatformGrok && accountGrokNeedsReauth(account) {
+		clearGrokNeedsReauthExtra(ctx, s.accountRepo, account.ID)
+	}
 }
 
 func (s *TokenRefreshService) postRefreshStateSyncWithCleanup(parent context.Context, account *Account) {

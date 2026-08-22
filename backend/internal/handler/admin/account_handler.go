@@ -23,12 +23,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/zhipu"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -53,7 +51,6 @@ type AccountHandler struct {
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService
-	kimiOAuthService        *service.KimiOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
 	grokOAuthService        service.GrokOAuthTokenService
@@ -84,7 +81,6 @@ func NewAccountHandler(
 	adminService service.AdminService,
 	oauthService *service.OAuthService,
 	openaiOAuthService *service.OpenAIOAuthService,
-	kimiOAuthService *service.KimiOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
 	antigravityOAuthService *service.AntigravityOAuthService,
 	rateLimitService *service.RateLimitService,
@@ -105,7 +101,6 @@ func NewAccountHandler(
 		adminService:            adminService,
 		oauthService:            oauthService,
 		openaiOAuthService:      openaiOAuthService,
-		kimiOAuthService:        kimiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
 		grokOAuthService:        grokOAuthService,
@@ -157,6 +152,8 @@ type UpdateAccountRequest struct {
 	GroupIDs                *[]int64       `json:"group_ids"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
+	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
+	RateSyncEnabled         *bool          `json:"upstream_billing_rate_sync_enabled"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
@@ -997,6 +994,8 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		GroupIDs:              req.GroupIDs,
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
+		ProbeEnabled:          req.ProbeEnabled,
+		RateSyncEnabled:       req.RateSyncEnabled,
 		SkipMixedChannelCheck: skipCheck,
 	})
 	if err != nil {
@@ -1031,7 +1030,8 @@ func (h *AccountHandler) Update(c *gin.Context) {
 // 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
-	if account == nil || account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeAPIKey {
+	if account == nil || account.Type != service.AccountTypeAPIKey ||
+		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
 		return
 	}
 	if h.accountTestService == nil {
@@ -1071,6 +1071,10 @@ type TestAccountRequest struct {
 	ModelID string `json:"model_id"`
 	Prompt  string `json:"prompt"`
 	Mode    string `json:"mode"`
+	// Optional media for Grok (and future) real generation tests.
+	// ImageDataURL / AudioDataURL are data:<mime>;base64,... payloads.
+	ImageDataURL string `json:"image_data_url"`
+	AudioDataURL string `json:"audio_data_url"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1100,8 +1104,13 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	// Allow empty body, model_id is optional
 	_ = c.ShouldBindJSON(&req)
 
+	opts := service.AccountTestOptions{
+		ImageDataURL: req.ImageDataURL,
+		AudioDataURL: req.AudioDataURL,
+	}
+
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode); err != nil {
+	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		// Error already sent via SSE, just log
 		return
 	}
@@ -1211,18 +1220,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 	var newCredentials map[string]any
 
-	if account.IsKimi() {
-		tokenInfo, err := h.kimiOAuthService.RefreshAccountToken(ctx, account)
-		if err != nil {
-			return nil, "", err
-		}
-		newCredentials = h.kimiOAuthService.BuildAccountCredentials(tokenInfo)
-		for k, v := range account.Credentials {
-			if _, exists := newCredentials[k]; !exists {
-				newCredentials[k] = v
-			}
-		}
-	} else if account.IsOpenAI() {
+	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
 		if err != nil {
 			// 刷新失败但 access_token 可能仍有效，尝试设置隐私
@@ -1431,6 +1429,9 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		return
 	}
 
+	// Drop SSO/password residue; re-auth must leave only OAuth tokens on disk.
+	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, req.Credentials)
+
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
 		Type:        req.Type,
 		Credentials: req.Credentials,
@@ -1454,6 +1455,20 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 				"account_id", accountID,
 				"extra_keys", extraKeys,
 				"err", extraErr,
+			)
+		}
+	}
+
+	// Successful re-auth clears the soft spending-limit reauth flag for Grok.
+	if existing.Platform == service.PlatformGrok {
+		if clearErr := h.adminService.UpdateAccountExtra(ctx, accountID, map[string]any{
+			"grok_needs_reauth":        false,
+			"grok_needs_reauth_reason": "",
+			"grok_needs_reauth_at":     "",
+		}); clearErr != nil {
+			slog.Warn("apply_oauth_credentials.clear_grok_reauth_failed",
+				"account_id", accountID,
+				"err", clearErr,
 			)
 		}
 	}
@@ -1549,6 +1564,141 @@ func (h *AccountHandler) RevertProxyFallback(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "reverted"})
+}
+
+// BatchDelete handles deleting multiple accounts with bounded concurrency.
+// POST /api/v1/admin/accounts/batch-delete
+func (h *AccountHandler) BatchDelete(c *gin.Context) {
+	var req struct {
+		AccountIDs []int64 `json:"account_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
+	}
+
+	accounts, err := h.adminService.GetAccountsByIDs(c.Request.Context(), accountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	type deleteError struct {
+		AccountID int64  `json:"account_id"`
+		Error     string `json:"error"`
+	}
+
+	requestedIDs := make(map[int64]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs {
+		requestedIDs[accountID] = struct{}{}
+	}
+	accountsByID := make(map[int64]*service.Account, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			accountsByID[account.ID] = account
+		}
+	}
+
+	rootIDs := make([]int64, 0, len(accountIDs))
+	dependentIDs := make(map[int64][]int64)
+	failedIDs := make([]int64, 0)
+	errorsByAccount := make([]deleteError, 0)
+	for _, accountID := range accountIDs {
+		account := accountsByID[accountID]
+		if account == nil {
+			failedIDs = append(failedIDs, accountID)
+			errorsByAccount = append(errorsByAccount, deleteError{
+				AccountID: accountID,
+				Error:     "account not found",
+			})
+			continue
+		}
+
+		rootID := accountID
+		visited := map[int64]struct{}{accountID: {}}
+		for {
+			current := accountsByID[rootID]
+			if current == nil || current.ParentAccountID == nil {
+				break
+			}
+			parentID := *current.ParentAccountID
+			if _, selected := requestedIDs[parentID]; !selected {
+				break
+			}
+			if _, exists := accountsByID[parentID]; !exists {
+				break
+			}
+			if _, cyclic := visited[parentID]; cyclic {
+				rootID = accountID
+				break
+			}
+			visited[parentID] = struct{}{}
+			rootID = parentID
+		}
+
+		if rootID != accountID {
+			dependentIDs[rootID] = append(dependentIDs[rootID], accountID)
+			continue
+		}
+		rootIDs = append(rootIDs, accountID)
+	}
+
+	const maxConcurrency = 5
+	g, gctx := errgroup.WithContext(c.Request.Context())
+	g.SetLimit(maxConcurrency)
+
+	var mu sync.Mutex
+	successIDs := make([]int64, 0, len(accountIDs))
+
+	// Every worker returns nil so one account failure does not cancel the remaining deletions.
+	for _, id := range rootIDs {
+		accountID := id
+		g.Go(func() error {
+			err := h.adminService.DeleteAccount(gctx, accountID)
+
+			mu.Lock()
+			defer mu.Unlock()
+			affectedIDs := append([]int64{accountID}, dependentIDs[accountID]...)
+			if err != nil {
+				for _, affectedID := range affectedIDs {
+					failedIDs = append(failedIDs, affectedID)
+					errorsByAccount = append(errorsByAccount, deleteError{
+						AccountID: affectedID,
+						Error:     err.Error(),
+					})
+				}
+				return nil
+			}
+			successIDs = append(successIDs, affectedIDs...)
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	sort.Slice(successIDs, func(i, j int) bool { return successIDs[i] < successIDs[j] })
+	sort.Slice(failedIDs, func(i, j int) bool { return failedIDs[i] < failedIDs[j] })
+	sort.Slice(errorsByAccount, func(i, j int) bool {
+		return errorsByAccount[i].AccountID < errorsByAccount[j].AccountID
+	})
+
+	response.Success(c, gin.H{
+		"total":       len(accountIDs),
+		"success":     len(successIDs),
+		"failed":      len(failedIDs),
+		"success_ids": successIDs,
+		"failed_ids":  failedIDs,
+		"errors":      errorsByAccount,
+	})
 }
 
 // BatchClearError handles batch clearing account errors
@@ -2303,6 +2453,11 @@ type BatchTodayStatsRequest struct {
 	AccountIDs []int64 `json:"account_ids" binding:"required"`
 }
 
+type BatchUsageRequest struct {
+	AccountIDs []int64 `json:"account_ids" binding:"required"`
+	Force      bool    `json:"force"`
+}
+
 // GetBatchTodayStats 批量获取多个账号的今日统计。
 // POST /api/v1/admin/accounts/today-stats/batch
 func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
@@ -2347,6 +2502,36 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	}
 	c.Header("X-Snapshot-Cache", "miss")
 	response.Success(c, payload)
+}
+
+// GetBatchUsage 批量获取多个账号的 current usage。
+// POST /api/v1/admin/accounts/usage/batch
+func (h *AccountHandler) GetBatchUsage(c *gin.Context) {
+	var req BatchUsageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, gin.H{
+			"usage":  map[string]any{},
+			"errors": map[string]string{},
+		})
+		return
+	}
+
+	usageByAccount, errorsByAccount, err := h.accountUsageService.GetUsageBatch(c.Request.Context(), accountIDs, req.Force)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"usage":  usageByAccount,
+		"errors": errorsByAccount,
+	})
 }
 
 // SetSchedulableRequest represents the request body for setting schedulable status
@@ -2543,27 +2728,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
-		return
-	}
-	if account.IsKimi() {
-		ids := kimi.APIModelIDs()
-		if account.IsKimiCode() {
-			ids = kimi.CodeModelIDs()
-		}
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
-		}
-		response.Success(c, models)
-		return
-	}
-	if account.IsZhipu() {
-		ids := zhipu.DefaultModelIDs()
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
-		}
-		response.Success(c, models)
 		return
 	}
 

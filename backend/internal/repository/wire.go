@@ -100,6 +100,7 @@ var ProviderSet = wire.NewSet(
 	NewTLSFingerprintProfileRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
+	NewChannelMonitorV2Repository,
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
@@ -111,6 +112,7 @@ var ProviderSet = wire.NewSet(
 	NewCarpoolRepository,
 	NewCarpoolCommonsCache,             // 拼车组级公共池计数器（Redis + DB 重建）
 	NewCarpoolUpstreamWindowRepository, // 拼车组绑定账号的上游周窗口
+	NewCarpoolBillingCycleRepository,   // 拼车周周期结算台账
 
 	// Cache implementations
 	NewGatewayCache,
@@ -157,6 +159,8 @@ var ProviderSet = wire.NewSet(
 
 	// HTTP service ports (DI Strategy A: return interface directly)
 	NewTurnstileVerifier,
+	NewTencentCaptchaVerifier,
+	NewAliyunCaptchaVerifier,
 	ProvidePricingRemoteClient,
 	ProvideGitHubReleaseClient,
 	NewProxyExitInfoProber,
@@ -165,7 +169,6 @@ var ProviderSet = wire.NewSet(
 	NewHTTPUpstream,
 	NewOpenAIOAuthClient,
 	NewGrokOAuthClient,
-	NewKimiOAuthClient,
 	NewGeminiOAuthClient,
 	NewGeminiCliCodeAssistClient,
 	NewGeminiDriveClient,

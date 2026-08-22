@@ -11,7 +11,6 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kimi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -434,21 +433,12 @@ func userDynamicPoolAccountModels(account *Account) []string {
 		}
 		return models
 	}
-	if account.IsKimiOAuth() {
-		return kimi.CodeModelIDs()
-	}
-	if account.IsKimi() && account.Type == AccountTypeAPIKey {
-		return kimi.APIModelIDs()
-	}
 	return nil
 }
 
 func userDynamicPoolSourceKind(account *Account) string {
 	if account == nil {
 		return "other"
-	}
-	if account.IsKimiOAuth() {
-		return "kimi_code_oauth"
 	}
 	if account.IsKimi() && account.Type == AccountTypeAPIKey {
 		if strings.EqualFold(strings.TrimSpace(account.GetCredential("base_url")), KimiAPIAnthropicBaseURL) {
@@ -487,14 +477,7 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if len(req.Credentials) == 0 {
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
-	if platform == PlatformKimi {
-		req.Credentials = normalizeUserKimiOAuthCredentials(req.Credentials)
-		if strings.TrimSpace(stringValue(req.Credentials["access_token"])) == "" || strings.TrimSpace(stringValue(req.Credentials["refresh_token"])) == "" {
-			return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "Kimi OAuth access_token and refresh_token are required")
-		}
-	}
-	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)
-}
+	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)}
 
 func (s *AccountService) CreateUserKimiAPIKeyAccount(ctx context.Context, userID int64, req CreateUserKimiAPIKeyAccountRequest) (*UserAccountPoolItem, error) {
 	apiKey := strings.TrimSpace(req.APIKey)
@@ -626,18 +609,6 @@ func (s *AccountService) createUserContributedAccount(ctx context.Context, userI
 	s.hydrateOthersWeeklySpend(ctx, account)
 	item := accountToUserPoolItem(account, userID)
 	return &item, nil
-}
-
-func normalizeUserKimiOAuthCredentials(raw map[string]any) map[string]any {
-	credentials := make(map[string]any, 8)
-	for _, key := range []string{"access_token", "refresh_token", "token_type", "scope", "expires_at"} {
-		if value, ok := raw[key]; ok {
-			credentials[key] = value
-		}
-	}
-	credentials["base_url"] = KimiCodeBaseURL
-	credentials[openAIEndpointCapabilitiesCredentialKey] = []string{string(OpenAIEndpointCapabilityChatCompletions), string(OpenAIEndpointCapabilityAnthropicMessages)}
-	return credentials
 }
 
 func stringValue(value any) string {
@@ -1089,7 +1060,9 @@ func UserAccountPoolItemFromAccount(account *Account, currentUserID int64) UserA
 // ContributionProtectionBlocked) reflect the correct budget-gate state in the
 // pool display. No-op for percent-mode accounts (ZERO extra work) or when already
 // hydrated. Best-effort: on any error the value stays nil and the budget gate
-// fails open. since = now - 7d; owners excluded via SurplusAIOwnerUserIDs().
+// fails open. The spend window follows the account's current upstream 7d cycle;
+// missing upstream boundaries fall back to rolling 7d. Owners are excluded via
+// SurplusAIOwnerUserIDs().
 func (s *AccountService) hydrateOthersWeeklySpend(ctx context.Context, account *Account) {
 	if account == nil || s.accountRepo == nil {
 		return
@@ -1100,7 +1073,7 @@ func (s *AccountService) hydrateOthersWeeklySpend(ctx context.Context, account *
 	if account.OthersWeeklySpend != nil {
 		return
 	}
-	since := time.Now().Add(-7 * 24 * time.Hour)
+	since := account.contributionWeeklyBudgetWindowStart(time.Now())
 	spend, err := s.accountRepo.GetOthersWeeklySpendCached(ctx, account.ID, account.SurplusAIOwnerUserIDs(), since)
 	if err != nil {
 		return

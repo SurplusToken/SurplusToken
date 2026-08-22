@@ -135,7 +135,20 @@ export default {
     resetIn: 'Resets in {time}',
     quotaEndsIn: 'Quota ends in {time}',
     windowNotActive: 'Awaiting first use',
-    usageOf: '{used} of {limit}'
+    usageOf: '{used} of {limit}',
+    carpoolUsage: {
+      totalUsage: 'Total car usage',
+      sharedPool: 'Shared pool',
+      me: 'Me',
+      member: 'Member {number}',
+      declaredQuota: 'Declared quota {amount}',
+      memberQuota: 'Member quota {amount}',
+      remaining: 'Remaining {amount}',
+      sharedPoolUsed: 'Used shared pool {amount}',
+      loading: 'Loading carpool usage',
+      loadFailed: 'Failed to load carpool usage',
+      retry: 'Retry'
+    }
   },
 
   // Onboarding Tour

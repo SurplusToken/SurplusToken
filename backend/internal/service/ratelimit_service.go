@@ -32,6 +32,10 @@ type RateLimitService struct {
 	runtimeBlocker        AccountRuntimeBlocker
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
+
+	// OpenAI Team 联动熔断的进程内去重：teamID → 去重窗口截止时间
+	openaiTeamLinkedMu     sync.Mutex
+	openaiTeamLinkedRecent map[string]time.Time
 }
 
 type AccountRuntimeBlocker interface {
@@ -78,7 +82,6 @@ const (
 	openAI403CooldownMinutesDefault = 10
 	openAI403DisableThreshold       = 3
 	openAI403CounterWindowMinutes   = 180
-	kimiQuota403DefaultCooldown     = 5 * time.Hour
 )
 
 // NewRateLimitService 创建RateLimitService实例
@@ -139,6 +142,97 @@ func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) 
 	s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
 }
 
+// ApplyAccountSchedulingThreshold evaluates admin-configured per-platform
+// utilization thresholds and, when breached, parks the account as temp-
+// unschedulable until the winning window resets. Returns true when the account
+// is blocked (either newly or already paused for the same threshold reason).
+func (s *RateLimitService) ApplyAccountSchedulingThreshold(ctx context.Context, account *Account) bool {
+	if s == nil || s.settingService == nil || s.accountRepo == nil || account == nil || account.ID <= 0 {
+		return false
+	}
+	if !account.IsActive() || !account.Schedulable {
+		return false
+	}
+
+	now := time.Now().UTC()
+	thresholds := s.settingService.GetAccountSchedulingThresholds(ctx)
+	decision := EvaluateAccountSchedulingThreshold(account, thresholds, now)
+	if !decision.ShouldPause || decision.Until == nil || !decision.Until.After(now) {
+		return false
+	}
+
+	reason := BuildDetailedAccountSchedulingThresholdReason(AccountSchedulingThresholdReasonInput{
+		Platform:         decision.Platform,
+		Window:           decision.Window,
+		Scope:            decision.Scope,
+		ThresholdPercent: decision.ThresholdPercent,
+		UsedPercent:      decision.UsedPercent,
+		Until:            *decision.Until,
+		Now:              now,
+	})
+
+	if accountHasSameSchedulingThresholdPause(account, *decision.Until, reason) {
+		return true
+	}
+	if !account.IsSchedulable() {
+		return false
+	}
+
+	account.TempUnschedulableUntil = cloneTimePtr(decision.Until)
+	account.TempUnschedulableReason = reason
+	s.notifyAccountSchedulingBlocked(account, *decision.Until, "account_scheduling_threshold")
+
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, *decision.Until, reason); err != nil {
+		slog.Warn("account_scheduling_threshold_set_temp_unsched_failed",
+			"account_id", account.ID,
+			"platform", decision.Platform,
+			"window", decision.Window,
+			"scope", decision.Scope,
+			"threshold_percent", decision.ThresholdPercent,
+			"used_percent", decision.UsedPercent,
+			"until", decision.Until.UTC(),
+			"error", err)
+	} else if s.tempUnschedCache != nil {
+		if state := tempUnschedStateFromStoredReason(reason, decision.Until.Unix()); state != nil {
+			if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+				slog.Warn("account_scheduling_threshold_cache_set_failed", "account_id", account.ID, "error", err)
+			}
+		}
+	}
+
+	slog.Info("account_scheduling_threshold_temp_unschedulable",
+		"account_id", account.ID,
+		"platform", decision.Platform,
+		"window", decision.Window,
+		"scope", decision.Scope,
+		"threshold_percent", decision.ThresholdPercent,
+		"used_percent", decision.UsedPercent,
+		"until", decision.Until.UTC())
+	return true
+}
+
+func accountHasSameSchedulingThresholdPause(account *Account, until time.Time, reason string) bool {
+	if account == nil || account.TempUnschedulableUntil == nil {
+		return false
+	}
+	if account.TempUnschedulableUntil.UTC().Unix() != until.UTC().Unix() {
+		return false
+	}
+
+	existing, ok := parseTempUnschedReasonPayload(account.TempUnschedulableReason)
+	if !ok || existing.Source != AccountSchedulingThresholdReasonSource {
+		return false
+	}
+	next, ok := parseTempUnschedReasonPayload(reason)
+	if !ok || next.Source != AccountSchedulingThresholdReasonSource {
+		return false
+	}
+
+	existing.TriggeredAtUnix = 0
+	next.TriggeredAtUnix = 0
+	return existing == next
+}
+
 // ErrorPolicyResult 表示错误策略检查的结果
 type ErrorPolicyResult int
 
@@ -178,6 +272,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
+	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
+	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
@@ -346,6 +443,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 		}
 	case 402:
+		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
+		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
+		if account.IsCNProvider() {
+			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
+			shouldDisable = true
+			break
+		}
 		// OpenAI: deactivated_workspace 表示工作区已停用，直接标记 error
 		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
 			msg := "Workspace deactivated (402): workspace has been deactivated"
@@ -804,17 +908,16 @@ func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody 
 
 // handle403 处理 403 Forbidden 错误
 // Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
-// Kimi 的额度型 403 保持账号 active，仅设置临时限流，保证 OAuth token 继续刷新；
 // 其他平台保持原有 SetError 行为。
 func (s *RateLimitService) handle403(ctx context.Context, account *Account, headers http.Header, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
 	}
-	if account.Platform == PlatformOpenAI {
+	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
+	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
+	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
+	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
-	}
-	if account.IsKimi() && isKimiQuotaLimitError(upstreamMsg, responseBody) {
-		return s.handleKimiQuota403(ctx, account, headers, responseBody)
 	}
 	// 非 Antigravity 平台：保持原有行为
 	msg := buildForbiddenErrorMessage(
@@ -827,41 +930,29 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, head
 	return true
 }
 
-func isKimiQuotaLimitError(upstreamMsg string, responseBody []byte) bool {
-	combined := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + strings.TrimSpace(string(responseBody)))
-	return strings.Contains(combined, "usage limit") &&
-		(strings.Contains(combined, "reached") || strings.Contains(combined, "exhausted"))
-}
-
-func (s *RateLimitService) handleKimiQuota403(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
-	now := time.Now()
-	resetAt := now.Add(kimiQuota403DefaultCooldown)
-	resetSource := "default_5h"
-	if headerReset := parseRetryAfterResetTime(headers, now); headerReset != nil && headerReset.After(now) {
-		resetAt = *headerReset
-		resetSource = "retry_after"
-	} else if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
-		if bodyReset := time.Unix(*resetUnix, 0); bodyReset.After(now) {
-			resetAt = bodyReset
-			resetSource = "response_body"
-		}
-	}
-
-	s.notifyAccountSchedulingBlocked(account, resetAt, "kimi_quota_403")
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
-		slog.Warn("kimi_quota_403_set_rate_limited_failed", "account_id", account.ID, "error", err)
+func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	// 上游代理 / CDN 在请求到达 OpenAI API 之前就拦下时，回的是 HTML 403 页面而不是
+	// {"error":{...}} 结构化错误。这类响应描述的是「这条链路 / 这个端点被挡了」，
+	// 不构成账号凭据或权限失效的证据——例如无效的 /v1/responses 子路径（#5334）。
+	//
+	// 据此写账号状态会把请求级错误放大成账号级处罚：首次即 temp-unschedulable，
+	// 连续 openAI403DisableThreshold 次直接永久禁用；而 403 又在 failover 状态集里，
+	// 同一个坏请求会被逐个账号重放，足以把整组账号打下线。
+	//
+	// 与既有口径一致：count_tokens 路径的 isOpenAIOAuthInputTokensUnsupported 已把
+	// 「HTML 403 page without a structured error」按端点级响应处理；
+	// shouldApplyOpenAIAlphaSearchAccountErrorSideEffects 的不变式也是端点级错误
+	// 只换号、不写账号错误状态。这里只跳过账号处罚，不改变 failover 行为——
+	// 换个走不同代理的账号仍有可能成功。
+	if isHTMLResponse(responseBody) {
+		slog.Warn(
+			"openai_403_html_body_skips_account_penalty",
+			"account_id", account.ID,
+			"upstream_message", upstreamMsg,
+		)
 		return false
 	}
-	slog.Info(
-		"kimi_quota_403_rate_limited",
-		"account_id", account.ID,
-		"reset_at", resetAt,
-		"reset_source", resetSource,
-	)
-	return false
-}
 
-func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -973,6 +1064,13 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// QueryUsage→persistOpenAICodexProbeSnapshot 维护,枯竭由调度守卫处理。
 	if account.IsShadow() {
 		return
+	}
+	// 国产供应商（kimi/zhipu/deepseek）的 429 走专用可恢复路径：余额不足 → 临时停调，
+	// Coding Plan 窗口耗尽 → 冷却到快照重置点。未命中则继续默认 429 逻辑。
+	if account.IsCNProvider() {
+		if s.applyCNProviderReactive429(ctx, account, headers, responseBody) {
+			return
+		}
 	}
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
@@ -2094,6 +2192,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if modelKey == "" {
 		return false
 	}
+	if shouldSkipCodexPlanGatedImageModelCooldown(ctx, reason, requestedModel, modelKey) {
+		return true
+	}
 	resetAt := time.Now().Add(cooldown)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
 		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "reason", reason, "error", err)
@@ -2101,6 +2202,29 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	}
 	slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "reason", reason, "reset_at", resetAt)
 	return true
+}
+
+// shouldSkipCodexPlanGatedImageModelCooldown 判断这次 Codex plan-gated 400 是否
+// 属于"图片模型被文本端点拒绝"。
+//
+// 这类错误是确定性的端点错配，不是账号能力缺失：同一账号通过 /v1/images/* 依然
+// 能出图。在这里写 per-model 冷却，会让一次用错端点的请求把整个号池对正确的生图
+// 端点下线（#4828）。
+//
+// 但请求本身就从 /v1/images/* 入站时不适用——那种情况下被拒说明账号确实不具备
+// 该模型能力，冷却是必要的刹车：没有它，每个生图请求都会完整走一遍号池，对上游
+// 形成无上界的 400 放大。
+//
+// 请求模型与最终冷却键都要判：冷却键走的是 account.GetMappedModel，账号可能把
+// 文本别名映射到 gpt-image-*，只判请求模型会漏掉这种形态。
+func shouldSkipCodexPlanGatedImageModelCooldown(ctx context.Context, reason, requestedModel, modelKey string) bool {
+	if reason != upstreamCodexPlanGatedModelReason {
+		return false
+	}
+	if OpenAIImagesEndpointFromContext(ctx) {
+		return false
+	}
+	return IsGPTImageGenerationModel(requestedModel) || IsGPTImageGenerationModel(modelKey)
 }
 
 func modelRateLimitKeyForUpstreamModelNotFound(ctx context.Context, account *Account, requestedModel string) string {

@@ -43,29 +43,28 @@ describe('CreateAccountModal OpenAI-compatible provider presets', () => {
     expect(getModelsByPlatform('zhipu')).toEqual(expect.arrayContaining([...ZHIPU_CODING_MODELS]))
   })
 
-  it('wires both provider choices and persists their display identity', () => {
-    expect(modalSource).toContain('data-testid="platform-kimi"')
-    expect(modalSource).toContain('data-testid="platform-zhipu"')
+  it('deduplicates CN provider choices (single Kimi/Zhipu entry via the CN row)', () => {
+    expect(modalSource).not.toContain('data-testid="platform-kimi"')
+    expect(modalSource).not.toContain('data-testid="platform-zhipu"')
+    expect(modalSource).toContain("selectCNPlatform('kimi')")
+    expect(modalSource).toContain("selectCNPlatform('zhipu')")
     expect(modalSource).toContain('extra.openai_compatible_provider = openAICompatibleProvider.value')
     expect(badgeSource).toContain("props.compatibleProvider === 'kimi'")
     expect(badgeSource).toContain("props.compatibleProvider === 'zhipu'")
   })
 
-  it('submits Kimi and Zhipu as first-class platform values', () => {
-    expect(modalSource).toContain(
-      "form.platform = provider === 'kimi' || provider === 'zhipu' ? provider : 'openai'"
-    )
-    expect(modalSource).toContain("if (form.platform === 'zhipu') return getOpenAIProviderModelCatalog('zhipu')")
+  it('keeps the legacy OpenAI-compatible row OpenAI-only', () => {
+    expect(modalSource).toContain("form.platform = 'openai'")
+    expect(modalSource).toContain("selectCNPlatform('kimi')")
+    expect(modalSource).toContain("selectCNPlatform('zhipu')")
     expect(badgeSource).toContain("props.platform === 'zhipu'")
   })
 
-  it('offers both Coding Plan OAuth and API Key authentication for Kimi', () => {
-    expect(modalSource).toContain('data-testid="kimi-account-type-oauth"')
+  it('offers API Key authentication for Kimi (Coding Plan OAuth removed)', () => {
     expect(modalSource).toContain('data-testid="kimi-account-type-api-key"')
-    expect(modalSource).toContain('data-testid="kimi-device-authorization"')
-    expect(modalSource).toContain("provider === 'kimi' && category === 'oauth-based'")
-    expect(modalSource).toContain("const token = await kimiOAuth.authorize(form.proxy_id)")
-    expect(modalSource).toContain('await adminAPI.kimi.createOAuthAccount')
+    expect(modalSource).not.toContain('data-testid="kimi-account-type-oauth"')
+    expect(modalSource).not.toContain('data-testid="kimi-device-authorization"')
+    expect(modalSource).not.toContain('await adminAPI.kimi.createOAuthAccount')
   })
 
   it('keeps whitelist auto-fill on the resolved Kimi catalog', () => {

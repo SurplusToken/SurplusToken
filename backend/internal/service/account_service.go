@@ -134,7 +134,7 @@ type AccountRepository interface {
 	SetAccountPrimaryOwner(ctx context.Context, accountID int64, ownerUserID *int64) error
 
 	// SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner 之外）
-	// 产生的 SUM(actual_cost)（美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。
+	// 产生的 SUM(total_cost)（原始模型成本，美元）。ownerUserIDs 为 owner 集合；为空时不排除任何用户。
 	SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error)
 	// GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”，缓存未命中时调用 SumOthersWeeklySpend。
 	// 缓存错误优雅降级为直接计算。
@@ -151,11 +151,25 @@ type AccountDuplicateRepository interface {
 	CreateWithAccountGroups(ctx context.Context, account *Account, groups []AccountGroup) error
 }
 
+// AccountBillingSettingsRepository applies an admin edit without overwriting a
+// rate_multiplier that a successful upstream probe synchronized after the edit
+// form was loaded. A nil rateMultiplier means the request did not edit it.
+type AccountBillingSettingsRepository interface {
+	UpdateWithAccountBillingSettings(
+		ctx context.Context,
+		account *Account,
+		probeEnabled *bool,
+		rateSyncEnabled *bool,
+		rateMultiplier *float64,
+	) error
+}
+
 // AdminAccountRepository makes the account-duplication write capability an explicit
 // construction dependency without forcing read-only gateway test doubles to implement it.
 type AdminAccountRepository interface {
 	AccountRepository
 	AccountDuplicateRepository
+	AccountBillingSettingsRepository
 }
 
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
@@ -172,6 +186,9 @@ type AccountBulkUpdate struct {
 	Credentials    map[string]any
 	Extra          map[string]any
 	ProbeEnabled   *bool
+	// EnsureCodexFingerprintSeed asks the repository to atomically preserve an
+	// existing valid Codex fingerprint seed or create one for eligible rows.
+	EnsureCodexFingerprintSeed bool
 }
 
 // CreateAccountRequest 创建账号请求
@@ -314,8 +331,8 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Notes:       normalizeAccountNotes(req.Notes),
 		Platform:    req.Platform,
 		Type:        req.Type,
-		Credentials: req.Credentials,
-		Extra:       req.Extra,
+		Credentials: SanitizeStoredCredentials(req.Platform, req.Credentials),
+		Extra:       prepareCodexFingerprintExtraForCreate(req.Platform, req.Type, req.Extra),
 		ProxyID:     req.ProxyID,
 		OwnerUserID: req.OwnerUserID,
 		Concurrency: req.Concurrency,
@@ -411,7 +428,7 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
-		account.Credentials = *req.Credentials
+		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
 	}
 
 	if req.Extra != nil {
@@ -422,7 +439,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		delete(extra, OllamaCloudUsageSessionExtraKey)
 		delete(extra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(extra, OllamaCloudUsageSnapshotExtraKey)
-		account.Extra = extra
+		account.Extra = prepareCodexFingerprintExtraForUpdate(account, extra)
+	} else {
+		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
 	}
 
 	if req.ProxyID != nil {
@@ -595,11 +614,8 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 	case PlatformGrok:
 		// Grok OAuth credentials are validated via token exchange/refresh and request-path probes.
 		return nil
-	case PlatformKimi:
-		// Kimi credentials are validated by the account test service and OAuth refresh flow.
-		return nil
-	case PlatformZhipu:
-		// Zhipu API keys are validated by the account test service.
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek:
+		// 国产 OpenAI 兼容供应商：凭证为 API Key，实际可用性经余额/额度探测与转发路径验证。
 		return nil
 	default:
 		return fmt.Errorf("unsupported platform: %s", account.Platform)

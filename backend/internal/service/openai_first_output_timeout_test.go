@@ -89,6 +89,17 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	}
 }
 
+func TestOpenAIFirstOutputHeaderGuardPropagatesParentCancel(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	guarded, guard := newOpenAIFirstOutputHeaderGuard(parent, time.Now().Add(time.Hour))
+	defer guard.close()
+
+	cancelParent()
+	require.Eventually(t, func() bool {
+		return errors.Is(guarded.Err(), context.Canceled)
+	}, 500*time.Millisecond, 10*time.Millisecond)
+}
+
 func TestOpenAINativeFirstOutputTimeoutDisabledPreservesSynchronousStream(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
@@ -425,7 +436,7 @@ func TestOpenAINativeFirstOutputEOFDispatchesTerminalEventWithoutBlankLine(t *te
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.NotNil(t, result.firstTokenMs)
+	require.Nil(t, result.firstTokenMs, "usage-only terminal event is not visible output")
 	require.Equal(t, "resp_eof", result.responseID)
 	require.Equal(t, 3, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)

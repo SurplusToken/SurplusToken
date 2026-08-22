@@ -159,7 +159,7 @@ func (c *schedulerTestGatewayCache) GetSessionAccountID(ctx context.Context, gro
 	if id, ok := c.sessionBindings[sessionHash]; ok {
 		return id, nil
 	}
-	return 0, errors.New("not found")
+	return 0, ErrStickySessionNotFound
 }
 
 func (c *schedulerTestGatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
@@ -183,6 +183,20 @@ func (c *schedulerTestGatewayCache) DeleteSessionAccountID(ctx context.Context, 
 	}
 	c.deletedSessions[sessionHash]++
 	delete(c.sessionBindings, sessionHash)
+	return nil
+}
+
+func (c *schedulerTestGatewayCache) SetGrokVideoPendingBilling(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return nil
+}
+func (c *schedulerTestGatewayCache) GetGrokVideoPendingBilling(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+func (c *schedulerTestGatewayCache) ClaimGrokVideoBilled(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (c *schedulerTestGatewayCache) ReleaseGrokVideoBilled(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -1709,32 +1723,6 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerWindowDisab
 	require.Equal(t, int64(35802), account.ID, "7d auto-pause must still fire even though 5h is disabled")
 }
 
-func TestOpenAIGatewayService_KimiQuotaAutoPauseAndPerWindowDisable(t *testing.T) {
-	ctx := context.Background()
-	primary := Account{
-		ID:          35811,
-		Platform:    PlatformKimi,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Priority:    0,
-		Extra: map[string]any{
-			"codex_5h_used_percent":   99.0,
-			"codex_7d_used_percent":   99.0,
-			"auto_pause_5h_disabled":  true,
-			"auto_pause_7d_threshold": 0.95,
-		},
-	}
-	secondary := Account{ID: 35812, Platform: PlatformKimi, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
-	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
-
-	account, err := svc.selectAccountForModelWithExclusions(ctx, nil, PlatformKimi, "", "k3", nil, false, 0, OpenAIEndpointCapabilityChatCompletions)
-
-	require.NoError(t, err)
-	require.NotNil(t, account)
-	require.Equal(t, int64(35812), account.ID, "Kimi 7d auto-pause must still fire when only 5h is disabled")
-}
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageWindowResetSkipsPause(t *testing.T) {
 	ctx := context.Background()
@@ -2688,6 +2676,34 @@ func TestOpenAIAccountScheduler_SkipsAccountBlockedForRequestedModel(t *testing.
 
 	require.False(t, scheduler.isAccountRequestCompatible(context.Background(), account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.5"}))
 	require.True(t, scheduler.isAccountRequestCompatible(context.Background(), account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"}))
+}
+
+func TestOpenAIAccountScheduler_SkipsNonOwnerAfterSharingBudgetExhausted(t *testing.T) {
+	ownerID := int64(223)
+	spend := 677.44
+	account := &Account{
+		ID:                170,
+		Platform:          PlatformOpenAI,
+		Type:              AccountTypeOAuth,
+		Status:            StatusActive,
+		Schedulable:       true,
+		OwnerUserID:       &ownerID,
+		OthersWeeklySpend: &spend,
+		Extra: map[string]any{
+			"contribution_share_mode":          ContributionShareModeBudget,
+			"contribution_weekly_share_budget": 400.0,
+		},
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{}}
+	req := OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"}
+
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(WithRequestingUserID(context.Background(), 168), account, req)
+	require.False(t, compatible)
+	require.Equal(t, "contribution_protection", reason)
+
+	compatible, reason = scheduler.isAccountRequestCompatibleReason(WithRequestingUserID(context.Background(), ownerID), account, req)
+	require.True(t, compatible, "owner self-use must bypass the sharing budget")
+	require.Empty(t, reason)
 }
 
 func TestReportOpenAIAccountScheduleResult_SuccessClearsModelTransientState(t *testing.T) {

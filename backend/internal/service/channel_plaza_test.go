@@ -107,6 +107,68 @@ func TestListPlazaGroups_PlatformIsolation(t *testing.T) {
 	require.Equal(t, "gpt-5", byName["g-gpt"][0].Name)
 }
 
+func TestListPlazaGroups_CompositeIncludesConfiguredConcretePlatforms(t *testing.T) {
+	anthropicPrice := 3e-6
+	openAIPrice := 2e-6
+	ch := Channel{
+		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{10},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformAnthropic, Models: []string{"shared-model"}, InputPrice: &anthropicPrice},
+			{Platform: PlatformOpenAI, Models: []string{"shared-model"}, InputPrice: &openAIPrice},
+			{Platform: "", Models: []string{"empty-platform"}},
+			{Platform: PlatformComposite, Models: []string{"nested-composite"}},
+			{Platform: "unknown-platform", Models: []string{"unknown-platform"}},
+		},
+	}
+	groups := []Group{{ID: 10, Name: "composite", Platform: PlatformComposite, RateMultiplier: 1}}
+
+	out, err := newPlazaChannelService([]Channel{ch}, groups, nil).ListPlazaGroups(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 2, "only concrete platforms are included and same-named models remain distinct")
+	require.Equal(t, PlatformAnthropic, out[0].Models[0].Platform)
+	require.Equal(t, PlatformOpenAI, out[0].Models[1].Platform)
+	require.InDelta(t, anthropicPrice, *out[0].Models[0].Pricing.InputPrice, 1e-12)
+	require.InDelta(t, openAIPrice, *out[0].Models[1].Pricing.InputPrice, 1e-12)
+}
+
+func TestListPlazaGroups_CompositeAndOrdinaryGroupsDoNotLeakPlatforms(t *testing.T) {
+	ch := Channel{
+		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{10, 20},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformAnthropic, Models: []string{"claude-sonnet"}, InputPrice: testPtrFloat64(3e-6)},
+			{Platform: PlatformOpenAI, Models: []string{"gpt-5"}, InputPrice: testPtrFloat64(2e-6)},
+		},
+	}
+	groups := []Group{
+		{ID: 10, Name: "anthropic-only", Platform: PlatformAnthropic, RateMultiplier: 1},
+		{ID: 20, Name: "composite", Platform: PlatformComposite, RateMultiplier: 1},
+	}
+
+	out, err := newPlazaChannelService([]Channel{ch}, groups, nil).ListPlazaGroups(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	byName := map[string]PlazaGroup{}
+	for _, group := range out {
+		byName[group.Name] = group
+	}
+	require.Len(t, byName["anthropic-only"].Models, 1)
+	require.Equal(t, []PlazaModel{{
+		Name: "claude-sonnet", Platform: PlatformAnthropic, Pricing: byName["anthropic-only"].Models[0].Pricing,
+	}}, byName["anthropic-only"].Models)
+	require.Len(t, byName["composite"].Models, 2)
+	require.Equal(t, []string{"claude-sonnet", "gpt-5"}, []string{
+		byName["composite"].Models[0].Name,
+		byName["composite"].Models[1].Name,
+	})
+	require.Equal(t, []string{PlatformAnthropic, PlatformOpenAI}, []string{
+		byName["composite"].Models[0].Platform,
+		byName["composite"].Models[1].Platform,
+	})
+}
+
 func TestListPlazaGroups_InactiveChannelSkipped(t *testing.T) {
 	inactive := plazaPricedChannel(1, "off", []int64{10}, "anthropic", "claude-sonnet")
 	inactive.Status = "inactive"
@@ -171,6 +233,123 @@ func TestListPlazaGroups_OfficialPricingFill(t *testing.T) {
 	require.Nil(t, byName["unknown-model"].OfficialPricing)
 	// TokenPricingAbsent 条目不作为官方 token 价展示
 	require.Nil(t, byName["token-absent"].OfficialPricing)
+}
+
+func TestListPlazaGroups_DeepSeekOfficialPricingUsesCNYReference(t *testing.T) {
+	// LiteLLM 数据源里 DeepSeek V4 仍是 USD 价，广场官方参考价必须改用
+	// 部署口径 CNY 1 = USD 1 的峰谷调价前 CNY 价格，和计费 fallback 一致。
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"deepseek-v4-flash": {
+			Mode:                    "chat",
+			InputCostPerToken:       1.4e-7,
+			OutputCostPerToken:      2.8e-7,
+			CacheReadInputTokenCost: 2.8e-9,
+		},
+		"deepseek-v4-pro": {
+			Mode:                    "chat",
+			InputCostPerToken:       4.35e-7,
+			OutputCostPerToken:      8.7e-7,
+			CacheReadInputTokenCost: 3.625e-9,
+		},
+	})
+	channels := []Channel{
+		plazaPricedChannel(1, "ch", []int64{10}, "openai", "deepseek-v4-flash", "deepseek-v4-pro"),
+	}
+	groups := []Group{{ID: 10, Name: "deepseek", Platform: "openai", RateMultiplier: 1}}
+	svc := newPlazaChannelService(channels, groups, pricingSvc)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+
+	byName := map[string]PlazaModel{}
+	for _, m := range out[0].Models {
+		byName[m.Name] = m
+	}
+	flash := byName["deepseek-v4-flash"].OfficialPricing
+	require.NotNil(t, flash)
+	require.InDelta(t, 1e-6, *flash.InputPrice, 1e-12)
+	require.InDelta(t, 2e-6, *flash.OutputPrice, 1e-12)
+	require.InDelta(t, 2e-8, *flash.CacheReadPrice, 1e-12)
+
+	pro := byName["deepseek-v4-pro"].OfficialPricing
+	require.NotNil(t, pro)
+	require.InDelta(t, 3e-6, *pro.InputPrice, 1e-12)
+	require.InDelta(t, 6e-6, *pro.OutputPrice, 1e-12)
+	require.InDelta(t, 2.5e-8, *pro.CacheReadPrice, 1e-12)
+}
+
+func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
+	// 图片计费模型:档位价按实收口径合成(分组图片价 > 渠道档位价 > 渠道默认按次价),
+	// 分组独立倍率字段透传;未配图片价的分组保持渠道定价原样。
+	perReq := 0.2
+	tier4K := 0.3
+	imgPrice := 0.02
+	channels := []Channel{{
+		ID: 1, Name: "img-ch", Status: StatusActive, GroupIDs: []int64{10, 20},
+		ModelPricing: []ChannelModelPricing{{
+			Platform:        "openai",
+			Models:          []string{"gpt-image-2"},
+			BillingMode:     BillingModeImage,
+			PerRequestPrice: &perReq,
+			Intervals:       []PricingInterval{{TierLabel: "4K", PerRequestPrice: &tier4K}},
+		}},
+	}}
+	groups := []Group{
+		{ID: 10, Name: "g-media", Platform: "openai", RateMultiplier: 1,
+			ImagePrice1K: &imgPrice, ImageRateIndependent: true, ImageRateMultiplier: 1},
+		{ID: 20, Name: "g-plain", Platform: "openai", RateMultiplier: 0.1},
+	}
+	svc := newPlazaChannelService(channels, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	byName := map[string]PlazaGroup{}
+	for _, g := range out {
+		byName[g.Name] = g
+	}
+
+	media := byName["g-media"]
+	require.True(t, media.ImageRateIndependent)
+	require.InDelta(t, 1.0, media.ImageRateMultiplier, 1e-9)
+	require.Len(t, media.Models, 1)
+	p := media.Models[0].Pricing
+	require.NotNil(t, p)
+	require.Len(t, p.Intervals, 3)
+	tierPrices := map[string]float64{}
+	for _, iv := range p.Intervals {
+		require.NotNil(t, iv.PerRequestPrice)
+		tierPrices[iv.TierLabel] = *iv.PerRequestPrice
+	}
+	require.InDelta(t, 0.02, tierPrices["1K"], 1e-9, "1K 用分组图片价")
+	require.InDelta(t, 0.2, tierPrices["2K"], 1e-9, "2K 分组未配,回落渠道默认按次价")
+	require.InDelta(t, 0.3, tierPrices["4K"], 1e-9, "4K 分组未配,回落渠道档位价")
+
+	plain := byName["g-plain"]
+	require.False(t, plain.ImageRateIndependent)
+	require.Len(t, plain.Models, 1)
+	pp := plain.Models[0].Pricing
+	require.NotNil(t, pp)
+	require.Len(t, pp.Intervals, 1, "未配分组图片价:渠道定价原样")
+	require.InDelta(t, 0.2, *pp.PerRequestPrice, 1e-9)
+
+	// 合成为克隆,渠道原始定价不被修改
+	require.Len(t, channels[0].ModelPricing[0].Intervals, 1)
+}
+
+func TestListPlazaGroups_GroupImagePriceIgnoredForNonImageModes(t *testing.T) {
+	// token 模式定价不受分组图片价影响。
+	imgPrice := 0.02
+	channels := []Channel{plazaPricedChannel(1, "ch", []int64{10}, "openai", "gpt-5")}
+	groups := []Group{{ID: 10, Name: "g", Platform: "openai", RateMultiplier: 1, ImagePrice1K: &imgPrice}}
+	svc := newPlazaChannelService(channels, groups, nil)
+	out, err := svc.ListPlazaGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	p := out[0].Models[0].Pricing
+	require.NotNil(t, p)
+	require.Empty(t, p.Intervals)
+	require.NotNil(t, p.InputPrice)
+	require.Nil(t, p.PerRequestPrice)
 }
 
 func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -133,6 +134,127 @@ func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDown
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 	require.Contains(t, rec.Body.String(), `"usage"`)
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
+}
+
+func TestForwardAsChatCompletions_OpenAICompatibleGrokRawMissingUsageFailsBeforeWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"grok-4.5","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"X-Request-Id": []string{"rid-openai-compat-grok-no-usage"},
+		},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"resp_missing_usage","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := rawChatCompletionsTestAccount()
+	account.Name = "openai-compatible-grok"
+	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: false}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written(), "unbilled Grok content must not be returned by an OpenAI-compatible account")
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestForwardAsChatCompletions_OpenAICompatibleRawUsageGuard(t *testing.T) {
+	tests := []struct {
+		name             string
+		model            string
+		upstreamResponse string
+		modelMapping     map[string]any
+		wantGuarded      bool
+	}{
+		{
+			name:             "Grok response without usage",
+			model:            "grok-4.5",
+			upstreamResponse: `{"id":"resp_missing","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+			wantGuarded:      true,
+		},
+		{
+			name:             "namespaced Grok response without usage",
+			model:            "x-ai/grok-4.5",
+			upstreamResponse: `{"id":"resp_namespaced","object":"chat.completion","model":"x-ai/grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+			wantGuarded:      true,
+		},
+		{
+			name:             "Grok response with aggregate usage passes",
+			model:            "grok-4.5",
+			upstreamResponse: `{"id":"resp_usage","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}}`,
+			wantGuarded:      false,
+		},
+		{
+			name:             "Grok alias mapped to non-Grok remains unchanged",
+			model:            "grok-alias",
+			upstreamResponse: `{"id":"resp_mapped","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+			modelMapping:     map[string]any{"grok-alias": "gpt-5.4"},
+			wantGuarded:      false,
+		},
+		{
+			name:             "Grok response with detail-only usage",
+			model:            "grok-4.5",
+			upstreamResponse: `{"id":"resp_detail_only","object":"chat.completion","model":"grok-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"input_tokens_details":{"text_tokens":9,"image_tokens":2},"output_tokens_details":{"image_tokens":1}}}`,
+			wantGuarded:      true,
+		},
+		{
+			name:             "non-Grok response without usage remains unchanged",
+			model:            "gpt-5.4",
+			upstreamResponse: `{"id":"resp_openai","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+			wantGuarded:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			body := []byte(`{"model":"` + tt.model + `","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-openai-compatible"}},
+				Body:       io.NopCloser(strings.NewReader(tt.upstreamResponse)),
+			}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			account := rawChatCompletionsTestAccount()
+			account.Name = "openai-compatible"
+			account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: false}
+			if tt.modelMapping != nil {
+				account.Credentials["model_mapping"] = tt.modelMapping
+			}
+
+			result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+
+			if !tt.wantGuarded {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.True(t, c.Writer.Written())
+				return
+			}
+			require.Nil(t, result)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+			require.Equal(t, "grok_missing_usage", gjson.GetBytes(failoverErr.ResponseBody, "error.code").String())
+			require.False(t, c.Writer.Written(), "unbilled Grok content must not be returned")
+		})
+	}
 }
 
 func TestForwardAsRawChatCompletions_PreservesMappedGPT56MaxEffort(t *testing.T) {
@@ -616,69 +738,7 @@ func TestForwardAsChatCompletions_UnknownResponsesSupportFallbackUsesVersionedCh
 	require.Contains(t, rec.Body.String(), `"content":"ok"`)
 }
 
-func TestForwardAsChatCompletions_KimiOAuthUsesCodingChatEndpoint(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"k3","messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi","object":"chat.completion","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := kimiOAuthRawFallbackAccount()
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "conversation-1", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "kimi_code_cli", upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.Equal(t, "surplusai-kimi-code/1.0", upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "conversation-1", gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
-}
-
-func TestForwardAsChatCompletions_KimiAPIKeyUsesPlatformIdentity(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_kimi_api","object":"chat.completion","model":"kimi-k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := &Account{
-		ID: 203, Name: "kimi-api", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
-		Credentials: map[string]any{"api_key": "platform-api-key", "base_url": "https://api.moonshot.cn/v1"},
-		Extra:       map[string]any{"openai_compatible_provider": "kimi"},
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "https://api.moonshot.cn/v1/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer platform-api-key", upstream.lastReq.Header.Get("Authorization"))
-	require.Empty(t, upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.NotEqual(t, "surplusai-kimi-code/1.0", upstream.lastReq.Header.Get("User-Agent"))
-}
 
 func TestIsOpenAIChatUsageOnlyStreamChunk(t *testing.T) {
 	t.Parallel()
@@ -715,7 +775,7 @@ func TestBufferRawChatCompletions_RejectsOversizedResponse(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
 	svc.cfg.Gateway.UpstreamResponseReadMaxBytes = 3
 
-	result, err := svc.bufferRawChatCompletions(c, resp, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now())
+	result, err := svc.bufferRawChatCompletions(c, resp, rawChatCompletionsTestAccount(), "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now())
 	require.ErrorIs(t, err, ErrUpstreamResponseBodyTooLarge)
 	require.Nil(t, result)
 	require.Equal(t, http.StatusBadGateway, rec.Code)
@@ -746,13 +806,6 @@ func rawChatCompletionsTestAccount() *Account {
 	}
 }
 
-func kimiOAuthRawFallbackAccount() *Account {
-	return &Account{
-		ID: 202, Name: "kimi-coding-plan", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
-		Credentials: map[string]any{"access_token": "oauth-access", "base_url": KimiCodeBaseURL},
-		Extra:       map[string]any{"openai_compatible_provider": "kimi"},
-	}
-}
 
 func largeRawChatCompletionsBody() []byte {
 	return []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"` +

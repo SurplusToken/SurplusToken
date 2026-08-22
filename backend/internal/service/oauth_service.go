@@ -22,6 +22,9 @@ type OpenAIOAuthClient interface {
 type GrokOAuthClient interface {
 	ExchangeCode(ctx context.Context, code, codeVerifier, redirectURI, proxyURL, clientID string) (*xai.TokenResponse, error)
 	RefreshToken(ctx context.Context, refreshToken, proxyURL, clientID string) (*xai.TokenResponse, error)
+	// LoginWithPassword exchanges email/password for a short-lived Web SSO cookie.
+	// Callers must convert via ConvertSSOToBuild and must not persist password or raw SSO.
+	LoginWithPassword(ctx context.Context, email, password, proxyURL string) (*GrokPasswordLoginResult, error)
 	ConvertSSOToBuild(ctx context.Context, ssoToken, proxyURL string) (*xai.TokenResponse, error)
 }
 
@@ -29,19 +32,6 @@ type GrokOAuthClient interface {
 type GrokOAuthTokenService interface {
 	RefreshAccountToken(ctx context.Context, account *Account) (*GrokTokenInfo, error)
 	BuildAccountCredentials(tokenInfo *GrokTokenInfo) map[string]any
-}
-
-// KimiOAuthClient handles the Kimi Code RFC 8628 device authorization flow.
-type KimiOAuthClient interface {
-	RequestDeviceAuthorization(ctx context.Context, proxyURL string) (*KimiDeviceAuthorization, error)
-	PollDeviceToken(ctx context.Context, deviceCode, proxyURL string) (*KimiDeviceTokenResult, error)
-	RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*KimiTokenInfo, error)
-}
-
-// KimiOAuthTokenService is the narrow refresh port used by the token refresher.
-type KimiOAuthTokenService interface {
-	RefreshAccountToken(ctx context.Context, account *Account) (*KimiTokenInfo, error)
-	BuildAccountCredentials(tokenInfo *KimiTokenInfo) map[string]any
 }
 
 // ClaudeOAuthClient handles HTTP requests for Claude OAuth flows

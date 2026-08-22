@@ -278,20 +278,18 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 }
 
 type openAIFirstOutputHeaderGuard struct {
-	cancel  context.CancelFunc
-	release context.CancelFunc
-	timer   *time.Timer
-	fired   chan struct{}
-	once    sync.Once
+	cancel context.CancelFunc
+	timer  *time.Timer
+	fired  chan struct{}
+	once   sync.Once
 }
 
 func newOpenAIFirstOutputHeaderGuard(
 	ctx context.Context,
-	release context.CancelFunc,
 	deadline time.Time,
 ) (context.Context, *openAIFirstOutputHeaderGuard) {
 	guardedCtx, cancel := context.WithCancel(ctx)
-	guard := &openAIFirstOutputHeaderGuard{cancel: cancel, release: release, fired: make(chan struct{})}
+	guard := &openAIFirstOutputHeaderGuard{cancel: cancel, fired: make(chan struct{})}
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		remaining = time.Nanosecond
@@ -315,7 +313,6 @@ func (g *openAIFirstOutputHeaderGuard) close() {
 	g.once.Do(func() {
 		g.timer.Stop()
 		g.cancel()
-		g.release()
 	})
 }
 

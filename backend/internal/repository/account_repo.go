@@ -41,10 +41,11 @@ import (
 )
 
 const (
-	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。
-	// 格式: others_weekly_spend:account:{accountID}
+	// othersWeeklySpendKeyPrefix 是“他人周消费”缓存键前缀。v3 表示预算按
+	// usage_logs.total_cost 累计且缓存键包含上游周窗口起点，防止跨周复用旧值。
+	// 格式: others_weekly_spend:v3:account:{accountID}:window:{30s-bucket}
 	// 镜像 session_limit_cache.go 中 window_cost 缓存的 rdb 用法与 30s TTL。
-	othersWeeklySpendKeyPrefix = "others_weekly_spend:account:"
+	othersWeeklySpendKeyPrefix = "others_weekly_spend:v3:account:"
 
 	// othersWeeklySpendCacheTTL 是“他人周消费”缓存 TTL（30 秒），与窗口费用缓存一致。
 	othersWeeklySpendCacheTTL = 30 * time.Second
@@ -75,8 +76,10 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_secondary_",
 	"codex_5h_",
 	"codex_7d_",
+	"codex_reset_credit_",
 	"passive_usage_",
 	"upstream_billing_probe",
+	"upstream_billing_rate_sync",
 	"ollama_cloud_usage",
 }
 
@@ -87,6 +90,39 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 }
 
 const postgresParameterBatchSize = 50000
+
+const codexFingerprintSeedCanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+const codexFingerprintNilSeed = "00000000-0000-0000-0000-000000000000"
+
+func codexFingerprintSeedValidSQL(extraExpr string) string {
+	value := "(" + extraExpr + " ->> 'codex_fingerprint_seed')"
+	return "(" + value + " ~ '" + codexFingerprintSeedCanonicalPattern + "' AND " + value + " <> '" + codexFingerprintNilSeed + "')"
+}
+
+func ensureCodexFingerprintSeedSQL(extraExpr string) string {
+	return "CASE WHEN platform = 'openai' AND type = 'oauth' THEN " +
+		"jsonb_set(" + extraExpr + ", '{codex_fingerprint_seed}', " +
+		"CASE WHEN " + codexFingerprintSeedValidSQL("extra") +
+		" THEN to_jsonb(extra ->> 'codex_fingerprint_seed') ELSE to_jsonb(gen_random_uuid()::text) END, true) " +
+		"ELSE " + extraExpr + " END"
+}
+
+func stripCodexFingerprintSeedFromExtraUpdate(extra map[string]any) map[string]any {
+	if extra == nil {
+		return nil
+	}
+	if _, exists := extra["codex_fingerprint_seed"]; !exists {
+		return extra
+	}
+	stripped := make(map[string]any, len(extra)-1)
+	for key, value := range extra {
+		if key == "codex_fingerprint_seed" {
+			continue
+		}
+		stripped[key] = value
+	}
+	return stripped
+}
 
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
@@ -476,16 +512,29 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
-	return r.updateAccount(ctx, account, nil)
+	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
 }
 
-// UpdateWithUpstreamBillingProbeEnabled applies an explicit probe switch in the
-// same row-lock transaction as the rest of an admin account edit.
-func (r *accountRepository) UpdateWithUpstreamBillingProbeEnabled(ctx context.Context, account *service.Account, enabled bool) error {
-	return r.updateAccount(ctx, account, &enabled)
+// UpdateWithAccountBillingSettings applies an admin account edit while
+// preserving a concurrently probe-synchronized rate unless the request
+// explicitly includes a manual rate.
+func (r *accountRepository) UpdateWithAccountBillingSettings(
+	ctx context.Context,
+	account *service.Account,
+	probeEnabled *bool,
+	rateSyncEnabled *bool,
+	rateMultiplier *float64,
+) error {
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier)
 }
 
-func (r *accountRepository) updateAccount(ctx context.Context, account *service.Account, explicitProbeEnabled *bool) error {
+func (r *accountRepository) updateAccount(
+	ctx context.Context,
+	account *service.Account,
+	explicitProbeEnabled *bool,
+	explicitRateSyncEnabled *bool,
+	explicitRateMultiplier *float64,
+) error {
 	if account == nil {
 		return nil
 	}
@@ -509,7 +558,14 @@ func (r *accountRepository) updateAccount(ctx context.Context, account *service.
 		}
 	}
 
-	updated, err := r.updateLockedAccount(ctx, client, account, explicitProbeEnabled)
+	updated, err := r.updateLockedAccount(
+		ctx,
+		client,
+		account,
+		explicitProbeEnabled,
+		explicitRateSyncEnabled,
+		explicitRateMultiplier,
+	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
@@ -531,8 +587,15 @@ func (r *accountRepository) updateAccount(ctx context.Context, account *service.
 	return nil
 }
 
-func (r *accountRepository) updateLockedAccount(ctx context.Context, client *dbent.Client, account *service.Account, explicitProbeEnabled *bool) (*dbent.Account, error) {
-	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled)
+func (r *accountRepository) updateLockedAccount(
+	ctx context.Context,
+	client *dbent.Client,
+	account *service.Account,
+	explicitProbeEnabled *bool,
+	explicitRateSyncEnabled *bool,
+	explicitRateMultiplier *float64,
+) (*dbent.Account, error) {
+	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -557,8 +620,8 @@ func (r *accountRepository) updateLockedAccount(ctx context.Context, client *dbe
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
-	if account.RateMultiplier != nil {
-		builder.SetRateMultiplier(*account.RateMultiplier)
+	if explicitRateMultiplier != nil {
+		builder.SetRateMultiplier(*explicitRateMultiplier)
 	}
 	// SharingRateMultiplier/UpdatedAt are deliberately excluded. The atomic
 	// owner-price method is their sole writer, preventing an ordinary account
@@ -629,7 +692,13 @@ func (r *accountRepository) updateLockedAccount(ctx context.Context, client *dbe
 	return builder.Save(ctx)
 }
 
-func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, account *service.Account, explicitProbeEnabled *bool) (map[string]any, error) {
+func lockAndMergeAccountProbeExtra(
+	ctx context.Context,
+	client *dbent.Client,
+	account *service.Account,
+	explicitProbeEnabled *bool,
+	explicitRateSyncEnabled *bool,
+) (map[string]any, error) {
 	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
 	if err != nil {
 		return nil, err
@@ -656,6 +725,7 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 			),
 			proxy_id IS NOT DISTINCT FROM $5,
 			extra -> 'upstream_billing_probe_enabled',
+			extra -> 'upstream_billing_rate_sync_enabled',
 			extra -> 'upstream_billing_probe',
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
@@ -680,6 +750,7 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 		ollamaGroupIdentityUnchanged bool
 		ollamaProxyIdentityUnchanged bool
 		currentEnabled               []byte
+		currentRateSyncEnabled       []byte
 		currentSnapshot              []byte
 		currentOllamaSession         []byte
 		currentOllamaAutoRefresh     []byte
@@ -690,6 +761,7 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 		&ollamaGroupIdentityUnchanged,
 		&ollamaProxyIdentityUnchanged,
 		&currentEnabled,
+		&currentRateSyncEnabled,
 		&currentSnapshot,
 		&currentOllamaSession,
 		&currentOllamaAutoRefresh,
@@ -704,6 +776,7 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
+		service.UpstreamBillingRateSyncEnabledExtraKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.OllamaCloudUsageSessionExtraKey,
 		service.OllamaCloudUsageAutoRefreshExtraKey,
@@ -711,21 +784,53 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 	} {
 		delete(extra, key)
 	}
-	probeExplicitlyDisabled := false
-	probeAccount := account.Platform == service.PlatformOpenAI && account.Type == service.AccountTypeAPIKey
-	if probeAccount && explicitProbeEnabled != nil {
-		extra[service.UpstreamBillingProbeEnabledExtraKey] = *explicitProbeEnabled
-		probeExplicitlyDisabled = !*explicitProbeEnabled
-	} else if probeAccount {
+	probeAccount := service.IsUpstreamBillingProbeIdentity(account.Platform, account.Type)
+	probeEnabled := false
+	probeEnabledPresent := false
+	if probeAccount {
 		if enabled, ok, err := decodeAccountExtraJSON(currentEnabled); err != nil {
 			return nil, err
-		} else if ok {
-			extra[service.UpstreamBillingProbeEnabledExtraKey] = enabled
-			if value, isBool := enabled.(bool); isBool && !value {
-				probeExplicitlyDisabled = true
-			}
+		} else if value, isBool := enabled.(bool); ok && isBool {
+			probeEnabled = value
+			probeEnabledPresent = true
+		}
+		if explicitProbeEnabled != nil {
+			probeEnabled = *explicitProbeEnabled
+			probeEnabledPresent = true
 		}
 	}
+	rateSyncEnabled := false
+	rateSyncEnabledPresent := false
+	if probeAccount {
+		if enabled, ok, err := decodeAccountExtraJSON(currentRateSyncEnabled); err != nil {
+			return nil, err
+		} else if value, isBool := enabled.(bool); ok && isBool {
+			rateSyncEnabled = value
+			rateSyncEnabledPresent = true
+		}
+		if explicitRateSyncEnabled != nil {
+			rateSyncEnabled = *explicitRateSyncEnabled
+			rateSyncEnabledPresent = true
+		}
+		if explicitProbeEnabled != nil && !*explicitProbeEnabled {
+			rateSyncEnabled = false
+			rateSyncEnabledPresent = true
+		}
+		// 同步依赖探测，方向是单向的：探测关闭（或探测键缺失）一律把同步归零。
+		// 不做反向推导——由 rate_sync=true 推出 probe=true 会让一条"同步开、探测键
+		// 缺失"的僵尸记录在任意一次无关编辑时静默打开周期性外呼。需要同时打开两个
+		// 开关的调用方（管理端编辑）自己显式传 explicitProbeEnabled=true。
+		if !probeEnabled {
+			rateSyncEnabled = false
+		}
+		if probeEnabledPresent {
+			extra[service.UpstreamBillingProbeEnabledExtraKey] = probeEnabled
+		}
+		if rateSyncEnabledPresent {
+			extra[service.UpstreamBillingRateSyncEnabledExtraKey] = rateSyncEnabled
+		}
+	}
+	probeExplicitlyDisabled := probeEnabledPresent && !probeEnabled
 	if identityUnchanged && !probeExplicitlyDisabled {
 		if snapshot, ok, err := decodeAccountExtraJSON(currentSnapshot); err != nil {
 			return nil, err
@@ -796,7 +901,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			credentials = $1::jsonb,
 			extra = CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
-				-- 非 Ollama 账号的无变化持久化误清 openai 探测快照或重写 NULL extra。
+				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
 				WHEN platform IN ('openai', 'anthropic')
 					AND type = 'apikey'
 					AND credentials IS DISTINCT FROM $1::jsonb
@@ -807,15 +912,14 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 							AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
 						)
 					)
-				THEN (CASE
-						WHEN platform = 'openai' THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
-						ELSE COALESCE(extra, '{}'::jsonb)
-					END)
+				THEN COALESCE(extra, '{}'::jsonb)
+					- 'upstream_billing_probe'
 					- 'ollama_cloud_usage_session'
 					- 'ollama_cloud_usage_auto_refresh'
 					- 'ollama_cloud_usage_snapshot'
-				WHEN platform = 'openai'
-					AND type = 'apikey'
+				-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
+				-- 身份变化，丢弃 stale 快照。
+				WHEN type = 'apikey'
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
@@ -2742,6 +2846,7 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	updates = stripCodexFingerprintSeedFromExtraUpdate(updates)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -2773,6 +2878,9 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	extraExpression := "COALESCE(extra, '{}'::jsonb) || $1::jsonb"
 	if clearProbeSnapshot {
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
+	}
+	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
+		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
 	}
 	result, err := client.ExecContext(
 		ctx,
@@ -2820,21 +2928,25 @@ func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 	ctx context.Context,
 	account *service.Account,
 	snapshot *service.UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
 ) error {
 	if account == nil || snapshot == nil {
 		return service.ErrAccountNilInput
 	}
+	if snapshot.Status != service.UpstreamBillingProbeStatusOK {
+		rateMultiplier = nil
+	}
 	if dbent.TxFromContext(ctx) == nil {
 		tx, err := r.client.Tx(ctx)
 		if errors.Is(err, dbent.ErrTxStarted) {
-			return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot)
+			return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot, rateMultiplier)
 		}
 		if err != nil {
 			return err
 		}
 		defer func() { _ = tx.Rollback() }()
 
-		if err := r.updateUpstreamBillingProbeSnapshotInTx(dbent.NewTxContext(ctx, tx), account, snapshot); err != nil {
+		if err := r.updateUpstreamBillingProbeSnapshotInTx(dbent.NewTxContext(ctx, tx), account, snapshot, rateMultiplier); err != nil {
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -2845,13 +2957,14 @@ func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 		r.syncSchedulerAccountSnapshot(ctx, account.ID)
 		return nil
 	}
-	return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot)
+	return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot, rateMultiplier)
 }
 
 func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	ctx context.Context,
 	account *service.Account,
 	snapshot *service.UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
 ) error {
 	payload, err := json.Marshal(map[string]any{service.UpstreamBillingProbeExtraKey: snapshot})
 	if err != nil {
@@ -2877,6 +2990,14 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	if err != nil {
 		return err
 	}
+	var expectedRateSyncEnabled any
+	if account.Extra != nil {
+		expectedRateSyncEnabled = account.Extra[service.UpstreamBillingRateSyncEnabledExtraKey]
+	}
+	expectedRateSyncEnabledJSON, err := json.Marshal(expectedRateSyncEnabled)
+	if err != nil {
+		return err
+	}
 	client := clientFromContext(ctx, r.client)
 	proxyMatches, err := lockAndMatchProbeProxyIdentity(ctx, client, account)
 	if err != nil {
@@ -2891,7 +3012,16 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
-		SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+		SET
+			extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+			rate_multiplier = CASE
+				WHEN $10::numeric IS NOT NULL
+					AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+					AND extra @> '{"upstream_billing_rate_sync_enabled": true}'::jsonb
+				THEN $10::numeric
+				ELSE rate_multiplier
+			END,
+			updated_at = NOW()
 		WHERE id = $2
 			AND platform = $3
 			AND type = $4
@@ -2899,8 +3029,9 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND proxy_id IS NOT DISTINCT FROM $6
 			AND COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
+			AND COALESCE(extra -> 'upstream_billing_rate_sync_enabled', 'null'::jsonb) = $9::jsonb
 			AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON))
+	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), string(expectedRateSyncEnabledJSON), rateMultiplier)
 	if err != nil {
 		return err
 	}
@@ -2992,6 +3123,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	updates.Extra = stripCodexFingerprintSeedFromExtraUpdate(updates.Extra)
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -3079,7 +3211,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND "+ollamaCloudBaseURLMatchesSQL(credentialPlaceholder+"::jsonb ->> 'base_url'")+")")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" {
+	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -3118,6 +3250,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		} else if snapshotIdentityChanged != "" {
 			extraExpression = "CASE WHEN " + snapshotIdentityChanged + " THEN (" + extraExpression + ") - 'ollama_cloud_usage_snapshot' ELSE " + extraExpression + " END"
 		}
+		if updates.EnsureCodexFingerprintSeed {
+			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}
 
@@ -3131,8 +3266,8 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	args = append(args, pq.Array(ids))
 	idx++
 	if updates.ProbeEnabled != nil {
-		whereClause += " AND platform = $" + itoa(idx) + " AND type = $" + itoa(idx+1)
-		args = append(args, service.PlatformOpenAI, service.AccountTypeAPIKey)
+		whereClause += " AND type = $" + itoa(idx)
+		args = append(args, service.AccountTypeAPIKey)
 	}
 	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + whereClause
 
@@ -3689,7 +3824,6 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 			FROM accounts
 			WHERE deleted_at IS NULL
 				AND status = 'active'
-				AND platform = 'openai'
 				AND type = 'apikey'
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
 		), parsed AS MATERIALIZED (
@@ -3979,13 +4113,13 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 
 // ListCoOwnerUserIDsByAccount 返回指定账号的全部 co-owner 用户 ID。
 // SumOthersWeeklySpend 返回账号在 [since, now) 窗口内由 NON-owner（owner + co-owner
-// 之外的用户）产生的 SUM(actual_cost)（美元）。ownerUserIDs 为账号 owner 集合
+// 之外的用户）产生的 SUM(total_cost)（原始模型成本，美元）。ownerUserIDs 为账号 owner 集合
 // （主 owner ∪ co-owner）；为空时不排除任何用户（即统计全部消费）。
 // 使用 idx_usage_logs_account_created_at 命中 (account_id, created_at) 索引。
 func (r *accountRepository) SumOthersWeeklySpend(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
 	// (user_id <> ALL($3)) 在数组为空时对所有行成立 -> 不排除任何用户。
 	const query = `
-		SELECT COALESCE(SUM(actual_cost), 0) FROM usage_logs
+		SELECT COALESCE(SUM(total_cost), 0) FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND (user_id <> ALL($3))
 	`
 	owners := ownerUserIDs
@@ -4006,19 +4140,19 @@ func (r *accountRepository) SumOthersWeeklySpend(ctx context.Context, accountID 
 }
 
 // othersWeeklySpendKey 生成“他人周消费”缓存的 Redis 键。
-func othersWeeklySpendKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", othersWeeklySpendKeyPrefix, accountID)
+func othersWeeklySpendKey(accountID int64, since time.Time) string {
+	return fmt.Sprintf("%s%d:window:%d", othersWeeklySpendKeyPrefix, accountID, since.UTC().Unix()/int64(othersWeeklySpendCacheTTL/time.Second))
 }
 
 // GetOthersWeeklySpendCached 返回带 30s 缓存的“他人周消费”。
-// 缓存键 others_weekly_spend:account:<id>，TTL 30s，镜像 session_limit_cache.go
+// 缓存键 others_weekly_spend:v2:account:<id>，TTL 30s，镜像 session_limit_cache.go
 // 中 window_cost 的 rdb 用法。缓存错误优雅降级：直接计算，不影响业务。
 func (r *accountRepository) GetOthersWeeklySpendCached(ctx context.Context, accountID int64, ownerUserIDs []int64, since time.Time) (float64, error) {
 	// rdb 缺失时直接查询 DB（不缓存）。
 	if r.rdb == nil {
 		return r.SumOthersWeeklySpend(ctx, accountID, ownerUserIDs, since)
 	}
-	key := othersWeeklySpendKey(accountID)
+	key := othersWeeklySpendKey(accountID, since)
 	if val, err := r.rdb.Get(ctx, key).Float64(); err == nil {
 		return val, nil
 	} else if err != redis.Nil {

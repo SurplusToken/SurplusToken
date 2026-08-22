@@ -54,7 +54,16 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 		mapped     string
 		effortJSON string
 		wantEffort string
+		maxPolicy  string
 	}{
+		{
+			name:       "policy caps converted effort",
+			model:      "gpt-5.6-luna",
+			mapped:     "gpt-5.6-luna",
+			effortJSON: `,"output_config":{"effort":"max"}`,
+			wantEffort: "medium",
+			maxPolicy:  "medium",
+		},
 		{
 			name:       "GPT56 max",
 			model:      "luna",
@@ -103,7 +112,11 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 			account.Credentials["model_mapping"] = map[string]any{tt.model: tt.mapped}
 
 			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-			result, err := svc.ForwardAsAnthropic(context.Background(), c, account, []byte(body), "", "")
+			ctx := context.Background()
+			if tt.maxPolicy != "" {
+				ctx = WithOpenAIReasoningEffortPolicy(ctx, tt.maxPolicy, nil)
+			}
+			result, err := svc.ForwardAsAnthropic(ctx, c, account, []byte(body), "", "")
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, tt.mapped, gjson.GetBytes(upstream.lastBody, "model").String())
@@ -152,35 +165,6 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.False(t, result.Stream)
 }
 
-func TestForwardAsAnthropic_KimiOAuthRoutesToNativeMessages(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"k3","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"id":"msg_kimi","type":"message","role":"assistant","model":"k3","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":2}}`,
-		)),
-	}}
-	nativeGateway := &GatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, nativeGateway: nativeGateway}
-
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, kimiOAuthRawFallbackAccount(), body, "", "")
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, KimiCodeBaseURL+"/messages", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer oauth-access", getHeaderRaw(upstream.lastReq.Header, "authorization"))
-	require.Empty(t, upstream.lastReq.Header.Get("X-Msh-Platform"))
-	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
-}
 
 // Covers the fully-new streaming composition: text block is still open when
 // [DONE] arrives, so finalization must close it (content_block_stop) before
@@ -450,7 +434,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamReadErrorSkipsFinalize(t *
 func TestForwardAsAnthropic_ResponsesSupportedAccountStillUsesResponsesEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"output_config":{"effort":"high"},"stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
@@ -479,12 +463,16 @@ func TestForwardAsAnthropic_ResponsesSupportedAccountStillUsesResponsesEndpoint(
 		openai_compat.ExtraKeyResponsesSupported: true,
 	}
 
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	ctx := WithOpenAIReasoningEffortPolicy(context.Background(), "medium", nil)
+	result, err := svc.ForwardAsAnthropic(ctx, c, account, body, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, strings.HasSuffix(upstream.lastReq.URL.Path, "/responses"),
 		"responses-capable account must stay on /v1/responses, got %s", upstream.lastReq.URL.String())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.NotNil(t, result.ReasoningEffort)
+	require.Equal(t, "medium", *result.ReasoningEffort)
 	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 	require.Equal(t, "third-party-client/1.0.0", upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "opencode", upstream.lastReq.Header.Get("originator"))

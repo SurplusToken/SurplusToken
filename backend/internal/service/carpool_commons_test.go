@@ -279,9 +279,10 @@ func TestCheckAndResetWindows_CarpoolWeeklyResetSnapsToGrid(t *testing.T) {
 	require.Equal(t, stub.newStart, *sub.WeeklyWindowStart)
 }
 
-// 非拼车订阅周重置保持原语义：新起点 = 当天零点。
-func TestCheckAndResetWindows_NonCarpoolWeeklyResetUsesStartOfDay(t *testing.T) {
-	oldStart := time.Now().Add(-8 * 24 * time.Hour)
+// 非拼车订阅跟随上游的期限对齐滚动窗口语义：从持久化锚点推进完整周期。
+func TestCheckAndResetWindows_NonCarpoolWeeklyResetUsesRollingAnchor(t *testing.T) {
+	now := time.Now()
+	oldStart := now.Add(-8 * 24 * time.Hour)
 	sub := &UserSubscription{
 		ID: 1, UserID: 10, GroupID: 20,
 		Status: SubscriptionStatusActive, ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
@@ -292,5 +293,5 @@ func TestCheckAndResetWindows_NonCarpoolWeeklyResetUsesStartOfDay(t *testing.T) 
 
 	require.NoError(t, svc.CheckAndResetWindows(context.Background(), sub))
 	require.True(t, stub.called)
-	require.Equal(t, startOfDay(time.Now()), stub.newStart)
+	require.Equal(t, oldStart.Add(7*24*time.Hour), stub.newStart)
 }

@@ -80,8 +80,8 @@ type Account struct {
 	// The full owner set of an account is its primary OwnerUserID ∪ CoOwnerUserIDs.
 	CoOwnerUserIDs []int64
 
-	// OthersWeeklySpend holds the rolling-7-day SUM(actual_cost) consumed by
-	// NON-owners (owner + co-owners excluded) of this account, in USD.
+	// OthersWeeklySpend holds the rolling-7-day SUM(total_cost), i.e. original
+	// model cost, consumed by NON-owners (owner + co-owners excluded), in USD.
 	// Non-persisted: hydrated on demand (scheduler + pool-display paths) only for
 	// accounts in "budget" contribution share mode. nil means "not hydrated" —
 	// callers must FAIL OPEN (never block) when it is nil.
@@ -94,6 +94,7 @@ type Account struct {
 	modelMappingCacheRawPtr         uintptr
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
+	modelMappingCacheRuntimeVersion uint64
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
 	headerOverrideCache               map[string]string
@@ -633,28 +634,22 @@ func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
-func (a *Account) OpenAICompatibleProvider() string {
-	if a == nil {
-		return ""
-	}
-	if a.Platform == PlatformKimi {
-		return "kimi"
-	}
-	if a.Platform == PlatformZhipu {
-		return "zhipu"
-	}
-	if a.Platform != PlatformOpenAI {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(a.getExtraString("openai_compatible_provider")))
-}
-
+// IsKimi / IsZhipu / IsDeepseek 标识国产 OpenAI 兼容供应商账号。
 func (a *Account) IsKimi() bool {
-	return a != nil && (a.Platform == PlatformKimi || a.OpenAICompatibleProvider() == "kimi")
+	return a != nil && a.Platform == PlatformKimi
 }
 
 func (a *Account) IsZhipu() bool {
-	return a != nil && (a.Platform == PlatformZhipu || a.OpenAICompatibleProvider() == "zhipu")
+	return a != nil && a.Platform == PlatformZhipu
+}
+
+func (a *Account) IsDeepseek() bool {
+	return a != nil && a.Platform == PlatformDeepseek
+}
+
+// IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）。
+func (a *Account) IsCNProvider() bool {
+	return a != nil && IsCNProvider(a.Platform)
 }
 
 // IsZhipuCoding reports whether this account uses GLM Coding Plan's dedicated
@@ -679,19 +674,12 @@ func (a *Account) GetZhipuAnthropicBaseURL() string {
 	return "https://open.bigmodel.cn/api/anthropic"
 }
 
-func (a *Account) IsKimiOAuth() bool {
-	return a.IsKimi() && a.Type == AccountTypeOAuth
-}
-
 // IsKimiCode reports whether the account targets the subscription-backed Kimi
 // Code API. Unlike the pay-as-you-go Kimi platform API, Kimi Code exposes both
 // OpenAI Chat Completions and Anthropic Messages natively.
 func (a *Account) IsKimiCode() bool {
 	if a == nil || !a.IsKimi() {
 		return false
-	}
-	if a.Type == AccountTypeOAuth {
-		return true
 	}
 	parsed, err := url.Parse(strings.TrimSpace(a.GetCredential("base_url")))
 	return err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "api.kimi.com") &&
@@ -713,8 +701,12 @@ func (a *Account) IsKimiNativeAnthropic() bool {
 	return a != nil && (a.IsKimiCode() || a.IsKimiAnthropicAPI())
 }
 
+// IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
+// openai/grok 原生走 OpenAI 网关；kimi/zhipu/deepseek 同为 OpenAI Chat Completions
+// 兼容上游，也经 OpenAI 网关转发。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.Platform == PlatformKimi || a.Platform == PlatformZhipu)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok ||
+		a.Platform == PlatformKimi || a.Platform == PlatformZhipu || a.Platform == PlatformDeepseek)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -997,6 +989,7 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	runtimeVersion := xai.RuntimeModelMappingVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
@@ -1007,7 +1000,8 @@ func (a *Account) GetModelMapping() map[string]string {
 	if a.modelMappingCacheReady &&
 		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
 		a.modelMappingCacheRawPtr == rawPtr &&
-		a.modelMappingCacheRawLen == rawLen {
+		a.modelMappingCacheRawLen == rawLen &&
+		a.modelMappingCacheRuntimeVersion == runtimeVersion {
 		rawSig = modelMappingSignature(rawMapping)
 		rawSigReady = true
 		if a.modelMappingCacheRawSig == rawSig {
@@ -1026,6 +1020,7 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
+	a.modelMappingCacheRuntimeVersion = runtimeVersion
 	return mapping
 }
 
@@ -1064,6 +1059,11 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 				"gemini-3-flash",
 				"gemini-3.1-pro-high",
 				"gemini-3.1-pro-low",
+				"gemini-3.6-flash",
+				"gemini-3.6-flash-high",
+				"gemini-3.6-flash-low",
+				"gemini-3.6-flash-medium",
+				"gemini-3.6-flash-tiered",
 			})
 			applyAntigravityGemini31ProAliases(result)
 		}
@@ -1715,26 +1715,161 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
+// GetOpenAIBaseURL 解析 OpenAI 协议族账号的上游 base_url。
+// 适用 openai 与国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）；grok 走 GetGrokBaseURL，
+// 此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsKimi() && !a.IsZhipu() {
+	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
-	if a.Type == AccountTypeAPIKey || a.IsKimiOAuth() {
-		baseURL := a.GetCredential("base_url")
-		if baseURL != "" {
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 			return baseURL
 		}
 	}
-	if a.IsKimiOAuth() {
-		return KimiCodeBaseURL
+	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
+	switch {
+	case a.IsKimi():
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingBaseURL
+		}
+		return DefaultKimiPayGBaseURL
+	case a.IsZhipu():
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultZhipuCodingBaseURL
+		}
+		return DefaultZhipuPayGBaseURL
+	case a.IsDeepseek():
+		return DefaultDeepseekBaseURL
+	default:
+		return "https://api.openai.com"
 	}
-	if a.IsKimi() {
-		return "https://api.moonshot.cn/v1"
+}
+
+// GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
+// 返回空串。存储于 credentials["account_mode"]。
+func (a *Account) GetAccountMode() string {
+	if a == nil {
+		return ""
 	}
-	if a.IsZhipu() {
-		return "https://open.bigmodel.cn/api/coding/paas/v4"
+	mode := strings.TrimSpace(a.GetCredential("account_mode"))
+	if mode == AccountModePayG || mode == AccountModeCoding {
+		return mode
 	}
-	return "https://api.openai.com"
+	return ""
+}
+
+// IsCodingPlan 报告账号是否为 Coding Plan 模式（用于滚动用量窗口冷却）。
+func (a *Account) IsCodingPlan() bool {
+	return a.GetAccountMode() == AccountModeCoding
+}
+
+// GetAPIProtocol 返回国产供应商账号的上游 API 协议。存储于
+// credentials["api_protocol"]；缺失或与平台不匹配时回退 chat_completions
+// （与既有行为完全一致）。responses 协议仅 deepseek 支持（官方原生 /responses
+// 端点，适配 Codex）；kimi/zhipu 无此端点。
+func (a *Account) GetAPIProtocol() string {
+	if a == nil || !a.IsCNProvider() {
+		return APIProtocolChatCompletions
+	}
+	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
+	case APIProtocolAnthropic:
+		return APIProtocolAnthropic
+	case APIProtocolResponses:
+		if a.Platform == PlatformDeepseek {
+			return APIProtocolResponses
+		}
+	case APIProtocolChatCompletions:
+		return APIProtocolChatCompletions
+	}
+	return APIProtocolChatCompletions
+}
+
+// IsAnthropicProtocol 报告账号是否以原生 Anthropic 协议接入上游
+// （/v1/messages 直通，适配 Claude Code 等客户端）。
+func (a *Account) IsAnthropicProtocol() bool {
+	return a.GetAPIProtocol() == APIProtocolAnthropic
+}
+
+// GetAnthropicProtocolBaseURL 返回 Anthropic 协议账号的上游 base_url
+// （上游路径为 {base}/v1/messages）。优先取凭证 base_url，缺失时按
+// 供应商 × 接入模式返回默认端点。非 Anthropic 协议账号返回空串。
+func (a *Account) GetAnthropicProtocolBaseURL() string {
+	if a == nil || !a.IsAnthropicProtocol() {
+		return ""
+	}
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+			return baseURL
+		}
+	}
+	switch a.Platform {
+	case PlatformKimi:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingAnthropicBaseURL
+		}
+		return DefaultKimiPayGAnthropicBaseURL
+	case PlatformZhipu:
+		return DefaultZhipuAnthropicBaseURL
+	case PlatformDeepseek:
+		return DefaultDeepseekAnthropicBaseURL
+	default:
+		return ""
+	}
+}
+
+// GetOpenAIFormatBaseURL 返回供 OpenAI 格式端点（/v1/models、/v1/chat/completions
+// 等）使用的 base。chat_completions / responses 协议下与 GetOpenAIBaseURL
+// 一致（凭证 base_url 或平台默认）；anthropic 协议下凭证 base_url 指向 Anthropic
+// 端点，不能拿来拼 OpenAI 路径，此时返回该供应商 × 模式的 Chat Completions
+// 默认 base（模型同步等协议族共用路径仍可用）。
+func (a *Account) GetOpenAIFormatBaseURL() string {
+	if a == nil || !a.IsAnthropicProtocol() {
+		return a.GetOpenAIBaseURL()
+	}
+	switch a.Platform {
+	case PlatformKimi:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingBaseURL
+		}
+		return DefaultKimiPayGBaseURL
+	case PlatformZhipu:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultZhipuCodingBaseURL
+		}
+		return DefaultZhipuPayGBaseURL
+	case PlatformDeepseek:
+		return DefaultDeepseekBaseURL
+	default:
+		return a.GetOpenAIBaseURL()
+	}
+}
+
+// GetCNAPIKey 返回国产 OpenAI 兼容供应商账号的 api_key 凭据（kimi/zhipu/deepseek）。
+// 与 openai 的 GetOpenAIApiKey 区分：后者仅对 openai 平台返回。
+func (a *Account) GetCNAPIKey() string {
+	if a == nil || !a.IsCNProvider() {
+		return ""
+	}
+	return a.GetCredential("api_key")
+}
+
+// GetCodingPlanProvider 根据 base_url 识别 Coding Plan 供应商（kimi / zhipu），
+// 用于路由到对应的额度查询端点。非 coding 模式或无法识别时返回空串。
+// 判定规则与 cc-switch coding_plan.rs::detect_provider 保持一致。
+func (a *Account) GetCodingPlanProvider() string {
+	if a == nil || a.GetAccountMode() != AccountModeCoding {
+		return ""
+	}
+	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
+	switch {
+	case strings.Contains(baseURL, "api.kimi.com/coding"):
+		return PlatformKimi
+	case strings.Contains(baseURL, "bigmodel.cn"), strings.Contains(baseURL, "api.z.ai"):
+		return PlatformZhipu
+	default:
+		return ""
+	}
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
@@ -1759,25 +1894,47 @@ func (a *Account) GetOpenAIRefreshToken() string {
 // traffic (OAuth authorization and token refresh) always uses the official
 // auth endpoints regardless of this value.
 func (a *Account) GetGrokBaseURL() string {
-	if !a.IsGrok() {
+	if a == nil || !a.IsGrok() {
 		return ""
 	}
-	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if a.IsGrokOAuth() {
-		// Operators switch subscription traffic between the official CLI
-		// gateway, the official/regional API hosts and third-party relays
-		// (individual endpoints go down from time to time), so a stored
-		// value is always honored as-is. Only empty or unparseable values
-		// fall back to the default CLI gateway.
-		if baseURL == "" || !xai.IsParseableBaseURL(baseURL) {
-			return xai.DefaultCLIBaseURL
+		return a.GetGrokBaseURLOr(xai.DefaultCLIBaseURL)
+	}
+	return a.GetGrokBaseURLOr(xai.DefaultBaseURL)
+}
+
+// GetGrokBaseURLOr resolves an explicit account endpoint, falling back to the
+// supplied default. Official OAuth endpoints are normalized here; custom
+// endpoints are retained for the request builder's operator URL policy.
+func (a *Account) GetGrokBaseURLOr(defaultBaseURL string) string {
+	if a == nil || !a.IsGrok() {
+		return ""
+	}
+	defaultBaseURL = strings.TrimRight(strings.TrimSpace(defaultBaseURL), "/")
+	if defaultBaseURL == "" {
+		if a.IsGrokOAuth() {
+			defaultBaseURL = xai.DefaultCLIBaseURL
+		} else {
+			defaultBaseURL = xai.DefaultBaseURL
 		}
+	}
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	if baseURL == "" {
+		return defaultBaseURL
+	}
+	if !a.IsGrokOAuth() {
 		return baseURL
 	}
-	if baseURL != "" {
-		return baseURL
+	// Explicit regional/API or custom values remain pinned. Custom endpoints are checked by the
+	// operator URL policy at the request builder, which has access to config.
+	if validated, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
+		return validated
 	}
-	return xai.DefaultBaseURL
+	if parsed, err := url.Parse(baseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" &&
+		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	return defaultBaseURL
 }
 
 // GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.
@@ -1823,6 +1980,23 @@ func (a *Account) GetOpenAIApiKey() string {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+// GetOpenAIProtocolAPIKey 返回 OpenAI 协议族 APIKey 账号的密钥。
+// 覆盖 openai 原生账号与国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）账号，
+// 供转发鉴权、模型列表同步等协议族共用路径使用。注意 IsOpenAIApiKey 语义上
+// 仅指 openai 平台账号，调度倍率/WS 能力门控继续以其为准，不受本方法影响。
+func (a *Account) GetOpenAIProtocolAPIKey() string {
+	if a == nil {
+		return ""
+	}
+	if a.IsCNProvider() {
+		if a.Type != AccountTypeAPIKey {
+			return ""
+		}
+		return a.GetCredential("api_key")
+	}
+	return a.GetOpenAIApiKey()
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
@@ -2298,6 +2472,22 @@ func (a *Account) IsOpenAIWSForceHTTPEnabled() bool {
 	return ok && enabled
 }
 
+// IsOpenAIResponsesFlattenNamespacesEnabled 返回账号级"摊平 Codex namespace 工具"开关。
+// 字段：accounts.extra.openai_responses_flatten_namespaces，缺省 false（原样保留）。
+//
+// namespace 是 Codex 后端定义的私有扩展，OAuth 出口恒为 chatgpt.com/backend-api/codex
+// （buildUpstreamRequest 只对 API Key 账号取 base_url），即定义方本身，因此默认保留。
+// 该开关只为把流量转发到不认识 namespace 的兼容上游的部署保留退路：打开后恢复
+// 0.1.166 及更早版本的摊平行为。仅对 OpenAI OAuth 账号有效——API Key 走 chat
+// completions 回退桥时由桥自行摊平，Grok/Anthropic 出口有各自的适配链路。
+func (a *Account) IsOpenAIResponsesFlattenNamespacesEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra["openai_responses_flatten_namespaces"].(bool)
+	return ok && enabled
+}
+
 // IsOpenAIWSAllowStoreRecoveryEnabled 返回账号级 store 恢复开关。
 // 字段：accounts.extra.openai_ws_allow_store_recovery。
 func (a *Account) IsOpenAIWSAllowStoreRecoveryEnabled() bool {
@@ -2671,6 +2861,44 @@ func (a *Account) GetContributionWeeklyShareBudget() float64 {
 		return 0
 	}
 	return v
+}
+
+// contributionWeeklyBudgetWindowStart returns the current upstream weekly
+// window start used by budget-mode sharing. OpenAI reports the next reset time;
+// subtracting the reported 7d window length anchors local USD spend to the same
+// cycle. If the snapshot is missing or malformed, retain the historical rolling
+// seven-day fallback rather than disabling protection.
+func (a *Account) contributionWeeklyBudgetWindowStart(now time.Time) time.Time {
+	fallback := now.Add(-7 * 24 * time.Hour)
+	if a == nil || a.Extra == nil {
+		return fallback
+	}
+	resetAt, ok := parseExtraRFC3339Time(a.Extra["codex_7d_reset_at"])
+	if !ok {
+		resetAt, ok = parseExtraRFC3339Time(a.Extra["codex_primary_reset_at"])
+	}
+	if !ok {
+		return fallback
+	}
+
+	windowMinutes := parseExtraFloat64(a.Extra["codex_7d_window_minutes"])
+	if windowMinutes <= 0 {
+		windowMinutes = parseExtraFloat64(a.Extra["codex_primary_window_minutes"])
+	}
+	window := time.Duration(windowMinutes * float64(time.Minute))
+	if window < 24*time.Hour || window > 14*24*time.Hour {
+		window = 7 * 24 * time.Hour
+	}
+
+	if resetAt.After(now) {
+		start := resetAt.Add(-window)
+		if !start.After(now) {
+			return start
+		}
+		return fallback
+	}
+	periodsAfterReset := now.Sub(resetAt) / window
+	return resetAt.Add(periodsAfterReset * window)
 }
 
 func clampContributionReservePercent(value float64) float64 {

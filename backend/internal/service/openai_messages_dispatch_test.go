@@ -1,8 +1,11 @@
 package service
 
-import "testing"
+import (
+	"testing"
 
-import "github.com/stretchr/testify/require"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/stretchr/testify/require"
+)
 
 func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	t.Parallel()
@@ -26,14 +29,21 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	}, cfg.ExactModelMappings)
 }
 
-func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing.T) {
-	t.Parallel()
-
+func TestGroupResolveMessagesDispatchModel_GrokRequiresCrossClientMapping(t *testing.T) {
+	original := xai.RuntimeModelMappingOptions()
+	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
 	group := &Group{Platform: PlatformGrok}
 
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, "grok-4.5", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{})
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+
+	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{
+		DefaultText:          "grok-build-0.1",
+		EnableCrossClientMap: true,
+	})
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Equal(t, "grok-build-0.1", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("grok"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }
@@ -50,8 +60,9 @@ func TestGroupResolveMessagesDispatchModel_KimiUsesNativeCodeModel(t *testing.T)
 		},
 	}
 
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, "kimi-for-coding", group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	// v0.1.178 起 CN 分组不再应用调度级模型映射，模型改写交给账号级 mapping。
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Empty(t, group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("kimi-for-coding"))
 }

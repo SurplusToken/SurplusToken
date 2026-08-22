@@ -163,10 +163,13 @@ const labelClass = computed(() => {
     return `${base} bg-zinc-300/70 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-200`
   }
   if (props.platform === 'kimi') {
-    return `${base} bg-sky-200/70 text-sky-800 dark:bg-sky-800/50 dark:text-sky-200`
+    return `${base} bg-pink-200/60 text-pink-800 dark:bg-pink-800/40 dark:text-pink-300`
   }
   if (props.platform === 'zhipu') {
-    return `${base} bg-cyan-200/70 text-cyan-800 dark:bg-cyan-800/50 dark:text-cyan-200`
+    return `${base} bg-indigo-200/60 text-indigo-800 dark:bg-indigo-800/40 dark:text-indigo-300`
+  }
+  if (props.platform === 'deepseek') {
+    return `${base} bg-teal-200/60 text-teal-800 dark:bg-teal-800/40 dark:text-teal-300`
   }
   if (props.platform === 'composite') {
     return `${base} bg-cyan-200/70 text-cyan-900 dark:bg-cyan-900/50 dark:text-cyan-300`
@@ -208,13 +211,18 @@ const badgeClass = computed(() => {
   }
   if (props.platform === 'kimi') {
     return isSubscription.value
-      ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200'
-      : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-200'
+      ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
+      : 'bg-pink-50 text-pink-700 dark:bg-pink-900/20 dark:text-pink-400'
   }
   if (props.platform === 'zhipu') {
     return isSubscription.value
-      ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200'
-      : 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-200'
+      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+      : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400'
+  }
+  if (props.platform === 'deepseek') {
+    return isSubscription.value
+      ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+      : 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400'
   }
   if (props.platform === 'composite') {
     return isSubscription.value
