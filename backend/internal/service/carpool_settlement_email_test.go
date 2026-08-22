@@ -124,3 +124,25 @@ func TestNotifyCarpoolSettlementGoesToCarpoolAdmin(t *testing.T) {
 	require.Len(t, sender.body, 1)
 	require.True(t, strings.Contains(sender.subject[0], "已结束"))
 }
+
+// type 3 新计价车的结算邮件：席位费每人固定（全车合计 = 50×人数），不按人数均摊。
+func TestBuildCarpoolSettlementEmailType3SeatFeePerMember(t *testing.T) {
+	carpool, settlement := emailFixture()
+	carpool.CarType = CarpoolCarTypeQuotaV2
+	carpool.WeeklyLimitUSD = 2800
+	carpool.SeatFeeCNY = 50
+	carpool.UsagePoolCNY = 1200
+	settlement.CarType = CarpoolCarTypeQuotaV2
+	settlement.SeatFeeCNY = 50
+	settlement.UsagePoolCNY = 1200
+	settlement.MemberCount = 3
+	settlement.Members[0].SeatFeeFinalCNY = 50
+	settlement.Members[0].UsageFinalShareCNY = 400
+
+	subject, body := BuildCarpoolSettlementEmail(carpool, settlement)
+	require.Contains(t, subject, "1350.00", "账单合计 = 席位费 50×3 + 变动池 1200")
+	require.Contains(t, body, "席位费 ¥150.00")
+	require.Contains(t, body, "席位费每人固定")
+	require.NotContains(t, body, "按发车人数均摊")
+	require.Contains(t, body, "席位费 <b>¥50.00</b>", "成员行是每人固定的 50，不是 150/3")
+}

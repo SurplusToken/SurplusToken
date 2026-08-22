@@ -24,7 +24,8 @@ func NewCarpoolHandler(carpoolService *service.CarpoolService) *CarpoolHandler {
 type createCarpoolRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
-	// car_type/level 已废弃（保留兼容），额度池参数为空时使用默认值（设计文档 §3）。
+	// car_type(string)/level 已废弃（保留兼容、忽略不读）：新建的 quota 车恒为
+	// 整数车型 car_type=3；额度池参数为空时使用 type 3 默认（设计文档 §3）。
 	CarType          string  `json:"car_type"`
 	Level            int     `json:"level"`
 	Visibility       string  `json:"visibility" binding:"required"`
@@ -47,12 +48,18 @@ type carpoolInviteRequest struct {
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
 	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
 	JoinedWechatGroup bool `json:"joined_wechat_group"`
+	// AcknowledgedRisk 上车风险确认：仅 type 3 新计价车强制（否则 400
+	// CARPOOL_RISK_ACK_REQUIRED）；其余车型不强制，传了也照存。
+	AcknowledgedRisk bool `json:"acknowledged_risk"`
 }
 
 type carpoolJoinRequest struct {
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd" binding:"required"`
 	// JoinedWechatGroup 上车入群确认：必须 true，否则 400 CARPOOL_GROUP_JOIN_REQUIRED。
 	JoinedWechatGroup bool `json:"joined_wechat_group"`
+	// AcknowledgedRisk 上车风险确认：仅 type 3 新计价车强制（否则 400
+	// CARPOOL_RISK_ACK_REQUIRED）；其余车型不强制，传了也照存。
+	AcknowledgedRisk bool `json:"acknowledged_risk"`
 }
 
 type carpoolLaunchRequest struct {
@@ -126,7 +133,6 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 	result, err := h.service.Create(c.Request.Context(), subject.UserID, isCarpoolAdmin(c), service.CreateCarpoolInput{
 		Name:                   req.Name,
 		Description:            req.Description,
-		CarType:                req.CarType,
 		Level:                  req.Level,
 		Visibility:             req.Visibility,
 		ScheduledStartAt:       &start,
@@ -191,7 +197,7 @@ func (h *CarpoolHandler) Join(c *gin.Context) {
 		response.BadRequest(c, "declared_weekly_quota_usd is required")
 		return
 	}
-	result, err := h.service.Join(c.Request.Context(), id, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
+	result, err := h.service.Join(c.Request.Context(), id, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup, req.AcknowledgedRisk)
 	if response.ErrorFrom(c, err) {
 		return
 	}
@@ -209,7 +215,7 @@ func (h *CarpoolHandler) JoinByInvite(c *gin.Context) {
 		response.BadRequest(c, "token and declared_weekly_quota_usd are required")
 		return
 	}
-	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup)
+	result, err := h.service.JoinByInvite(c.Request.Context(), req.Token, subject.UserID, req.DeclaredWeeklyQuotaUSD, req.JoinedWechatGroup, req.AcknowledgedRisk)
 	if response.ErrorFrom(c, err) {
 		return
 	}

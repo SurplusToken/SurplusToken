@@ -3,7 +3,8 @@ import { apiClient } from './client'
 export type CarpoolStatus = 'recruiting' | 'confirmed' | 'starting' | 'active' | 'cancelled' | 'ended'
 export type CarpoolVisibility = 'public' | 'invite_only'
 export type CarpoolRole = 'owner' | 'member'
-export type CarpoolType = 'small' | 'large'
+// 车型（与后端 CarType 对齐）：0=自定义规则车，1=无保底老车，2=现行 quota 车，3=新 quota 车（百分比申报）。
+export type CarpoolType = 0 | 1 | 2 | 3
 export type CarpoolRecommendationBasis = 'usage_history' | 'anchor'
 
 interface CarpoolResponse {
@@ -342,19 +343,22 @@ export async function createInvite(id: number): Promise<string> {
   return data.token
 }
 
-export async function join(id: number, declaredWeeklyQuotaUsd: number): Promise<JoinCarpoolResult> {
+export async function join(id: number, declaredWeeklyQuotaUsd: number, acknowledgedRisk = false): Promise<JoinCarpoolResult> {
   const { data } = await apiClient.post<CarpoolMutationResponse>(`/carpools/${id}/join`, {
     declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
     joined_wechat_group: true,
+    // 仅新 quota 车（car_type=3）要求风险确认；其他车型不带这个字段（后端也不要求）。
+    ...(acknowledgedRisk ? { acknowledged_risk: true } : {}),
   })
   return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
 }
 
-export async function joinByInvite(token: string, declaredWeeklyQuotaUsd: number): Promise<JoinCarpoolResult> {
+export async function joinByInvite(token: string, declaredWeeklyQuotaUsd: number, acknowledgedRisk = false): Promise<JoinCarpoolResult> {
   const { data } = await apiClient.post<CarpoolMutationResponse>('/carpools/join-by-invite', {
     token,
     declared_weekly_quota_usd: declaredWeeklyQuotaUsd,
     joined_wechat_group: true,
+    ...(acknowledgedRisk ? { acknowledged_risk: true } : {}),
   })
   return { carpool: mapCarpool(data.carpool), prepaidAmountCny: data.prepaid_amount_cny || 0 }
 }
@@ -392,6 +396,8 @@ export interface CarpoolRosterMember {
   email?: string
   role: CarpoolRole
   declaredWeeklyQuotaUsd: number
+  // 新 quota 车（car_type=3）上车时的风险确认；其他车型恒为 false
+  acknowledgedRisk: boolean
 }
 
 interface CarpoolRosterMemberResponse {
@@ -400,6 +406,7 @@ interface CarpoolRosterMemberResponse {
   email?: string
   role: CarpoolRole
   declared_weekly_quota_usd: number
+  acknowledged_risk?: boolean
 }
 
 export async function roster(id: number, inviteToken?: string): Promise<CarpoolRosterMember[]> {
@@ -412,6 +419,7 @@ export async function roster(id: number, inviteToken?: string): Promise<CarpoolR
     email: item.email || undefined,
     role: item.role,
     declaredWeeklyQuotaUsd: item.declared_weekly_quota_usd || 0,
+    acknowledgedRisk: !!item.acknowledged_risk,
   }))
 }
 
@@ -476,6 +484,7 @@ export interface PendingLaunchCarpool {
   memberCount: number
   declaredTotalUsd: number
   weeklyLimitUsd: number
+  carType: CarpoolType
   confirmedAt: string
   pendingHours: number
   overdue: boolean
@@ -489,6 +498,7 @@ interface PendingLaunchResponse {
   member_count: number
   declared_total_usd: number
   weekly_limit_usd: number
+  car_type: CarpoolType
   confirmed_at: string
   pending_hours: number
   overdue: boolean
@@ -505,6 +515,7 @@ export async function pendingLaunch(): Promise<PendingLaunchCarpool[]> {
     memberCount: item.member_count,
     declaredTotalUsd: item.declared_total_usd,
     weeklyLimitUsd: item.weekly_limit_usd,
+    carType: item.car_type,
     confirmedAt: item.confirmed_at,
     pendingHours: item.pending_hours,
     overdue: item.overdue,

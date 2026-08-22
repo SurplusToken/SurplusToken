@@ -19,13 +19,16 @@ var carpoolHandlerPNGBase64 = base64.StdEncoding.EncodeToString([]byte{0x89, 0x5
 
 // carpoolHandlerRepoStub 仅实现 handler 测试触达的方法，其余 panic。
 type carpoolHandlerRepoStub struct {
-	createResult *service.CarpoolMutationResult
-	carpool      *service.Carpool
-	invited      *service.Carpool
-	qrData       []byte
-	qrType       string
-	qrErr        error
-	updateInput  *service.UpdateCarpoolInput
+	createResult    *service.CarpoolMutationResult
+	carpool         *service.Carpool
+	invited         *service.Carpool
+	qrData          []byte
+	qrType          string
+	qrErr           error
+	updateInput     *service.UpdateCarpoolInput
+	joinResult      *service.CarpoolMutationResult
+	joinErr         error
+	joinAckCaptured bool
 }
 
 func (s *carpoolHandlerRepoStub) List(ctx context.Context, userID int64) ([]service.Carpool, error) {
@@ -65,8 +68,12 @@ func (s *carpoolHandlerRepoStub) Create(ctx context.Context, ownerUserID int64, 
 func (s *carpoolHandlerRepoStub) CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error {
 	panic("unexpected call")
 }
-func (s *carpoolHandlerRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*service.CarpoolMutationResult, error) {
-	panic("unexpected call")
+func (s *carpoolHandlerRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool, inviteHash *string) (*service.CarpoolMutationResult, error) {
+	s.joinAckCaptured = acknowledgedRisk
+	if s.joinErr != nil {
+		return nil, s.joinErr
+	}
+	return s.joinResult, nil
 }
 func (s *carpoolHandlerRepoStub) Leave(ctx context.Context, carpoolID, userID int64) (*service.CarpoolMutationResult, error) {
 	panic("unexpected call")
@@ -369,4 +376,31 @@ func TestCarpoolUpdateCarpoolBlankScheduledStartKeepsOldValue(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.NotNil(t, repo.updateInput)
 	require.Nil(t, repo.updateInput.ScheduledStartAt)
+}
+
+// 上车：type 3 车未勾选风险确认（repo 在锁内拒绝）→ 400 CARPOOL_RISK_ACK_REQUIRED。
+func TestCarpoolJoinType3RiskAckRequiredMapsTo400(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{joinErr: service.ErrCarpoolRiskAckRequired}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/join",
+		`{"declared_weekly_quota_usd":100,"joined_wechat_group":true}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	h.Join(c)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	_, reason := decodeCarpoolError(t, recorder)
+	require.Equal(t, "CARPOOL_RISK_ACK_REQUIRED", reason)
+}
+
+// 上车：acknowledged_risk 请求字段透传到 service/repo 层。
+func TestCarpoolJoinPassesAcknowledgedRisk(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{joinResult: &service.CarpoolMutationResult{
+		Carpool: &service.Carpool{ID: 7, Status: "recruiting"},
+	}}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/join",
+		`{"declared_weekly_quota_usd":100,"joined_wechat_group":true,"acknowledged_risk":true}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	h.Join(c)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.True(t, repo.joinAckCaptured)
 }

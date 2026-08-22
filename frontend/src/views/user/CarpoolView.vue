@@ -158,12 +158,13 @@
                 </div>
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
-              <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义 -->
+              <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义。
+                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2800。 -->
               <span
                 v-if="isQuotaCar(carpool)"
                 class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
               >
-                {{ t('carpool.fields.weeklyLimitBadge', { limit: formatUsd(carpool.weeklyLimitUsd) }) }}
+                {{ t('carpool.fields.weeklyLimitBadgePrefix') }} · {{ formatUsd(carpool.weeklyLimitUsd) }} USD/{{ t('carpool.fields.weeklyLimitBadgeUnit') }}
               </span>
               <span
                 v-else
@@ -235,9 +236,10 @@
                 <div>
                   <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
-                    {{ formatCny(carpool.seatFeeCny + carpool.usagePoolCny) }}
+                    {{ carMonthlyFeeText(carpool) }}
+                    <!-- 席位/用量拆分直接渲染数值：type 3 是"¥50/人 + ¥1,200"，type 2 是"¥400 + ¥1,000" -->
                     <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
-                      {{ t('carpool.fields.carMonthlyFeeUnit', { seat: formatCny(carpool.seatFeeCny), pool: formatCny(carpool.usagePoolCny) }) }}
+                      {{ carMonthlyFeeBreakdownText(carpool) }}
                     </span>
                   </dd>
                 </div>
@@ -560,11 +562,14 @@
             <div class="mt-1 text-xs text-gray-500 dark:text-dark-300">
               {{ t('carpool.fields.members', { count: joinTarget.memberCount }) }}
               <span class="text-gray-400 dark:text-dark-400">
-                · {{ t('carpool.joinDialog.seatShareHint', {
-                  total: formatCny(joinTarget.seatFeeCny),
-                  people: joinHeadcount,
-                  each: formatCny(joinSeatShare),
-                }) }}
+                <!-- type 3 席位费每人固定，不参与均摊；type 2 维持"总额 ÷ 人数"的均摊口径 -->
+                · {{ joinIsType3
+                  ? t('carpool.joinDialog.seatSharePerPerson', { each: formatCny(joinSeatShare) })
+                  : t('carpool.joinDialog.seatShareHint', {
+                    total: formatCny(joinCarSeatFeeCny),
+                    people: joinHeadcount,
+                    each: formatCny(joinSeatShare),
+                  }) }}
               </span>
             </div>
           </div>
@@ -572,8 +577,22 @@
         </div>
 
         <div>
-          <label class="input-label" for="carpool-join-quota">{{ t('carpool.joinDialog.quotaLabel') }}</label>
-          <input id="carpool-join-quota" v-model.number="joinForm.declaredQuota" type="number" min="1" step="1" class="input" required />
+          <label class="input-label" for="carpool-join-quota">
+            {{ t(joinIsType3 ? 'carpool.joinDialog.quotaLabelPercent' : 'carpool.joinDialog.quotaLabel') }}
+          </label>
+          <input
+            id="carpool-join-quota"
+            v-model.number="joinForm.declaredQuota"
+            type="number"
+            :min="joinIsType3 ? 0.1 : 1"
+            :step="joinIsType3 ? 0.1 : 1"
+            class="input"
+            required
+          />
+          <!-- type 3 输入的是占全车额度的百分比，实时换算出对应美元额度（提交也按这个口径） -->
+          <p v-if="joinIsType3 && joinDeclaredUsd > 0" class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+            {{ t('carpool.joinDialog.quotaPercentEquals', { usd: formatUsd(joinDeclaredUsd) }) }}
+          </p>
           <p v-if="recommendationLoading" class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.joinDialog.recommendationLoading') }}</p>
           <p v-else-if="recommendation" class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ recommendation.message }}</p>
           <p v-else-if="recommendationFailed" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('carpool.joinDialog.recommendationFailed') }}</p>
@@ -611,7 +630,7 @@
               class="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 pt-1 text-xs dark:border-dark-600"
             >
               <span class="text-primary-600 dark:text-primary-400">{{ t('carpool.joinDialog.rosterYou') }}</span>
-              <span class="font-medium text-primary-600 dark:text-primary-400">{{ formatUsd(joinForm.declaredQuota) }}</span>
+              <span class="font-medium text-primary-600 dark:text-primary-400">{{ formatUsd(joinDeclaredUsd) }}</span>
             </li>
           </ul>
         </div>
@@ -647,13 +666,26 @@
             />
             <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.joinDialog.joinedGroup') }}</span>
           </label>
+          <!-- 新 quota 车（type 3）的强制风险确认：不勾选提交按钮禁用，后端漏传也会拒。
+               文案较长，用 items-start 对齐；勾选样式与上方"已进微信群"一致。 -->
+          <label v-if="joinIsType3" class="mt-3 flex items-start gap-2">
+            <input
+              id="carpool-join-risk"
+              v-model="joinForm.acknowledgedRisk"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.joinDialog.riskAck') }}</span>
+          </label>
         </div>
 
         <p v-if="joinExceedsRemaining" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
           {{ t('carpool.joinDialog.exceedsRemaining', { amount: formatUsd(joinTarget.remainingJoinableUsd) }) }}
         </p>
         <p v-else-if="joinBelowFloor" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
-          {{ t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
+          {{ joinIsType3
+            ? t('carpool.joinDialog.belowFloorPercent', { minPct: joinMinDeclarePctLabel, min: MIN_DECLARED_USD })
+            : t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
         </p>
 
         <div class="grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
@@ -686,7 +718,7 @@
           v-if="joinRateRatio > 1.2"
           class="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
         >
-          {{ t('carpool.joinDialog.rateAboveAverage', {
+          {{ t(joinIsType3 ? 'carpool.joinDialog.rateAboveAverageFlat' : 'carpool.joinDialog.rateAboveAverage', {
             yours: formatRate(joinEffectiveRate),
             average: formatRate(carEffectiveRate(joinTarget)),
             times: formatDecimal(joinRateRatio),
@@ -992,6 +1024,17 @@ const FORCE_LAUNCH_MIN_RATIO = 0.8
 // 与后端 CarpoolUsagePrepayRatio 对齐：首笔只预付额度费分摊的 80%。
 const USAGE_PREPAY_RATIO = 0.8
 
+// 车型与后端 CarType 对齐：0=自定义规则车，1=无保底老车，2=现行 quota 车，3=新 quota 车。
+// type 2（现行 quota 车）保持现有参数：周限额 $2400、席位费 ¥400/月、额度池 ¥1000/月、
+// 美元额度申报——这些值由车辆响应字段（weekly_limit_usd/seat_fee_cny/usage_pool_cny）带回，
+// 前端不再重复硬编码。
+// type 3（新 quota 车）：周限额 $2800、席位费 ¥50/人/月（每人固定收取，不按人头均摊）、
+// 额度池 ¥1200/月，申报改为占全车额度的百分比，前端按 百分比 × 周限额 换算成美元再提交。
+// 下面这组常量与后端对齐，用于换算，并在响应字段缺失时给预览兜底。
+const TYPE3_WEEKLY_LIMIT_USD = 2800
+const TYPE3_SEAT_FEE_CNY = 50
+const TYPE3_USAGE_POOL_CNY = 1200
+
 // 与后端 CarpoolMinDeclaredWeeklyQuotaUSD 对齐：申报下限（美元/周）。
 const MIN_DECLARED_USD = 20
 // 一个计费周期按 31 天算：申报是"每周"额度，周期内可用额度 = 申报 × 31 / 7。
@@ -1063,7 +1106,7 @@ const selectedCarpool = ref<Carpool | null>(null)
 const selectedInviteToken = ref('')
 const joinTarget = ref<Carpool | null>(null)
 const joinInviteToken = ref('')
-const joinForm = reactive({ declaredQuota: null as number | null, joinedGroup: false })
+const joinForm = reactive({ declaredQuota: null as number | null, joinedGroup: false, acknowledgedRisk: false })
 const joinQrUrl = ref('')
 const qrCodeUrls = ref<Record<number, string>>({})
 const qrZoomUrl = ref<string | null>(null)
@@ -1111,6 +1154,7 @@ function carpoolErrorMessages(): Record<string, string> {
     CARPOOL_CONTACT_CONFIRM_REQUIRED: t('carpool.errors.contactConfirmRequired'),
     CARPOOL_GROUP_QR_CODE_REQUIRED: t('carpool.errors.qrCodeRequired'),
     CARPOOL_GROUP_QR_CODE_INVALID: t('carpool.errors.qrCodeInvalid'),
+    CARPOOL_RISK_ACK_REQUIRED: t('carpool.errors.riskAckRequired'),
     CARPOOL_OWNER_CANNOT_LEAVE: t('carpool.errors.ownerCannotLeave'),
     CARPOOL_NOT_MEMBER: t('carpool.errors.notMember'),
   }
@@ -1155,7 +1199,7 @@ const ruleItems = computed(() => [
   { label: t('carpool.rules.declare.label'), text: t('carpool.rules.declare.text') },
   { label: t('carpool.rules.reserve.label'), text: t('carpool.rules.reserve.text') },
   { label: t('carpool.rules.pricing.label'), text: t('carpool.rules.pricing.text') },
-  { label: t('carpool.rules.floor.label'), text: t('carpool.rules.floor.text') },
+  { label: t('carpool.rules.risk.label'), text: t('carpool.rules.risk.text') },
 ])
 const stats = computed(() => [
   { label: t('carpool.stats.recruiting'), value: carpools.value.filter((item) => item.status === 'recruiting' && !item.joinLocked).length },
@@ -1189,42 +1233,62 @@ const createFormValid = computed(() => (
   && createForm.groupQrCode.length > 0
   && !createQrError.value
 ))
-const joinFloorQuota = computed(() => {
-  if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
-  return joinTarget.value.reserveRatio * joinForm.declaredQuota
+// 新 quota 车（type 3）：申报口径是"占全车额度的百分比"，提交前换算成美元。
+const joinIsType3 = computed(() => joinTarget.value?.carType === 3)
+// 价格/额度参数优先取车辆响应字段；响应缺失时按车型的对齐常量兜底（type 3）。
+const joinCarWeeklyLimitUsd = computed(() => joinTarget.value?.weeklyLimitUsd || (joinIsType3.value ? TYPE3_WEEKLY_LIMIT_USD : 0))
+const joinCarSeatFeeCny = computed(() => joinTarget.value?.seatFeeCny || (joinIsType3.value ? TYPE3_SEAT_FEE_CNY : 0))
+const joinCarUsagePoolCny = computed(() => joinTarget.value?.usagePoolCny || (joinIsType3.value ? TYPE3_USAGE_POOL_CNY : 0))
+// 申报的美元口径：type 3 输入的是百分比，×周限额换算；其余车型输入本身就是美元。
+const joinDeclaredUsd = computed(() => {
+  const declared = joinForm.declaredQuota
+  if (!declared || declared <= 0) return 0
+  if (!joinIsType3.value) return declared
+  return Math.round((declared / 100) * joinCarWeeklyLimitUsd.value * 100) / 100
 })
-// 预付拆成两块：席位费按人头均摊（跟车上现有几个人直接相关），
-// 用量池按申报占比分摊。合成一个数字就看不出"多少钱是席位费"。
+// type 3 的申报下限提示用百分比口径：$20 / $2800 ≈ 0.72%。
+const joinMinDeclarePctLabel = computed(() => {
+  const limit = joinCarWeeklyLimitUsd.value
+  return limit > 0 ? (MIN_DECLARED_USD / limit * 100).toFixed(2) : ''
+})
+const joinFloorQuota = computed(() => {
+  if (!joinTarget.value || joinDeclaredUsd.value <= 0) return 0
+  return joinTarget.value.reserveRatio * joinDeclaredUsd.value
+})
+// 预付拆成两块：席位费 + 用量池按申报占比分摊。合成一个数字就看不出"多少钱是席位费"。
+// 席位费的口径按车型分：type 2 是 ¥400/车按人头均摊（跟车上现有几个人直接相关），
+// type 3 是每人固定 ¥50，上车几个人不影响自己要付的那份。
 const joinHeadcount = computed(() => (joinTarget.value ? joinTarget.value.memberCount + 1 : 1))
-const joinSeatShare = computed(() => (
-  joinTarget.value ? joinTarget.value.seatFeeCny / Math.max(1, joinHeadcount.value) : 0
-))
+const joinSeatShare = computed(() => {
+  if (!joinTarget.value) return 0
+  if (joinIsType3.value) return joinCarSeatFeeCny.value
+  return joinCarSeatFeeCny.value / Math.max(1, joinHeadcount.value)
+})
 const joinPoolShare = computed(() => {
   const car = joinTarget.value
-  const declared = joinForm.declaredQuota
-  if (!car || !declared || declared <= 0) return 0
+  const declared = joinDeclaredUsd.value
+  if (!car || declared <= 0) return 0
   const declaredTotal = car.declaredTotalUsd + declared
   if (declaredTotal <= 0) return 0
-  return USAGE_PREPAY_RATIO * car.usagePoolCny * declared / declaredTotal
+  return USAGE_PREPAY_RATIO * joinCarUsagePoolCny.value * declared / declaredTotal
 })
 const joinPrepaid = computed(() => {
-  if (!joinTarget.value || !joinForm.declaredQuota || joinForm.declaredQuota <= 0) return 0
+  if (!joinTarget.value || joinDeclaredUsd.value <= 0) return 0
   return joinSeatShare.value + joinPoolShare.value
 })
 const joinExceedsRemaining = computed(() => (
-  !!joinTarget.value && !!joinForm.declaredQuota && joinForm.declaredQuota > joinTarget.value.remainingJoinableUsd + 1e-9
+  !!joinTarget.value && joinDeclaredUsd.value > 0 && joinDeclaredUsd.value > joinTarget.value.remainingJoinableUsd + 1e-9
 ))
 const joinBelowFloor = computed(() => (
-  joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinForm.declaredQuota < MIN_DECLARED_USD
+  joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinDeclaredUsd.value < MIN_DECLARED_USD
 ))
 // 等效倍率：这一位成员付的钱相当于官方价的几倍。
 // 分母是一个计费周期（31 天）内他能用的额度 = 申报 × 31 / 7。
 // 用"你的"而不是全车平均——席位费按人头均摊、用量池按申报分摊，
 // 申报越小的人越贵（设计文档举过"实际单价可能是均价两倍"的例子）。
 const joinPeriodQuotaUsd = computed(() => {
-  const declared = joinForm.declaredQuota
-  if (!declared || declared <= 0) return 0
-  return declared * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
+  if (joinDeclaredUsd.value <= 0) return 0
+  return joinDeclaredUsd.value * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
 })
 // 等效倍率 = 付出的人民币 ÷ 拿到的官方额度（美元）。
 const joinEffectiveRate = computed(() => (
@@ -1233,14 +1297,33 @@ const joinEffectiveRate = computed(() => (
 // 倒数：¥1 换到多少官方额度。小数倍率不好念，这个更直观。
 const joinUsdPerCny = computed(() => (joinEffectiveRate.value > 0 ? 1 / joinEffectiveRate.value : 0))
 // 整车口径的同一个指标，用于卡片展示和"你比平均贵多少"的对比。
+// type 3 席位费每人固定：整车席位总额 = 50×当前人数（无人按 1 计）；
+// type 1/2 全车一份。加入对话框里决策用的"你的倍率"同样按 50 固定精确计算。
 function carEffectiveRate(carpool: Carpool): number {
   const periodQuota = carpool.weeklyLimitUsd * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
   if (periodQuota <= 0) return 0
-  return (carpool.seatFeeCny + carpool.usagePoolCny) / periodQuota
+  const seatTotal = carpool.carType === 3
+    ? carpool.seatFeeCny * Math.max(carpool.memberCount, 1)
+    : carpool.seatFeeCny
+  return (seatTotal + carpool.usagePoolCny) / periodQuota
 }
 function carUsdPerCny(carpool: Carpool): number {
   const rate = carEffectiveRate(carpool)
   return rate > 0 ? 1 / rate : 0
+}
+// 整车月费主数值：type 3 的席位费按人固定收取，与按车计的用量池直接相加
+// 会得到"¥1,250/车"这类误导合计，所以 type 3 显示"用量池 + 席位/人"。
+function carMonthlyFeeText(carpool: Carpool): string {
+  if (carpool.carType === 3) {
+    return `${formatCny(carpool.usagePoolCny)} + ${formatCny(carpool.seatFeeCny)}/${t('carpool.fields.perPerson')}`
+  }
+  return formatCny(carpool.seatFeeCny + carpool.usagePoolCny)
+}
+// 月费拆分小字：type 3 的席位部分带"/人"后缀，type 2 维持"席位 + 用量"的整车口径。
+function carMonthlyFeeBreakdownText(carpool: Carpool): string {
+  const seat = `${t('carpool.fields.carMonthlyFeeSeat')} ${formatCny(carpool.seatFeeCny)}`
+  const pool = `${t('carpool.fields.carMonthlyFeePool')} ${formatCny(carpool.usagePoolCny)}`
+  return carpool.carType === 3 ? `${seat}/${t('carpool.fields.perPerson')} + ${pool}` : `${seat} + ${pool}`
 }
 // 与全车平均倍率的偏离，> 1 说明这位用户比平均更贵。
 const joinRateRatio = computed(() => {
@@ -1252,6 +1335,8 @@ const joinRateRatio = computed(() => {
 const joinFormValid = computed(() => (
   !!joinForm.declaredQuota && joinForm.declaredQuota > 0
   && !joinExceedsRemaining.value && !joinBelowFloor.value && joinForm.joinedGroup
+  // 新 quota 车（type 3）必须勾选风险确认才能提交（后端同样强制，漏了会被拒）。
+  && (!joinIsType3.value || joinForm.acknowledgedRisk)
 ))
 const confirmTitle = computed(() => {
   if (!confirmAction.value) return ''
@@ -1678,6 +1763,7 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
   joinInviteToken.value = inviteToken
   joinForm.declaredQuota = null
   joinForm.joinedGroup = false
+  joinForm.acknowledgedRisk = false
   joinQrUrl.value = qrCodeUrls.value[carpool.id] || ''
   if (carpool.hasGroupQrCode && !joinQrUrl.value) {
     // 私密车走邀请链接进来时，二维码请求必须带上 token（后端据此授权）。
@@ -1721,7 +1807,10 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
       if (seq !== recommendationSeq) return
       recommendation.value = rec
       if (rec.recommendedWeeklyQuotaUsd > 0 && joinForm.declaredQuota === null) {
-        joinForm.declaredQuota = Math.round(rec.recommendedWeeklyQuotaUsd * 10) / 10
+        // type 3 的输入框是百分比口径：推荐的美元额度按周限额换算成百分比回填。
+        joinForm.declaredQuota = joinIsType3.value
+          ? Math.round((rec.recommendedWeeklyQuotaUsd / joinCarWeeklyLimitUsd.value) * 1000) / 10
+          : Math.round(rec.recommendedWeeklyQuotaUsd * 10) / 10
       }
     })
     .catch(() => {
@@ -1737,11 +1826,12 @@ function openJoin(carpool: Carpool, inviteToken = ''): void {
 async function submitJoin(): Promise<void> {
   if (!joinTarget.value || !joinFormValid.value || actionPending.value) return
   actionPending.value = true
-  const declared = joinForm.declaredQuota as number
+  // 提交口径统一是美元（declared_weekly_quota_usd）：type 3 的百分比已在 joinDeclaredUsd 换算。
+  const declared = joinDeclaredUsd.value
   try {
     const result = joinInviteToken.value
-      ? await carpoolAPI.joinByInvite(joinInviteToken.value, declared)
-      : await carpoolAPI.join(joinTarget.value.id, declared)
+      ? await carpoolAPI.joinByInvite(joinInviteToken.value, declared, joinForm.acknowledgedRisk)
+      : await carpoolAPI.join(joinTarget.value.id, declared, joinForm.acknowledgedRisk)
     joinDialogOpen.value = false
     activeTab.value = 'mine'
     appStore.showSuccess(

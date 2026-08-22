@@ -117,7 +117,7 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     organizer: 'owner-a',
     platform: 'openai',
     planType: 'openai_pro',
-    carType: 'small',
+    carType: 2,
     level: 1,
     capacity: 0,
     memberCount: 2,
@@ -233,7 +233,6 @@ describe('CarpoolView', () => {
     expect(rules.text()).toContain('carpool.rules.declare.text')
     expect(rules.text()).toContain('carpool.rules.reserve.text')
     expect(rules.text()).toContain('carpool.rules.pricing.text')
-    expect(rules.text()).toContain('carpool.rules.floor.text')
     expect(rules.text()).toContain('carpool.notices.weeklyRefresh')
     expect(rules.text()).toContain('carpool.notices.consumeOrder')
     expect(rules.text()).toContain('carpool.notices.customRule')
@@ -513,7 +512,8 @@ describe('CarpoolView', () => {
 
     await confirmButton().trigger('click')
     await flushPromises()
-    expect(joinMock).toHaveBeenCalledWith(10, 100)
+    // type 2 车不带风险确认（第三个参数为 false，不会写进请求体）
+    expect(joinMock).toHaveBeenCalledWith(10, 100, false)
   })
 
   // 申报推荐是异步回填金额输入框的。迟到的响应绝不能覆盖用户已经改过的数字——
@@ -561,6 +561,125 @@ describe('CarpoolView', () => {
 
     await wrapper.get('#carpool-join-quota').setValue(20)
     expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeUndefined()
+  })
+
+  // type 3（新 quota 车）：周限额 $2800、席位费 ¥50/月、额度池 ¥1200/月，卡片按车型参数展示。
+  it('shows the type-3 car parameters on the card', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 3,
+      weeklyLimitUsd: 2800,
+      seatFeeCny: 50,
+      usagePoolCny: 1200,
+      declaredTotalUsd: 1400,
+      remainingJoinableUsd: 1540,
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    const card = wrapper.get('article')
+
+    expect(card.text()).toContain('$2,800')
+    expect(card.text()).toContain('¥50')
+    expect(card.text()).toContain('¥1,200')
+    // 席位费是每人固定 ¥50：不能渲染出"席位+用量=¥1,250"这种整车误导合计
+    expect(card.text()).not.toContain('¥1,250')
+    // 规则区带新车型说明
+    expect(wrapper.text()).toContain('carpool.rules.risk.text')
+  })
+
+  // type 3 加入对话框：申报改为占全车额度的百分比，实时换算美元；
+  // 必须勾选风险确认才能提交，提交带换算后的美元申报与 acknowledged_risk。
+  it('joins a type-3 car with a percentage declaration and the risk acknowledgment', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 3,
+      weeklyLimitUsd: 2800,
+      seatFeeCny: 50,
+      usagePoolCny: 1200,
+      memberCount: 2,
+      declaredTotalUsd: 1400,
+      remainingJoinableUsd: 1540,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 9, username: 'owner-a', role: 'owner', declaredWeeklyQuotaUsd: 1400, acknowledgedRisk: true },
+    ])
+    joinMock.mockResolvedValue({ carpool: makeCarpool({ id: 10, memberRole: 'member' }), prepaidAmountCny: 0 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    // 百分比口径的输入标签 + 风险确认勾选框
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaLabelPercent')
+    expect(wrapper.find('#carpool-join-risk').exists()).toBe(true)
+
+    await wrapper.get('#carpool-join-quota').setValue(50)
+    // 50% × $2800 = $1,400：花名册"你"一行按美元显示；保底 80% = $1,120
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaPercentEquals')
+    expect(wrapper.text()).toContain('$1,400')
+    expect(wrapper.text()).toContain('$1,120')
+    // 席位费每人固定 ¥50（不均摊），提示走 per-person 口径
+    expect(wrapper.text()).toContain('carpool.joinDialog.seatSharePerPerson')
+    expect(wrapper.text()).not.toContain('carpool.joinDialog.seatShareHint')
+    // 预付 = 席位 ¥50（固定） + 80% × ¥1200 × (1400/2800) = ¥530
+    expect(wrapper.text()).toContain('¥530')
+
+    const confirmButton = () => findButton(wrapper, 'carpool.joinDialog.confirm')
+    await wrapper.get('#carpool-join-group').setValue(true)
+    // 未勾选风险确认 → 禁提交
+    expect(confirmButton().attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-join-risk').setValue(true)
+    expect(confirmButton().attributes('disabled')).toBeUndefined()
+
+    await confirmButton().trigger('click')
+    await flushPromises()
+    // 提交的是换算后的美元申报，且带风险确认
+    expect(joinMock).toHaveBeenCalledWith(10, 1400, true)
+  })
+
+  // type 3 的申报下限提示用百分比口径：$20 / $2800 ≈ 0.72%。
+  it('blocks a type-3 declaration below the floor in percentage terms', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 3,
+      weeklyLimitUsd: 2800,
+      seatFeeCny: 50,
+      usagePoolCny: 1200,
+      declaredTotalUsd: 1400,
+      remainingJoinableUsd: 1540,
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#carpool-join-quota').setValue(0.5) // 0.5% × 2800 = $14 < $20
+    await wrapper.get('#carpool-join-group').setValue(true)
+    await wrapper.get('#carpool-join-risk').setValue(true)
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.belowFloorPercent')
+    expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-join-quota').setValue(1) // 1% = $28 ≥ $20
+    expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeUndefined()
+  })
+
+  // type 2（现行 quota 车）不渲染风险确认勾选，交互保持美元申报。
+  it('keeps the type-2 join dialog free of the risk checkbox', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10 })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaLabel')
+    expect(wrapper.text()).not.toContain('carpool.joinDialog.quotaLabelPercent')
+    expect(wrapper.find('#carpool-join-risk').exists()).toBe(false)
   })
 
   // 加入对话框展示"你的折算单价"而不是全车均价：席位费按人头均摊，

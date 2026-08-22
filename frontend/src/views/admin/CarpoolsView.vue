@@ -50,6 +50,10 @@
                 <span v-if="!isQuotaCar(row)" class="badge badge-gray">
                   {{ t('carpool.customRule.badge') }}
                 </span>
+                <!-- 车型标签（type 1/2/3）；自定义规则车已由上面的 badge 标注，不重复 -->
+                <span v-if="carTypeLabel(row)" class="badge badge-gray">
+                  {{ carTypeLabel(row) }}
+                </span>
                 <span
                   v-for="kind in carpoolAlerts(row)"
                   :key="kind"
@@ -191,6 +195,16 @@
                 </span>
                 <span v-if="member.role === 'owner'" class="badge badge-gray shrink-0">
                   {{ t('carpool.joinDialog.rosterOwner') }}
+                </span>
+                <!-- 新 quota 车（type 3）成员的风险确认状态（只读）：上车时后端强制要求确认 -->
+                <span
+                  v-if="activeCarpool.carType === 3"
+                  class="shrink-0 rounded px-1 text-[10px]"
+                  :class="member.acknowledgedRisk
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-300'"
+                >
+                  {{ t(member.acknowledgedRisk ? 'carpool.adminPage.membersDialog.riskAcked' : 'carpool.adminPage.membersDialog.riskNotAcked') }}
                 </span>
               </span>
               <span v-if="member.email" class="truncate text-xs text-gray-400">{{ member.email }}</span>
@@ -402,6 +416,20 @@ const columns = computed<Column[]>(() => [
 // 自定义规则车（含升级前的老车）不走申报制，额度相关的列与操作对它们没有意义。
 function isQuotaCar(carpool: Carpool): boolean {
   return (carpool.pricingModel || 'quota') === 'quota'
+}
+
+// 车型标签（与后端 CarType 对齐）：1=无保底老车，2=现行 quota 车，3=新 quota 车。
+// type 0（自定义规则车）已由「自定义规则」badge 覆盖，仅在 pricing_model 数据异常时兜底显示。
+function carTypeLabel(carpool: Carpool): string {
+  if (!isQuotaCar(carpool)) return ''
+  const keys: Record<number, string> = {
+    0: 'carpool.carTypes.type0',
+    1: 'carpool.carTypes.type1',
+    2: 'carpool.carTypes.type2',
+    3: 'carpool.carTypes.type3',
+  }
+  const key = keys[carpool.carType]
+  return key ? t(key) : ''
 }
 
 function declaredPercent(carpool: Carpool): number {

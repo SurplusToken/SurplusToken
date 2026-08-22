@@ -7,20 +7,20 @@ export default {
       title: 'GPT Carpool Rules: Quota Reservation',
       weeklyBadge: 'Locked quota refreshes weekly',
       declare: {
-        label: 'Declaration-based',
-        text: 'Declare your expected weekly quota (USD) before joining and prepay against it. The car launches once total declarations reach 95%–105% of its weekly limit.'
+        label: 'Percentage declaration',
+        text: 'Reserve a share of the car quota before joining (the Pro 20x historical weekly limit of $2,800 is for reference), prepay against your declaration, and settle at month end by actual usage. A car launches once total declarations reach 95%–105%.'
       },
       reserve: {
         label: '80% reserved + 20% shared pool',
-        text: '80% of your declaration is locked for you and cannot be taken by anyone; the rest goes to a shared pool, first come first served.'
+        text: '80% of your declaration is locked for you and cannot be taken by anyone; the rest goes to a shared pool, first come first served; your usage is capped at 200% of your declaration. At month end you are billed on max(actual usage, 80% × declaration) with refunds or top-ups — you always pay at least your reserved floor.'
       },
       pricing: {
-        label: '¥400 + ¥1000 two-part pricing',
-        text: 'Each car costs ¥400/month in seat fees split equally per member (more members, cheaper seats) plus a ¥1000/month usage pool split by billable usage.'
+        label: '¥1,200 + ¥50/member two-part pricing',
+        text: 'Each car has a ¥1,200/month usage pool split by billable usage, plus a flat seat fee of ¥50 per member per month.'
       },
-      floor: {
-        label: '80% floor settlement',
-        text: 'At month end you are billed on max(actual usage, 80% × declaration) with refunds/top-ups — you always pay at least your reserved floor.'
+      risk: {
+        label: 'Risk acknowledgment',
+        text: 'Joining requires acknowledging losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure. Once confirmed, you cannot leave mid-term.'
       }
     },
     notices: {
@@ -60,7 +60,8 @@ export default {
       visibility: 'Join policy',
       scheduledStart: 'Expected start',
       organizer: 'Organizer',
-      weeklyLimitBadge: 'GPT · {limit} USD/week',
+      weeklyLimitBadgePrefix: 'GPT',
+      weeklyLimitBadgeUnit: 'week',
       quotaProgress: 'Quota reservation',
       declaredOf: '{declared} / {limit} USD reserved',
       launchLine: '{ratio}% launch line',
@@ -68,7 +69,9 @@ export default {
       effectiveRate: 'Effective rate',
       effectiveRateHint: '¥1 ≈ ${usd} official',
       carMonthlyFee: 'Car monthly fee',
-      carMonthlyFeeUnit: 'seat {seat} + usage {pool}',
+      carMonthlyFeeSeat: 'seat',
+      carMonthlyFeePool: 'usage',
+      perPerson: 'person',
       members: '{count} members joined'
     },
     roles: {
@@ -116,6 +119,7 @@ export default {
       contactConfirmRequired: 'Please confirm you have added the admin on WeChat first.',
       qrCodeRequired: 'A WeChat group QR code is required.',
       qrCodeInvalid: 'The QR code must be a png / jpeg / webp image under 2MB.',
+      riskAckRequired: 'Joining requires acknowledging the risk notice: losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure are borne by the members, and you cannot leave mid-term.',
       ownerCannotLeave: 'Owners cannot leave; cancel the whole carpool instead.',
       notMember: 'You are not a member of this carpool.'
     },
@@ -124,6 +128,13 @@ export default {
     customRule: {
       badge: 'Custom rules',
       noNote: 'This carpool runs under separately agreed terms; declarations, reserves and automatic refunds do not apply.'
+    },
+    // Car type labels (aligned with the backend CarType), used by the admin overview.
+    carTypes: {
+      type0: 'Custom-rule car',
+      type1: 'Legacy car (no floor)',
+      type2: 'Quota reservation car',
+      type3: 'New quota car'
     },
     wechat: {
       adminLabel: 'Admin WeChat',
@@ -158,6 +169,8 @@ export default {
     joinDialog: {
       title: 'Confirm joining',
       quotaLabel: 'Declared quota (USD/week)',
+      quotaLabelPercent: 'Declared quota (% of the car quota)',
+      quotaPercentEquals: '≈ {usd}/week',
       recommendationLoading: 'Loading a recommended declaration…',
       recommendationFailed: 'Could not load a recommendation; please estimate your own usage',
       previewFloor: 'Reserved floor',
@@ -169,6 +182,7 @@ export default {
       effectiveRateBasis: 'over 31 days',
       prepaidBreakdown: 'Seat {seat} + usage {pool}',
       seatShareHint: 'seat fee {total} ÷ {people} = {each} each',
+      seatSharePerPerson: 'seat fee {each} per person (flat)',
       rosterTitle: 'Members on board',
       rosterSummary: '{count} members · {total}/week',
       rosterLoading: 'Loading members…',
@@ -178,11 +192,14 @@ export default {
       rosterYou: 'You (this declaration)',
       rosterAnonymous: 'User #{id}',
       rateAboveAverage: 'At your declaration the effective rate is {yours}, about {times}× the car average ({average}) — the seat fee is split per head, so a smaller declaration costs relatively more.',
+      rateAboveAverageFlat: 'At your declaration the effective rate is {yours}, about {times}× the car average ({average}) — the seat fee is a flat per-person charge, so a smaller declaration costs relatively more.',
       floorNotice: 'Even if you use less, you are billed for at least 80% of your declaration.',
       exceedsRemaining: 'Declaration exceeds this car\'s remaining joinable quota ({amount} USD); lower it or wait for the next car',
       belowFloor: 'Declared quota must be at least {min} USD/week',
+      belowFloorPercent: 'Declaration must be at least {minPct}% of the car quota (about {min} USD/week)',
       groupSection: 'Join the WeChat group before boarding',
       joinedGroup: 'I have joined the group',
+      riskAck: 'I acknowledge that losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure are borne by the members, and I cannot leave mid-term',
       confirm: 'Confirm join',
       success: 'Joined carpool, prepaid ¥{amount}',
       successNoPrepaid: 'Joined carpool'
@@ -309,7 +326,9 @@ export default {
         qrFailed: 'Failed to load QR code, click to retry',
         qrReplace: 'Replace',
         qrUpload: 'Upload QR code',
-        qrReplaced: 'Group QR code replaced'
+        qrReplaced: 'Group QR code replaced',
+        riskAcked: 'Risk acknowledged',
+        riskNotAcked: 'Not acknowledged'
       },
       editDialog: {
         title: 'Edit carpool'

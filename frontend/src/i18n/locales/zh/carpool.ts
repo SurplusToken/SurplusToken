@@ -7,20 +7,20 @@ export default {
       title: 'GPT 拼车规则：额度预约制',
       weeklyBadge: '锁定额度按周刷新',
       declare: {
-        label: '申报制',
-        text: '上车前申报一周预期额度（USD），并按申报预付第一笔账；总申报进入整车周限额的 95%–105% 即可发车。'
+        label: '百分比申报',
+        text: '上车前预约一定份额的全车额度（Pro 20x 过往周限额 2800 供参考），并按申报预付，月末按照实际使用量结算。一辆车总申报达 95%-105% 可发车。'
       },
       reserve: {
         label: '80% 保底 + 20% 公共池',
-        text: '申报的 80% 定向锁定给你，任何人抢不走；其余进入机动公共池，全员先到先得。'
+        text: '申报的 80% 定向锁定给你，任何人抢不走；其余进入机动公共池，全员先到先得；个人使用上限为申报的 200%。月末按 max（实际用量，80% × 申报）计费，多退少补——报多少保底多少，保底多少至少付多少。'
       },
       pricing: {
-        label: '¥400 + ¥1000 两部制',
-        text: '每车每月 ¥400 席位费按人头均摊（人越多越便宜），¥1000 用量池按计费用量占比分摊。'
+        label: '¥1200 + ¥50/人 两部制',
+        text: '每车每月 ¥1200 用量池按计费用量占比分摊；席位费每人 ¥50/月，固定收取。'
       },
-      floor: {
-        label: '80% 地板结算',
-        text: '月末按 max（实际用量，80% × 申报）计费，多退少补——报多少保底多少，保底多少至少付多少。'
+      risk: {
+        label: '风险确认',
+        text: '上车需确认知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，确认后无法中途跳车。'
       }
     },
     notices: {
@@ -60,7 +60,8 @@ export default {
       visibility: '加入方式',
       scheduledStart: '预计开车',
       organizer: '发起人',
-      weeklyLimitBadge: 'GPT · {limit} USD/周',
+      weeklyLimitBadgePrefix: 'GPT',
+      weeklyLimitBadgeUnit: '周',
       quotaProgress: '额度池预约进度',
       declaredOf: '已预约 {declared} / {limit} USD',
       launchLine: '{ratio}% 发车线',
@@ -68,7 +69,9 @@ export default {
       effectiveRate: '等效倍率',
       effectiveRateHint: '¥1 ≈ 官方 ${usd}',
       carMonthlyFee: '整车月费',
-      carMonthlyFeeUnit: '席位 {seat} + 用量 {pool}',
+      carMonthlyFeeSeat: '席位',
+      carMonthlyFeePool: '用量',
+      perPerson: '人',
       members: '已上车 {count} 人'
     },
     roles: {
@@ -116,6 +119,7 @@ export default {
       contactConfirmRequired: '请先确认已添加管理员微信',
       qrCodeRequired: '请上传微信群二维码',
       qrCodeInvalid: '群二维码需为 png / jpeg / webp 且不超过 2MB',
+      riskAckRequired: '上车前必须确认风险告知：已知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，无法中途跳车',
       ownerCannotLeave: '车主不能下车，只能取消整辆车',
       notMember: '你不在这辆车上'
     },
@@ -124,6 +128,13 @@ export default {
     customRule: {
       badge: '自定义规则',
       noNote: '本车按单独约定的规则运行，不适用额度预约制的申报、保底与自动退补。'
+    },
+    // 车型标签（与后端 CarType 对齐）：管理总览用。
+    carTypes: {
+      type0: '自定义规则车',
+      type1: '无保底老车',
+      type2: '额度预约车',
+      type3: '新额度车'
     },
     wechat: {
       adminLabel: '管理员微信',
@@ -158,6 +169,8 @@ export default {
     joinDialog: {
       title: '确认上车',
       quotaLabel: '申报额度（USD/周）',
+      quotaLabelPercent: '申报额度（占全车额度的百分比 %）',
+      quotaPercentEquals: '约合 {usd}/周',
       recommendationLoading: '正在获取申报推荐…',
       recommendationFailed: '申报推荐获取失败，请按自身用量估计',
       previewFloor: '保底额度',
@@ -169,6 +182,7 @@ export default {
       effectiveRateBasis: '按 31 天折算',
       prepaidBreakdown: '席位 {seat} + 用量 {pool}',
       seatShareHint: '席位费 {total} ÷ {people} 人 = {each}/人',
+      seatSharePerPerson: '席位费 {each}/人（固定收取）',
       rosterTitle: '车上现有成员',
       rosterSummary: '{count} 人 · 共 {total}/周',
       rosterLoading: '正在加载成员…',
@@ -178,11 +192,14 @@ export default {
       rosterYou: '你（本次申报）',
       rosterAnonymous: '同学 #{id}',
       rateAboveAverage: '按你的申报折算，你的等效倍率是 {yours}，约为全车平均（{average}）的 {times} 倍——席位费按人头均摊，申报越少越不划算。',
+      rateAboveAverageFlat: '按你的申报折算，你的等效倍率是 {yours}，约为全车平均（{average}）的 {times} 倍——席位费每人固定收取，申报越少越不划算。',
       floorNotice: '即使未用满，也至少按申报的 80% 计费。',
       exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
       belowFloor: '申报额度不能低于 {min} USD/周',
+      belowFloorPercent: '申报不能低于全车额度的 {minPct}%（约 {min} USD/周）',
       groupSection: '上车前先加入微信群',
       joinedGroup: '我已加入群聊',
+      riskAck: '已确认知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，无法中途跳车',
       confirm: '确认上车',
       success: '已加入拼车，预付 ¥{amount}',
       successNoPrepaid: '已加入拼车'
@@ -309,7 +326,9 @@ export default {
         qrFailed: '二维码加载失败，点击重试',
         qrReplace: '更换',
         qrUpload: '上传二维码',
-        qrReplaced: '群二维码已更换'
+        qrReplaced: '群二维码已更换',
+        riskAcked: '已确认风险',
+        riskNotAcked: '未确认风险'
       },
       editDialog: {
         title: '编辑拼车'

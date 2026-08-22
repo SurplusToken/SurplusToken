@@ -9,13 +9,13 @@ import (
 )
 
 func TestCarpoolPrepaidCNYUsesDeclaredShareAndEightyPercentUsagePrepay(t *testing.T) {
-	// 预付 = 400/N + 80%×1000×(个人申报/全车申报)。
-	require.InDelta(t, 200.0, CarpoolPrepaidCNY(400, 1000, 2400, 400, 6), 0.01) // A1 重度 6 人
-	require.InDelta(t, 120.0, CarpoolPrepaidCNY(400, 1000, 2400, 240, 10), 0.01)
-	require.InDelta(t, 60.0, CarpoolPrepaidCNY(400, 1000, 2400, 120, 20), 0.01)
-	require.InDelta(t, 150.0, CarpoolPrepaidCNY(400, 1000, 2000, 250, 8), 0.01) // A3 降档发车
+	// type 1/2 存量口径：预付 = 400/N + 80%×1000×(个人申报/全车申报)。
+	require.InDelta(t, 200.0, CarpoolPrepaidCNY(CarpoolCarTypeQuota, 400, 1000, 2400, 400, 6), 0.01) // A1 重度 6 人
+	require.InDelta(t, 120.0, CarpoolPrepaidCNY(CarpoolCarTypeQuota, 400, 1000, 2400, 240, 10), 0.01)
+	require.InDelta(t, 60.0, CarpoolPrepaidCNY(CarpoolCarTypeQuota, 400, 1000, 2400, 120, 20), 0.01)
+	require.InDelta(t, 150.0, CarpoolPrepaidCNY(CarpoolCarTypeQuota, 400, 1000, 2000, 250, 8), 0.01) // A3 降档发车
 	// 全车申报不可用时只收席位费，且 memberCount<1 按 1 计。
-	require.InDelta(t, 400.0, CarpoolPrepaidCNY(400, 1000, 0, 240, 0), 0.01)
+	require.InDelta(t, 400.0, CarpoolPrepaidCNY(CarpoolCarTypeQuota, 400, 1000, 0, 240, 0), 0.01)
 }
 
 func TestCarpoolMemberWeeklyLimitUSDGuaranteesReserve(t *testing.T) {
@@ -168,7 +168,7 @@ func TestComputeCarpoolSettlementMembersMatchesAppendixA4(t *testing.T) {
 	// 历史报价不再参与退补；席位费不退不补。
 	inputs[0].QuotedPrepaidCNY = 525
 
-	members := ComputeCarpoolSettlementMembers(2400, 400, 1000, 0.8, inputs)
+	members := ComputeCarpoolSettlementMembers(CarpoolCarTypeQuota, 2400, 400, 1000, 0.8, inputs)
 	require.Len(t, members, 10)
 
 	shareTotal := 0.0
@@ -213,7 +213,7 @@ func TestComputeCarpoolSettlementMembersFloorExtrapolatesByPeriod(t *testing.T) 
 		ActualUsageUSD:         100,
 		PeriodDays:             30,
 	}}
-	members := ComputeCarpoolSettlementMembers(2400, 400, 1000, 0.8, inputs)
+	members := ComputeCarpoolSettlementMembers(CarpoolCarTypeQuota, 2400, 400, 1000, 0.8, inputs)
 	require.Len(t, members, 1)
 	require.InDelta(t, 0.8*240*30/7, members[0].FloorUsageUSD, 1e-9)
 	require.True(t, members[0].FloorTriggered)
@@ -225,7 +225,7 @@ func TestComputeCarpoolSettlementMembersFloorExtrapolatesByPeriod(t *testing.T) 
 func TestComputeCarpoolSettlementMembersZeroBillable(t *testing.T) {
 	// 全员零申报零用量（遗留数据兜底）：分摊全 0，不出现除零
 	inputs := []CarpoolSettlementMemberInput{{UserID: 1}, {UserID: 2}}
-	members := ComputeCarpoolSettlementMembers(2400, 400, 1000, 0.8, inputs)
+	members := ComputeCarpoolSettlementMembers(CarpoolCarTypeQuota, 2400, 400, 1000, 0.8, inputs)
 	require.Len(t, members, 2)
 	for _, m := range members {
 		require.Zero(t, m.UsageFinalShareCNY)
@@ -271,6 +271,7 @@ type carpoolRepoStub struct {
 	rows             []CarpoolSettlementMemberRow
 	joinErr          error
 	joinCall         int
+	joinAckCaptured  bool
 	joinResult       *CarpoolMutationResult
 	settledMembers   []CarpoolSettlementMember
 	settleErr        error
@@ -308,8 +309,9 @@ func (s *carpoolRepoStub) Create(ctx context.Context, ownerUserID int64, input C
 func (s *carpoolRepoStub) CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error {
 	panic("unexpected call")
 }
-func (s *carpoolRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*CarpoolMutationResult, error) {
+func (s *carpoolRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool, inviteHash *string) (*CarpoolMutationResult, error) {
 	s.joinCall++
+	s.joinAckCaptured = acknowledgedRisk
 	if s.joinErr != nil {
 		return nil, s.joinErr
 	}
@@ -418,9 +420,9 @@ func TestJoinRejectsNonPositiveDeclaration(t *testing.T) {
 	stub := &carpoolRepoStub{}
 	svc := NewCarpoolService(stub, nil, nil, nil)
 	for _, declared := range []float64{0, -10} {
-		_, err := svc.Join(context.Background(), 7, 12, declared, true)
+		_, err := svc.Join(context.Background(), 7, 12, declared, true, true)
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
-		_, err = svc.JoinByInvite(context.Background(), "token", 12, declared, true)
+		_, err = svc.JoinByInvite(context.Background(), "token", 12, declared, true, true)
 		require.ErrorIs(t, err, ErrCarpoolInvalidRequest)
 	}
 	require.Zero(t, stub.joinCall, "非法申报不应触达 repo 层")
@@ -544,15 +546,15 @@ func TestUnsettleCarpoolRequiresAdmin(t *testing.T) {
 func TestJoinRejectsDeclarationBelowFloor(t *testing.T) {
 	stub := &carpoolRepoStub{}
 	svc := NewCarpoolService(stub, nil, nil, nil)
-	_, err := svc.Join(context.Background(), 7, 12, 0.01, true)
+	_, err := svc.Join(context.Background(), 7, 12, 0.01, true, true)
 	require.ErrorIs(t, err, ErrCarpoolDeclarationTooSmall)
-	_, err = svc.JoinByInvite(context.Background(), "token", 12, CarpoolMinDeclaredWeeklyQuotaUSD-0.01, true)
+	_, err = svc.JoinByInvite(context.Background(), "token", 12, CarpoolMinDeclaredWeeklyQuotaUSD-0.01, true, true)
 	require.ErrorIs(t, err, ErrCarpoolDeclarationTooSmall)
 	require.Zero(t, stub.joinCall, "低于下限的申报不应触达 repo 层")
 
 	// 正好等于下限应放行到 repo 层。
 	stub.joinResult = &CarpoolMutationResult{Carpool: &Carpool{ID: 7}}
-	_, err = svc.Join(context.Background(), 7, 12, CarpoolMinDeclaredWeeklyQuotaUSD, true)
+	_, err = svc.Join(context.Background(), 7, 12, CarpoolMinDeclaredWeeklyQuotaUSD, true, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.joinCall)
 }
@@ -624,12 +626,112 @@ func TestReserveInterestSlotCooldown(t *testing.T) {
 func TestCreateAppliesQuotaDefaults(t *testing.T) {
 	input := CreateCarpoolInput{}
 	input.applyQuotaDefaults()
-	require.Equal(t, CarpoolDefaultWeeklyLimitUSD, input.WeeklyLimitUSD)
-	require.Equal(t, CarpoolDefaultSeatFeeCNY, input.SeatFeeCNY)
-	require.Equal(t, CarpoolDefaultUsagePoolCNY, input.UsagePoolCNY)
+	// 通过 Create 新建的 quota 车一律 type 3：默认参数即新计价（保底比例与发车区间不变）。
+	require.Equal(t, CarpoolType3WeeklyLimitUSD, input.WeeklyLimitUSD)
+	require.Equal(t, CarpoolType3SeatFeeCNY, input.SeatFeeCNY)
+	require.Equal(t, CarpoolType3UsagePoolCNY, input.UsagePoolCNY)
 	require.Equal(t, CarpoolDefaultReserveRatio, input.ReserveRatio)
 	require.Equal(t, CarpoolDefaultLaunchMinRatio, input.LaunchMinRatio)
 	require.Equal(t, CarpoolDefaultLaunchMaxRatio, input.LaunchMaxRatio)
-	require.Equal(t, CarpoolTypeSmall, input.CarType)
 	require.Equal(t, 1, input.Level)
+}
+
+// 按车型取默认计价参数：type 1/2 钉住存量旧价（2400/400/1000，回归覆盖），
+// type 3 取新计价（2800/50/1200）；保底比例 0.8 各车型一致。
+func TestCarpoolPricingForType(t *testing.T) {
+	legacy := carpoolPricingForType(CarpoolCarTypeQuota)
+	require.Equal(t, CarpoolDefaultWeeklyLimitUSD, legacy.weeklyLimitUSD)
+	require.Equal(t, CarpoolDefaultSeatFeeCNY, legacy.seatFeeCNY)
+	require.Equal(t, CarpoolDefaultUsagePoolCNY, legacy.usagePoolCNY)
+	require.Equal(t, CarpoolDefaultReserveRatio, legacy.reserveRatio)
+	require.Equal(t, 2400.0, legacy.weeklyLimitUSD)
+	require.Equal(t, 400.0, legacy.seatFeeCNY)
+	require.Equal(t, 1000.0, legacy.usagePoolCNY)
+	require.Equal(t, 0.8, legacy.reserveRatio)
+	// type 1 老车同样走存量参数。
+	require.Equal(t, legacy, carpoolPricingForType(CarpoolCarTypeQuotaLegacy))
+
+	v3 := carpoolPricingForType(CarpoolCarTypeQuotaV2)
+	require.Equal(t, CarpoolType3WeeklyLimitUSD, v3.weeklyLimitUSD)
+	require.Equal(t, CarpoolType3SeatFeeCNY, v3.seatFeeCNY)
+	require.Equal(t, CarpoolType3UsagePoolCNY, v3.usagePoolCNY)
+	require.Equal(t, 2800.0, v3.weeklyLimitUSD)
+	require.Equal(t, 50.0, v3.seatFeeCNY)
+	require.Equal(t, 1200.0, v3.usagePoolCNY)
+	require.Equal(t, 0.8, v3.reserveRatio)
+}
+
+// type 3 预付公式结构不变、参数换代，且席位费每人固定 ¥50（不按人头均摊）：
+// 预付 = 50 + 80%×1200×(个人申报/全车申报)。
+func TestCarpoolPrepaidCNYType3Pricing(t *testing.T) {
+	require.InDelta(t, 290.0, CarpoolPrepaidCNY(CarpoolCarTypeQuotaV2, 50, 1200, 2800, 700, 4), 0.01)  // 50 + 240
+	require.InDelta(t, 123.85, CarpoolPrepaidCNY(CarpoolCarTypeQuotaV2, 50, 1200, 2600, 200, 9), 0.01) // 50 + 73.85
+	// 3 人、申报占 50%：50 + 0.8×1200×0.5 = 530。
+	require.InDelta(t, 530.0, CarpoolPrepaidCNY(CarpoolCarTypeQuotaV2, 50, 1200, 2800, 1400, 3), 0.01) // 50 + 480
+	// 席位费与人数无关：同样的申报占比，3 人与 10 人预付相同。
+	require.Equal(t,
+		CarpoolPrepaidCNY(CarpoolCarTypeQuotaV2, 50, 1200, 2800, 1400, 3),
+		CarpoolPrepaidCNY(CarpoolCarTypeQuotaV2, 50, 1200, 2800, 1400, 10))
+}
+
+// 席位份额按车型分支：type 3 每人固定；type 1/2 全车均分（memberCount<1 按 1 计）。
+func TestCarpoolSeatShareCNYByCarType(t *testing.T) {
+	require.Equal(t, 50.0, CarpoolSeatShareCNY(CarpoolCarTypeQuotaV2, 50, 1))
+	require.Equal(t, 50.0, CarpoolSeatShareCNY(CarpoolCarTypeQuotaV2, 50, 10))
+	require.Equal(t, 40.0, CarpoolSeatShareCNY(CarpoolCarTypeQuota, 400, 10))
+	require.Equal(t, 400.0, CarpoolSeatShareCNY(CarpoolCarTypeQuota, 400, 0))
+	require.Equal(t, 40.0, CarpoolSeatShareCNY(CarpoolCarTypeQuotaLegacy, 400, 10))
+}
+
+// type 3 结算：席位费每人固定 ¥50（不按发车人数均摊），变动池仍按计费用量占比分摊，
+// 收支恒等不变（ΣUsageFinalShareCNY = ¥1200）。
+func TestComputeCarpoolSettlementMembersType3SeatFeePerMember(t *testing.T) {
+	inputs := make([]CarpoolSettlementMemberInput, 0, 3)
+	for i := 0; i < 3; i++ {
+		inputs = append(inputs, CarpoolSettlementMemberInput{
+			UserID:                 int64(100 + i),
+			Role:                   "member",
+			DeclaredWeeklyQuotaUSD: 700,
+			ActualUsageUSD:         700,
+			PeriodDays:             7,
+		})
+	}
+	members := ComputeCarpoolSettlementMembers(CarpoolCarTypeQuotaV2, 2800, 50, 1200, 0.8, inputs)
+	require.Len(t, members, 3)
+
+	shareTotal := 0.0
+	for _, m := range members {
+		require.InDelta(t, 50, m.SeatFeePrepaidCNY, 1e-9, "type 3 席位费每人固定 50，不是 50/3")
+		require.InDelta(t, 50, m.SeatFeeFinalCNY, 1e-9)
+		require.InDelta(t, 0, m.SeatFeeDeltaCNY, 1e-9)
+		require.InDelta(t, 320, m.UsagePrepaidCNY, 1e-9)  // 80%×1200×700/2100
+		require.InDelta(t, 370, m.PrepaidAmountCNY, 1e-9) // 50 + 320
+		require.InDelta(t, 400, m.UsageFinalShareCNY, 1e-9)
+		shareTotal += m.UsageFinalShareCNY
+	}
+	require.InDelta(t, 1200, shareTotal, 1e-6)
+}
+
+// 发车时个人订阅周限额按车型分支：type 3 = 2×申报；type 1/2 = r + C（钉住旧行为）。
+func TestCarpoolMemberLaunchWeeklyLimitUSDByCarType(t *testing.T) {
+	// type 2：申报 1200、Σ=2400 → r=960、C=2400−1920=480、上限 1440。
+	require.InDelta(t, 1440.0, CarpoolMemberLaunchWeeklyLimitUSD(CarpoolCarTypeQuota, 2400, 0.8, 1200, 2400), 1e-9)
+	// type 1 老车同公式。
+	require.InDelta(t, 1440.0, CarpoolMemberLaunchWeeklyLimitUSD(CarpoolCarTypeQuotaLegacy, 2400, 0.8, 1200, 2400), 1e-9)
+	// type 3：申报 1400 → 上限 2800（与车型周限额参数无关）。
+	require.InDelta(t, 2800.0, CarpoolMemberLaunchWeeklyLimitUSD(CarpoolCarTypeQuotaV2, 2800, 0.8, 1400, 2800), 1e-9)
+}
+
+// 风险确认标记原样透传到 repo 层（type 3 的强制校验在 repo 锁内做，见仓储测试）。
+func TestJoinPassesRiskAcknowledgementToRepo(t *testing.T) {
+	stub := &carpoolRepoStub{joinResult: &CarpoolMutationResult{Carpool: &Carpool{ID: 7}}}
+	svc := NewCarpoolService(stub, nil, nil, nil)
+
+	_, err := svc.Join(context.Background(), 7, 12, 100, true, true)
+	require.NoError(t, err)
+	require.True(t, stub.joinAckCaptured)
+
+	_, err = svc.JoinByInvite(context.Background(), "token", 12, 100, true, false)
+	require.NoError(t, err)
+	require.False(t, stub.joinAckCaptured)
 }

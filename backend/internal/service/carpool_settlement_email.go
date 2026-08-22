@@ -27,7 +27,7 @@ func BuildCarpoolSettlementEmail(carpool *Carpool, settlement *CarpoolSettlement
 	var b strings.Builder
 	fmt.Fprintf(&b, `<p>拼车「%s」（ID %d）本期已结束，结算单如下。</p>`, safeName, carpool.ID)
 	fmt.Fprintf(&b, `<p><b>账单合计：¥%.2f</b>（席位费 ¥%.2f + 变动池 ¥%.2f）</p>`,
-		settlementGrandTotalCNY(settlement), carpool.SeatFeeCNY, carpool.UsagePoolCNY)
+		settlementGrandTotalCNY(settlement), carpoolSeatFeeTotalCNY(settlement), carpool.UsagePoolCNY)
 	if settlement.PeriodStart != nil && settlement.PeriodEnd != nil {
 		fmt.Fprintf(&b, `<p>计费区间：%s ～ %s</p>`,
 			settlement.PeriodStart.Format("2006-01-02"), settlement.PeriodEnd.Format("2006-01-02"))
@@ -39,9 +39,13 @@ func BuildCarpoolSettlementEmail(carpool *Carpool, settlement *CarpoolSettlement
 		writeMemberSection(&b, m)
 	}
 
+	seatFeeNote := "席位费按发车人数均摊。"
+	if settlement.CarType == CarpoolCarTypeQuotaV2 {
+		seatFeeNote = "席位费每人固定，不按人数均摊。"
+	}
 	_, _ = b.WriteString(`<hr><p style="color:#888;font-size:12px">` +
 		`计入月消费 = max(该周期实际用量, ` + fmt.Sprintf("%.0f%%", carpool.ReserveRatio*100) + `×申报额)，逐周期计算后求和。<br>` +
-		`变动池按各人计费用量占全车比例分摊；席位费按发车人数均摊。</p>`)
+		`变动池按各人计费用量占全车比例分摊；` + seatFeeNote + `</p>`)
 	return subject, b.String()
 }
 
@@ -106,10 +110,19 @@ func deltaPhrase(delta float64) string {
 	}
 }
 
-// settlementGrandTotalCNY 是本期账单总额 = 席位费 + 变动池。
-// 两者都是全车固定总额，与成员如何分摊无关。
+// carpoolSeatFeeTotalCNY 是本期席位费合计：type 3 每人固定（seatFeeCNY×人数）；
+// type 1/2 全车 seatFeeCNY（按发车人数均摊，合计即 seatFeeCNY 本身）。
+func carpoolSeatFeeTotalCNY(s *CarpoolSettlement) float64 {
+	if s.CarType == CarpoolCarTypeQuotaV2 {
+		return s.SeatFeeCNY * float64(s.MemberCount)
+	}
+	return s.SeatFeeCNY
+}
+
+// settlementGrandTotalCNY 是本期账单总额 = 席位费合计 + 变动池。
+// 变动池是全车固定总额，与成员如何分摊无关；席位费合计按车型分支。
 func settlementGrandTotalCNY(s *CarpoolSettlement) float64 {
-	return s.SeatFeeCNY + s.UsagePoolCNY
+	return carpoolSeatFeeTotalCNY(s) + s.UsagePoolCNY
 }
 
 // NotifyCarpoolSettlement 期末给运营联系人发结算邮件。

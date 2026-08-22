@@ -6,6 +6,7 @@ import (
 )
 
 // 拼车额度预约制核心参数默认值（设计文档 §3）。
+// 注意：这是 type 1/2 存量车的参数；type 3 新计价车的默认值见 CarpoolType3* 常量。
 const (
 	CarpoolDefaultWeeklyLimitUSD = 2400.0 // 整车（Pro 20x 账号）周限额
 	CarpoolDefaultSeatFeeCNY     = 400.0  // 席位费（固定部分），全车每月
@@ -23,18 +24,84 @@ const (
 	CarpoolForceLaunchMinRatio = 0.80
 )
 
+// 车型（carpools.car_type，migration 199）。
+const (
+	// CarpoolCarTypeCustom 自定义规则车（pricing_model='custom'，人工结算）。
+	CarpoolCarTypeCustom = 0
+	// CarpoolCarTypeQuotaLegacy 无保底机制的老 quota 车：发过车但成员订阅没有
+	// weekly_reserved_usd（发车早于 migration 189）。
+	CarpoolCarTypeQuotaLegacy = 1
+	// CarpoolCarTypeQuota 现行额度预约制存量车：CarpoolDefault* 参数，
+	// 发车时个人订阅上限 = 保底 r + 公共池 C。
+	CarpoolCarTypeQuota = 2
+	// CarpoolCarTypeQuotaV2 新计价车：CarpoolType3* 参数，发车时个人订阅
+	// 上限 = 2×申报，上车必须勾选风险确认。Create 新建的 quota 车恒为该型。
+	CarpoolCarTypeQuotaV2 = 3
+)
+
+// type 3 新计价参数。保底比例（0.8）与发车区间（0.95/1.05）与存量车一致，
+// 不重复定义。
+const (
+	CarpoolType3WeeklyLimitUSD = 2800.0 // 整车周限额
+	CarpoolType3SeatFeeCNY     = 50.0   // 席位费（固定部分），每人每月、不按人头均摊
+	CarpoolType3UsagePoolCNY   = 1200.0 // 变动池（用量部分），全车每月
+	// CarpoolType3PersonalCapRatio 是 type 3 发车时个人订阅周限额相对申报的倍数。
+	CarpoolType3PersonalCapRatio = 2.0
+)
+
+// carpoolTypePricing 是按车型分支的默认计价参数（设计文档 §3）。
+type carpoolTypePricing struct {
+	weeklyLimitUSD float64
+	seatFeeCNY     float64
+	usagePoolCNY   float64
+	reserveRatio   float64
+}
+
+// carpoolPricingForType 返回车型的默认计价参数：type 3 用新计价（2800/50/1200），
+// 其余 quota 车（type 1/2）用 CarpoolDefault* 存量参数。保底比例 0.8 各车型一致。
+//
+// 注意这只是**默认值**：每车的实际参数以创建时落库的 weekly_limit_usd /
+// seat_fee_cny / usage_pool_cny / reserve_ratio 为准（admin 自定义通道会覆盖），
+// 上车报价、发车锁定与结算都读行内参数，只有创建时的默认填充走这里。
+func carpoolPricingForType(carType int) carpoolTypePricing {
+	if carType == CarpoolCarTypeQuotaV2 {
+		return carpoolTypePricing{
+			weeklyLimitUSD: CarpoolType3WeeklyLimitUSD,
+			seatFeeCNY:     CarpoolType3SeatFeeCNY,
+			usagePoolCNY:   CarpoolType3UsagePoolCNY,
+			reserveRatio:   CarpoolDefaultReserveRatio,
+		}
+	}
+	return carpoolTypePricing{
+		weeklyLimitUSD: CarpoolDefaultWeeklyLimitUSD,
+		seatFeeCNY:     CarpoolDefaultSeatFeeCNY,
+		usagePoolCNY:   CarpoolDefaultUsagePoolCNY,
+		reserveRatio:   CarpoolDefaultReserveRatio,
+	}
+}
+
 // carpoolPlusEquivalentUSD 返回 1 个 Plus 账号等价的周额度（整车 = 20 × Plus）。
 func carpoolPlusEquivalentUSD(weeklyLimitUSD float64) float64 {
 	return weeklyLimitUSD / CarpoolPlusAccountsPerCar
 }
 
-// CarpoolPrepaidCNY 计算上车预付（第一笔账，设计文档 §4.4）：
-// 预付 = 席位费/人数 + 80%×变动池×(个人申报/全车申报)。
-func CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, declaredTotalUSD, declaredWeeklyQuotaUSD float64, memberCount int) float64 {
+// CarpoolSeatShareCNY 计算一位成员承担的席位费（固定部分）：
+//   - type 3 新计价车：每人固定 seatFeeCNY，不按人头均摊；
+//   - 其余 quota 车（type 1/2）：全车 seatFeeCNY 按人数均分（memberCount<1 按 1 计）。
+func CarpoolSeatShareCNY(carType int, seatFeeCNY float64, memberCount int) float64 {
+	if carType == CarpoolCarTypeQuotaV2 {
+		return seatFeeCNY
+	}
 	if memberCount < 1 {
 		memberCount = 1
 	}
-	prepaid := seatFeeCNY / float64(memberCount)
+	return seatFeeCNY / float64(memberCount)
+}
+
+// CarpoolPrepaidCNY 计算上车预付（第一笔账，设计文档 §4.4）：
+// 预付 = 席位份额（CarpoolSeatShareCNY，按车型分支）+ 80%×变动池×(个人申报/全车申报)。
+func CarpoolPrepaidCNY(carType int, seatFeeCNY, usagePoolCNY, declaredTotalUSD, declaredWeeklyQuotaUSD float64, memberCount int) float64 {
+	prepaid := CarpoolSeatShareCNY(carType, seatFeeCNY, memberCount)
 	if declaredTotalUSD > 0 {
 		prepaid += CarpoolUsagePrepayRatio * usagePoolCNY * declaredWeeklyQuotaUSD / declaredTotalUSD
 	}
@@ -47,6 +114,18 @@ func CarpoolPrepaidCNY(seatFeeCNY, usagePoolCNY, declaredTotalUSD, declaredWeekl
 func CarpoolMemberWeeklyLimitUSD(weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD, declaredTotalUSD float64) float64 {
 	return CarpoolMemberReservedUSD(reserveRatio, declaredWeeklyQuotaUSD) +
 		CarpoolSharedPoolCapacityUSD(weeklyLimitUSD, reserveRatio, declaredTotalUSD)
+}
+
+// CarpoolMemberLaunchWeeklyLimitUSD 按车型计算发车时写入成员订阅的周限额：
+//   - type 3 新计价车：2×申报（个人上限与申报直接挂钩）；
+//   - 其余 quota 车（type 1/2）：r + C（保底 + 公共池容量，设计文档 §4.2）。
+//
+// 两者公共池硬约束相同：保底 r = 0.8×申报 与组级公共池计数器逻辑不因车型改变。
+func CarpoolMemberLaunchWeeklyLimitUSD(carType int, weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD, declaredTotalUSD float64) float64 {
+	if carType == CarpoolCarTypeQuotaV2 {
+		return CarpoolType3PersonalCapRatio * declaredWeeklyQuotaUSD
+	}
+	return CarpoolMemberWeeklyLimitUSD(weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD, declaredTotalUSD)
 }
 
 // CarpoolMemberReservedUSD 计算成员的保底额度 r = reserveRatio×申报。
@@ -155,8 +234,8 @@ type CarpoolSettlementMemberInput struct {
 	Username               string // 同上，可能为空
 	Role                   string
 	DeclaredWeeklyQuotaUSD float64
-	PrepaidAmountCNY       float64 // 首月预付台账（发车时按发车人数锁定）
-	QuotedPrepaidCNY       float64 // 上车当时报给用户的预付（按上车时人数），实际收款依据
+	PrepaidAmountCNY       float64 // 首月预付台账（发车时锁定；席位费部分 type 1/2 按发车人数均摊、type 3 每人固定）
+	QuotedPrepaidCNY       float64 // 上车当时报给用户的预付（按上车时的人数与申报总额），实际收款依据
 	ActualUsageUSD         float64 // 订阅周期内实际用量（月度窗口）
 	PeriodDays             float64 // 订阅有效期天数（用于申报→周期地板折算）
 
@@ -188,15 +267,17 @@ type CarpoolSettlementMember struct {
 	UsagePrepaidCNY    float64               `json:"usage_prepaid_cny"`     // 预付变动部分 = 80%×变动池×申报/Σ申报
 	UsageFinalShareCNY float64               `json:"usage_final_share_cny"` // 最终分摊 = 变动池×计费用量/Σ计费用量
 	UsageDeltaCNY      float64               `json:"usage_delta_cny"`       // 变动部分退/补：正=退，负=补
-	SeatFeePrepaidCNY  float64               `json:"seat_fee_prepaid_cny"`  // 预付席位费 = 席位费/发车人数
-	SeatFeeFinalCNY    float64               `json:"seat_fee_final_cny"`    // 最终席位费 = 席位费/发车人数
+	SeatFeePrepaidCNY  float64               `json:"seat_fee_prepaid_cny"`  // 预付席位费：type 1/2 = 席位费/发车人数；type 3 = 每人固定席位费
+	SeatFeeFinalCNY    float64               `json:"seat_fee_final_cny"`    // 最终席位费：口径同 SeatFeePrepaidCNY（结算不再变动）
 	SeatFeeDeltaCNY    float64               `json:"seat_fee_delta_cny"`    // 席位费固定不退补，恒为 0
 	TotalDeltaCNY      float64               `json:"total_delta_cny"`       // 用量退/补：正=退，负=补
 }
 
 // ComputeCarpoolSettlementMembers 按设计文档 §4.5 计算全车结算单（含 80% 地板规则）。
 // 变动池收支恒等：ΣUsageFinalShareCNY = usagePoolCNY（Σ计费用量 > 0 时）。
-func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, reserveRatio float64, inputs []CarpoolSettlementMemberInput) []CarpoolSettlementMember {
+// 席位费按车型分支（CarpoolSeatShareCNY）：type 3 每人固定 seatFeeCNY（全车合计
+// seatFeeCNY×人数），type 1/2 全车 seatFeeCNY 按发车人数均摊。
+func ComputeCarpoolSettlementMembers(carType int, weeklyLimitUSD, seatFeeCNY, usagePoolCNY, reserveRatio float64, inputs []CarpoolSettlementMemberInput) []CarpoolSettlementMember {
 	members := make([]CarpoolSettlementMember, 0, len(inputs))
 	if len(inputs) == 0 {
 		return members
@@ -210,7 +291,7 @@ func ComputeCarpoolSettlementMembers(weeklyLimitUSD, seatFeeCNY, usagePoolCNY, r
 		declaredTotal += in.DeclaredWeeklyQuotaUSD
 	}
 
-	seatFeeFinal := seatFeeCNY / float64(len(inputs))
+	seatFeeFinal := CarpoolSeatShareCNY(carType, seatFeeCNY, len(inputs))
 	for _, in := range inputs {
 		billable, floor, actual, cycleBased, cycleStats := memberBillable(in, reserveRatio)
 		floorTriggered := actual <= floor

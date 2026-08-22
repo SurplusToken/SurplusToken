@@ -81,7 +81,7 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     ownerUserId: 1,
     platform: 'openai',
     planType: 'openai_pro',
-    carType: 'large',
+    carType: 2,
     level: 1,
     capacity: 30,
     memberCount: 3,
@@ -173,6 +173,56 @@ describe('admin CarpoolsView', () => {
     expect(adminOverviewMock).toHaveBeenCalledTimes(1)
     expect(wrapper.findAll('[data-testid="row"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('car-b')
+  })
+
+  // 车型标签：type 1/2/3 的车在名称列有可读标签；type 0 已由「自定义规则」badge 覆盖，不重复标注。
+  it('shows a readable car-type badge on each row', async () => {
+    adminOverviewMock.mockResolvedValue([
+      makeCarpool({ id: 1, name: 'car-quota', carType: 2 }),
+      makeCarpool({ id: 2, name: 'car-new', carType: 3 }),
+      makeCarpool({ id: 3, name: 'car-custom', carType: 0, pricingModel: 'custom' }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.carTypes.type2')
+    expect(wrapper.text()).toContain('carpool.carTypes.type3')
+    expect(wrapper.text()).not.toContain('carpool.carTypes.type0')
+    expect(wrapper.text()).toContain('carpool.customRule.badge')
+  })
+
+  // 新 quota 车（type 3）的成员管理弹窗要能看到每个人的风险确认状态（只读）。
+  it('shows each member risk acknowledgment state for type-3 cars', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 3, status: 'recruiting' })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'alice', role: 'owner', declaredWeeklyQuotaUsd: 1400, acknowledgedRisk: true },
+      { userId: 2, username: 'bob', role: 'member', declaredWeeklyQuotaUsd: 700, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.adminPage.membersDialog.riskAcked')
+    expect(wrapper.text()).toContain('carpool.adminPage.membersDialog.riskNotAcked')
+  })
+
+  // 其他车型的成员不渲染风险确认标记——该字段只对 type 3 有意义。
+  it('hides the risk acknowledgment badge for non-type-3 cars', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 2, status: 'recruiting' })])
+    rosterMock.mockResolvedValue([
+      { userId: 2, username: 'bob', role: 'member', declaredWeeklyQuotaUsd: 400, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('carpool.adminPage.membersDialog.riskAcked')
+    expect(wrapper.text()).not.toContain('carpool.adminPage.membersDialog.riskNotAcked')
   })
 
   // 异常条是这页的主要价值：管理员要的是「哪几辆现在要我处理」。

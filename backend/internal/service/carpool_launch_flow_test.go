@@ -82,7 +82,7 @@ func (s *launchFlowRepoStub) Create(ctx context.Context, ownerUserID int64, inpu
 func (s *launchFlowRepoStub) CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error {
 	panic("unexpected call")
 }
-func (s *launchFlowRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*CarpoolMutationResult, error) {
+func (s *launchFlowRepoStub) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool, inviteHash *string) (*CarpoolMutationResult, error) {
 	return s.joinResult, nil
 }
 func (s *launchFlowRepoStub) Leave(ctx context.Context, carpoolID, userID int64) (*CarpoolMutationResult, error) {
@@ -257,9 +257,9 @@ func TestCreateStoresParsedQRCode(t *testing.T) {
 func TestJoinRequiresWechatGroupConfirmation(t *testing.T) {
 	repo := &launchFlowRepoStub{}
 	svc := newLaunchFlowService(repo, nil, nil)
-	_, err := svc.Join(context.Background(), 7, 12, 100, false)
+	_, err := svc.Join(context.Background(), 7, 12, 100, false, false)
 	require.ErrorIs(t, err, ErrCarpoolGroupJoinRequired)
-	_, err = svc.JoinByInvite(context.Background(), "token", 12, 100, false)
+	_, err = svc.JoinByInvite(context.Background(), "token", 12, 100, false, false)
 	require.ErrorIs(t, err, ErrCarpoolGroupJoinRequired)
 }
 
@@ -277,7 +277,7 @@ func TestJoinNotifiesOwnerWhenBandEnteredWithEmailDegradation(t *testing.T) {
 	dir := &stubUserDirectory{users: map[int64]*User{11: {ID: 11, Email: "owner@example.com"}}}
 	svc := newLaunchFlowService(repo, sender, dir)
 
-	result, err := svc.Join(context.Background(), 7, 12, 300, true)
+	result, err := svc.Join(context.Background(), 7, 12, 300, true, true)
 	require.NoError(t, err, "邮件失败不得中断上车流程")
 	require.True(t, result.LaunchBandEntered)
 	require.Equal(t, []string{"owner@example.com"}, sender.to)
@@ -288,7 +288,7 @@ func TestJoinNotifiesOwnerWhenBandEnteredWithEmailDegradation(t *testing.T) {
 	// 未进区间 → 不发邮件
 	repo.joinResult.LaunchBandEntered = false
 	sender.to, sender.subject = nil, nil
-	_, err = svc.Join(context.Background(), 7, 13, 100, true)
+	_, err = svc.Join(context.Background(), 7, 13, 100, true, false)
 	require.NoError(t, err)
 	require.Empty(t, sender.to)
 }
