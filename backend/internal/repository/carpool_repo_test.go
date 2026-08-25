@@ -17,6 +17,8 @@ var testLaunchParams = carpoolLaunchParams{
 	seatFeeCNY:     400,
 	usagePoolCNY:   1000,
 	reserveRatio:   0.8,
+	// type 2 存量车：钉住「个人上限 = r + C」的旧发车行为（type 3 见下方专项测试）。
+	carType: service.CarpoolCarTypeQuota,
 }
 
 // 开车时：group 写周限额安全帽 2400，成员订阅写保底 r=0.8×申报（weekly_reserved_usd）
@@ -74,6 +76,11 @@ func TestLaunchCarpoolCreatesLimitedGroupAndPerMemberSubscriptions(t *testing.T)
 }
 
 func carpoolDetailRow() *sqlmock.Rows {
+	return carpoolDetailRowWithCarType(service.CarpoolCarTypeQuota)
+}
+
+// carpoolDetailRowWithCarType 是指定车型的详情行（默认 fixture 是 type 2 存量车）。
+func carpoolDetailRowWithCarType(carType int) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "name", "description", "organizer", "owner_user_id", "platform", "plan_type",
 		"car_type", "level", "capacity", "member_count", "base_fee_cny", "usage_pool_cny_per_account",
@@ -86,7 +93,7 @@ func carpoolDetailRow() *sqlmock.Rows {
 		"pricing_model", "rule_note",
 	}).AddRow(
 		int64(7), "weekend-car", "test", "owner", int64(11), "openai", "openai_pro",
-		"small", 1, nil, 9, 130.0, 750.0,
+		carType, 1, nil, 9, 130.0, 750.0,
 		"public", "recruiting", false, nil, nil,
 		nil, nil, "member", time.Now(),
 		2400.0, 400.0, 1000.0, 0.8,
@@ -98,19 +105,21 @@ func carpoolDetailRow() *sqlmock.Rows {
 }
 
 // 上车成功：申报写入成员记录，预付按当前人数和加入后的全车申报记账。
+// 本用例同时钉住 type 2 存量车行为：car_type=2、未勾选风险确认也能上车，
+// 预付仍按 400/1000 旧价记账（quoted 与 prepaid 同值）。
 func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2250, 250, 9)
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2400, 2250, 250, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny", "car_type"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0, 2))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)
@@ -118,7 +127,7 @@ func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(2000.0, 8))
 	mock.ExpectExec("INSERT INTO carpool_members").
-		WithArgs(int64(7), int64(55), nil, 250.0, prepaid, true).
+		WithArgs(int64(7), int64(55), nil, 250.0, prepaid, true, false).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO carpool_events").
 		WithArgs(int64(7), int64(55), "member_joined").
@@ -129,7 +138,7 @@ func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 		WillReturnRows(carpoolDetailRow())
 	mock.ExpectCommit()
 
-	result, err := repo.Join(context.Background(), 7, 55, 250, true, nil)
+	result, err := repo.Join(context.Background(), 7, 55, 250, true, false, nil)
 	require.NoError(t, err)
 	require.Equal(t, 250.0, result.DeclaredWeeklyQuotaUSD)
 	require.InDelta(t, 133.33, result.PrepaidAmountCNY, 0.01)
@@ -146,13 +155,13 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(400, 1000, 2350, 300, 9)
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2400, 2350, 300, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny", "car_type"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0, 2))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)
@@ -160,7 +169,7 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(2050.0, 8))
 	mock.ExpectExec("INSERT INTO carpool_members").
-		WithArgs(int64(7), int64(55), nil, 300.0, prepaid, true).
+		WithArgs(int64(7), int64(55), nil, 300.0, prepaid, true, false).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO carpool_events").
 		WithArgs(int64(7), int64(55), "member_joined").
@@ -174,7 +183,7 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 		WillReturnRows(carpoolDetailRow())
 	mock.ExpectCommit()
 
-	result, err := repo.Join(context.Background(), 7, 55, 300, true, nil)
+	result, err := repo.Join(context.Background(), 7, 55, 300, true, false, nil)
 	require.NoError(t, err)
 	require.True(t, result.LaunchBandEntered)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -191,8 +200,8 @@ func TestJoinCarpoolRejectsDeclarationOverHardCap(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny"}).
-			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny", "car_type"}).
+			AddRow("recruiting", "public", false, "quota", 2400.0, 0.95, 1.05, 400.0, 1000.0, 2))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), int64(55)).
 		WillReturnError(sql.ErrNoRows)
@@ -201,7 +210,7 @@ func TestJoinCarpoolRejectsDeclarationOverHardCap(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(2480.0, 10))
 	mock.ExpectRollback()
 
-	_, err = repo.Join(context.Background(), 7, 55, 100, true, nil)
+	_, err = repo.Join(context.Background(), 7, 55, 100, true, false, nil)
 	require.ErrorIs(t, err, service.ErrCarpoolQuotaExceeded)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -214,8 +223,8 @@ func TestLaunchCarpoolEnforcesDeclarationBand(t *testing.T) {
 		mock.ExpectBegin()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,")).
 			WithArgs(int64(7)).
-			WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio"}).
-				AddRow(status, 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05))
+			WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio", "car_type"}).
+				AddRow(status, 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, 2))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_members")).
 			WithArgs(int64(7)).
 			WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(declaredTotal, 8))
@@ -249,8 +258,8 @@ func TestLaunchCarpoolForbiddenForNonAdmin(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio"}).
-			AddRow("confirmed", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio", "car_type"}).
+			AddRow("confirmed", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, 2))
 	mock.ExpectRollback()
 
 	// actorUserID=11 即 owner，仍被拒绝（仅 admin 可发车）
@@ -269,8 +278,8 @@ func TestLaunchCarpoolRequiresConfirmedStatus(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio"}).
-			AddRow("recruiting", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio", "car_type"}).
+			AddRow("recruiting", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, 2))
 	mock.ExpectRollback()
 
 	_, err = repo.Launch(context.Background(), 7, 99, true, false)
@@ -288,8 +297,8 @@ func TestLaunchCarpoolForceRequiresRecruitingStatus(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, weekly_limit_usd, seat_fee_cny, usage_pool_cny,")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio"}).
-			AddRow("confirmed", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "weekly_limit_usd", "seat_fee_cny", "usage_pool_cny", "reserve_ratio", "launch_min_ratio", "launch_max_ratio", "car_type"}).
+			AddRow("confirmed", 2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, 2))
 	mock.ExpectRollback()
 
 	_, err = repo.Launch(context.Background(), 7, 99, true, true)
@@ -539,7 +548,8 @@ func TestCancelConfirmedCarpoolRequiresAdmin(t *testing.T) {
 	require.NoError(t, mock2.ExpectationsWereMet())
 }
 
-// 创建车辆：确认标记与群二维码随 INSERT 落库。
+// 创建车辆：确认标记（added_admin_wechat + acknowledged_risk）与群二维码随 INSERT 落库；
+// owner 成员行的 acknowledged_risk 一并断言（0 申报也照写）。
 func TestCreateCarpoolStoresQRCodeAndConfirmation(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -550,22 +560,24 @@ func TestCreateCarpoolStoresQRCodeAndConfirmation(t *testing.T) {
 	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	input := service.CreateCarpoolInput{
 		Name: "weekend-car", Visibility: "public", ScheduledStartAt: &start,
-		CarType: "small", Level: 1,
+		Level:          1,
 		WeeklyLimitUSD: 2400, SeatFeeCNY: 400, UsagePoolCNY: 1000,
 		ReserveRatio: 0.8, LaunchMinRatio: 0.95, LaunchMaxRatio: 1.05,
-		AddedAdminWechat: true, GroupQRCodeBytes: qrBytes, GroupQRCodeContentType: "image/png",
+		AddedAdminWechat: true, AcknowledgedRisk: true,
+		GroupQRCodeBytes: qrBytes, GroupQRCodeContentType: "image/png",
 	}
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS(SELECT 1 FROM groups WHERE name = $1 AND deleted_at IS NULL)")).
 		WithArgs("weekend-car").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	// 新建 quota 车恒为 car_type=3（type 3 新计价）。
 	mock.ExpectQuery("INSERT INTO carpools").
-		WithArgs("weekend-car", "", int64(11), "small", 1, "public", &start,
+		WithArgs("weekend-car", "", int64(11), 3, 1, "public", &start,
 			2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, true, qrBytes, "image/png").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(7)))
 	mock.ExpectExec("INSERT INTO carpool_members").
-		WithArgs(int64(7), int64(11), 0.0, nil).
+		WithArgs(int64(7), int64(11), 0.0, nil, true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO carpool_invites").
 		WithArgs(int64(7), int64(11), "hash", "hint").
@@ -627,4 +639,126 @@ func TestGetGroupQRCode(t *testing.T) {
 		require.ErrorIs(t, err, service.ErrCarpoolQRCodeNotFound)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
+}
+
+// type 3 新计价车发车：group 写周限额 2800，成员订阅保底 r=0.8×申报（两车型一致），
+// 个人订阅周限额 = 2×申报（type 3 分支），预付按 50/1200 锁定。
+func TestLaunchCarpoolType3WritesDoubleDeclaredWeeklyLimit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	type3LaunchParams := carpoolLaunchParams{
+		weeklyLimitUSD: 2800,
+		seatFeeCNY:     50,
+		usagePoolCNY:   1200,
+		reserveRatio:   0.8,
+		carType:        service.CarpoolCarTypeQuotaV2,
+	}
+	// 2 名成员各申报 $1400（Σ=2800）：保底 r = 0.8×1400 = 1120，个人周限额 = 2×1400 = 2800；
+	// 预付 = 50（每人固定，不均摊）+ 80%×1200×1400/2800 = 50 + 480 = 530。
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT name, description, owner_user_id FROM carpools WHERE id = $1")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "description", "owner_user_id"}).AddRow("v3-car", "test", int64(11)))
+	mock.ExpectQuery("INSERT INTO groups").
+		WithArgs("v3-car", "Carpool subscription: test", 2800.0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(91)))
+	mock.ExpectExec("INSERT INTO scheduler_outbox").
+		WithArgs(service.SchedulerOutboxEventGroupChanged, nil, sqlmock.AnyArg(), nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT id, user_id, declared_weekly_quota_usd FROM carpool_members").
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "declared_weekly_quota_usd"}).
+			AddRow(int64(21), int64(11), 1400.0).
+			AddRow(int64(22), int64(12), 1400.0))
+	for i, userID := range []int64{11, 12} {
+		mock.ExpectQuery("INSERT INTO user_subscriptions").
+			WithArgs(userID, int64(91), sqlmock.AnyArg(), sqlmock.AnyArg(), sql.NullInt64{Int64: 11, Valid: true},
+				"Automatically assigned when carpool launched", 2800.0, 1120.0, sqlmock.AnyArg()).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(101 + i)))
+		mock.ExpectExec("UPDATE carpool_members SET status = 'active'").
+			WithArgs(int64(21+i), int64(101+i), 530.0, sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+	mock.ExpectExec("UPDATE carpools SET status = 'active'").
+		WithArgs(int64(7), int64(91), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE carpool_invites SET revoked_at").
+		WithArgs(int64(7), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO carpool_events").
+		WithArgs(int64(7), sql.NullInt64{Int64: 11, Valid: true}, "launched").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	require.NoError(t, err)
+	groupID, userIDs, err := launchCarpool(context.Background(), tx, 7, type3LaunchParams)
+	require.NoError(t, err)
+	require.Equal(t, int64(91), groupID)
+	require.Equal(t, []int64{11, 12}, userIDs)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// type 3 新计价车未勾选风险确认 → 400 CARPOOL_RISK_ACK_REQUIRED，不落库。
+func TestJoinCarpoolType3RequiresRiskAcknowledgement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny", "car_type"}).
+			AddRow("recruiting", "public", false, "quota", 2800.0, 0.95, 1.05, 50.0, 1200.0, 3))
+	mock.ExpectRollback()
+
+	_, err = repo.Join(context.Background(), 7, 55, 100, true, false, nil)
+	require.ErrorIs(t, err, service.ErrCarpoolRiskAckRequired)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// type 3 车勾选风险确认后上车：acknowledged_risk=true 落库，预付按 50/1200 记账。
+func TestJoinCarpoolType3StoresRiskAcknowledgement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	// Σ=2400 + 200 = 2600，未进发车区间 [2660, 2940]：不置 launch_notified_at。
+	// type 3 额度池按申报占整车周限额（2800）的份额计，不是按 Σ申报。
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuotaV2, 50, 1200, 2800, 2600, 200, 9)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility", "locked", "pricing_model", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "seat_fee_cny", "usage_pool_cny", "car_type"}).
+			AddRow("recruiting", "public", false, "quota", 2800.0, 0.95, 1.05, 50.0, 1200.0, 3))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
+		WithArgs(int64(7), int64(55)).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd), 0), COUNT(*) FROM carpool_members")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(2400.0, 8))
+	mock.ExpectExec("INSERT INTO carpool_members").
+		WithArgs(int64(7), int64(55), nil, 200.0, prepaid, true, true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO carpool_events").
+		WithArgs(int64(7), int64(55), "member_joined").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE c.id = $2")).
+		WithArgs(int64(55), int64(7)).
+		WillReturnRows(carpoolDetailRowWithCarType(service.CarpoolCarTypeQuotaV2))
+	mock.ExpectCommit()
+
+	result, err := repo.Join(context.Background(), 7, 55, 200, true, true, nil)
+	require.NoError(t, err)
+	require.InDelta(t, 118.57, result.PrepaidAmountCNY, 0.01) // 50（每人固定）+ 80%×1200×200/2800
+	require.False(t, result.LaunchBandEntered)
+	require.NotNil(t, result.Carpool)
+	require.Equal(t, service.CarpoolCarTypeQuotaV2, result.Carpool.CarType)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

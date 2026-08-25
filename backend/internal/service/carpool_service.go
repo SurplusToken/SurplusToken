@@ -15,15 +15,13 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 const (
-	CarpoolTypeSmall = "small"
-	CarpoolTypeLarge = "large"
-
 	CarpoolVisibilityPublic     = "public"
 	CarpoolVisibilityInviteOnly = "invite_only"
 
@@ -59,6 +57,8 @@ var (
 	ErrCarpoolQRCodeNotFound         = infraerrors.NotFound("CARPOOL_QR_CODE_NOT_FOUND", "carpool has no group qr code")
 	// 上车入群确认。
 	ErrCarpoolGroupJoinRequired = infraerrors.BadRequest("CARPOOL_GROUP_JOIN_REQUIRED", "confirm that you have joined the WeChat group before boarding")
+	// 上车风险确认（仅 type 3 新计价车强制；其余车型不强制，传了也照存）。
+	ErrCarpoolRiskAckRequired = infraerrors.BadRequest("CARPOOL_RISK_ACK_REQUIRED", "acknowledge the carpool risk before boarding this car")
 	// 下车/两段确认发车。
 	ErrCarpoolNotMember        = infraerrors.NotFound("CARPOOL_NOT_MEMBER", "user is not a member of this carpool")
 	ErrCarpoolOwnerCannotLeave = infraerrors.Conflict("CARPOOL_OWNER_CANNOT_LEAVE", "owner cannot leave; cancel the carpool instead")
@@ -110,19 +110,25 @@ const (
 	CarpoolInterestCooldown = 30 * time.Minute
 	// CarpoolInterestNoteMaxRunes 是随咨询邮件转发的备注长度上限。
 	CarpoolInterestNoteMaxRunes = 500
+	// CarpoolRuleNoteMaxRunes 是自定义规则车规则说明（rule_note）的长度上限（rune）。
+	CarpoolRuleNoteMaxRunes = 2000
 	// carpoolInterestTrackerMaxEntries 是冷却表的容量上限，超出后清理过期项。
 	carpoolInterestTrackerMaxEntries = 4096
 )
 
 type Carpool struct {
-	ID                     int64      `json:"id"`
-	Name                   string     `json:"name"`
-	Description            string     `json:"description"`
-	Organizer              string     `json:"organizer"`
-	OwnerUserID            *int64     `json:"owner_user_id,omitempty"`
-	Platform               string     `json:"platform"`
-	PlanType               string     `json:"plan_type"`
-	CarType                string     `json:"car_type"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Organizer   string `json:"organizer"`
+	OwnerUserID *int64 `json:"owner_user_id,omitempty"`
+	Platform    string `json:"platform"`
+	PlanType    string `json:"plan_type"`
+	// CarType 整数车型（migration 227）：0=custom 自定义规则车；1=无保底机制的老
+	// quota 车；2=现行额度预约制存量车（$2400 / 席位费 ¥400 全车均摊 / 变动池 ¥1000，
+	// 个人上限 r+C）；3=新计价车（$2400 / 席位费 ¥50 每人固定 / 变动池 ¥1200，
+	// 个人上限 2×申报，上车需风险确认）。Create 新建的 quota 车恒为 3。
+	CarType                int        `json:"car_type"`
 	Level                  int        `json:"level"`
 	Capacity               int        `json:"capacity"`
 	MemberCount            int        `json:"member_count"`
@@ -169,7 +175,8 @@ type Carpool struct {
 
 // FillDerivedMetrics 由额度池参数与总申报推导展示指标：
 // 剩余可预约额度 = launch_max×周限额 − Σ申报；Plus 等价数 = Σ申报/(周限额/20)；
-// 均价 = [席位费 + 变动池×(Σ/周限额)] / Plus 等价数（Σ=0 时为 0）。
+// 均价 = [席位费总额 + 变动池×(Σ/周限额)] / Plus 等价数（Σ=0 时为 0），
+// 其中席位费总额 type 3 为每人固定×人数，type 1/2 为全车一份。
 func (c *Carpool) FillDerivedMetrics() {
 	remaining := c.LaunchMaxRatio*c.WeeklyLimitUSD - c.DeclaredTotalUSD
 	if remaining < 0 {
@@ -185,7 +192,17 @@ func (c *Carpool) FillDerivedMetrics() {
 	}
 	c.PlusEquivalents = c.DeclaredTotalUSD / plusEquivUSD
 	if c.PlusEquivalents > 0 {
-		totalPrice := c.SeatFeeCNY
+		// 席位费总额口径按车型分支：type 3 每人固定（总额 = 席位费×人数），
+		// type 1/2 全车一份。人数缺失时按 1 计，避免车外展示均价虚低。
+		seatTotal := c.SeatFeeCNY
+		if c.CarType == CarpoolCarTypeQuotaV2 {
+			members := c.MemberCount
+			if members < 1 {
+				members = 1
+			}
+			seatTotal = c.SeatFeeCNY * float64(members)
+		}
+		totalPrice := seatTotal
 		if c.WeeklyLimitUSD > 0 {
 			totalPrice += c.UsagePoolCNY * c.DeclaredTotalUSD / c.WeeklyLimitUSD
 		}
@@ -198,12 +215,18 @@ func (c *Carpool) FillDerivedMetrics() {
 type CreateCarpoolInput struct {
 	Name             string
 	Description      string
-	CarType          string
 	Level            int
 	Visibility       string
 	ScheduledStartAt *time.Time
 
-	// 额度池/价格参数，零值表示使用默认（设计文档 §3）
+	// CarType 指定车型（仅 admin，nil 缺省 = 3 新计价 quota 车）：0/1 为手动车
+	// （创建即 active，不走招募/确认/发车），2/3 为 quota 车（创建后 recruiting）。
+	// 非 admin 传了直接 403（与自定义额度参数同口径）。
+	CarType *int
+	// RuleNote 是 type 0 自定义规则车的规则说明（人工结算依据，type 0 必填）。
+	RuleNote string
+
+	// 额度池/价格参数，零值表示使用默认（按车型取，见 carpoolPricingForType）
 	WeeklyLimitUSD float64
 	SeatFeeCNY     float64
 	UsagePoolCNY   float64
@@ -219,6 +242,9 @@ type CreateCarpoolInput struct {
 	AddedAdminWechat bool
 	// GroupQRCode 是微信群二维码（必填）：data URL 或纯 base64，png/jpeg/webp，≤2MB。
 	GroupQRCode string
+	// AcknowledgedRisk 创建车辆的强制确认：发起人已知晓风险（新建 quota 车恒为
+	// type 3，与上车风险确认同一口径；写入 owner 成员行的 acknowledged_risk）。
+	AcknowledgedRisk bool
 
 	// 解析后的二维码字节与内容类型，由 Create 校验后传给 repo 落库（不直接暴露给 JSON）。
 	GroupQRCodeBytes       []byte `json:"-"`
@@ -226,29 +252,58 @@ type CreateCarpoolInput struct {
 }
 
 func (input *CreateCarpoolInput) applyQuotaDefaults() {
-	if input.CarType == "" {
-		input.CarType = CarpoolTypeSmall
+	// 默认参数按车型取（Create 已把 CarType 解析成具体值）：type 3 新计价
+	// （2400/50每人/1200），type 2 存量参数（2400/400/1000），保底 0.8 一致。
+	// type 0/1 手动车不走这里（applyDirectDefaults）。
+	carType := CarpoolCarTypeQuotaV2
+	if input.CarType != nil {
+		carType = *input.CarType
 	}
+	pricing := carpoolPricingForType(carType)
 	if input.Level == 0 {
 		input.Level = 1
 	}
 	if input.WeeklyLimitUSD <= 0 {
-		input.WeeklyLimitUSD = CarpoolDefaultWeeklyLimitUSD
+		input.WeeklyLimitUSD = pricing.weeklyLimitUSD
 	}
 	if input.SeatFeeCNY <= 0 {
-		input.SeatFeeCNY = CarpoolDefaultSeatFeeCNY
+		input.SeatFeeCNY = pricing.seatFeeCNY
 	}
 	if input.UsagePoolCNY <= 0 {
-		input.UsagePoolCNY = CarpoolDefaultUsagePoolCNY
+		input.UsagePoolCNY = pricing.usagePoolCNY
 	}
 	if input.ReserveRatio <= 0 {
-		input.ReserveRatio = CarpoolDefaultReserveRatio
+		input.ReserveRatio = pricing.reserveRatio
 	}
 	if input.LaunchMinRatio <= 0 {
 		input.LaunchMinRatio = CarpoolDefaultLaunchMinRatio
 	}
 	if input.LaunchMaxRatio <= 0 {
 		input.LaunchMaxRatio = CarpoolDefaultLaunchMaxRatio
+	}
+}
+
+// applyDirectDefaults 填充手动车（type 0/1）的默认值：只有整车周限额有意义
+// （默认 $2400，作为分组与成员订阅的安全帽）；发车区间只是列占位，手动车
+// 不经过招募/发车。type 1 无保底老车额外把池/席位/保底恒写 0——这些概念对它
+// 不存在（成员订阅的 weekly_reserved_usd 恒为 NULL）；type 0 参数随意，保留传入值。
+func (input *CreateCarpoolInput) applyDirectDefaults(carType int) {
+	if input.Level == 0 {
+		input.Level = 1
+	}
+	if input.WeeklyLimitUSD <= 0 {
+		input.WeeklyLimitUSD = CarpoolDefaultWeeklyLimitUSD
+	}
+	if input.LaunchMinRatio <= 0 {
+		input.LaunchMinRatio = CarpoolDefaultLaunchMinRatio
+	}
+	if input.LaunchMaxRatio <= 0 {
+		input.LaunchMaxRatio = CarpoolDefaultLaunchMaxRatio
+	}
+	if carType == CarpoolCarTypeQuotaLegacy {
+		input.SeatFeeCNY = 0
+		input.UsagePoolCNY = 0
+		input.ReserveRatio = 0
 	}
 }
 
@@ -332,6 +387,8 @@ type CarpoolSettlementMemberRow struct {
 	ActualUsageUSD         float64
 	PeriodStart            *time.Time
 	PeriodEnd              *time.Time
+	// AcknowledgedRisk 是上车时的风险确认标记（type 3 车强制为 true）。
+	AcknowledgedRisk bool
 
 	// Frozen 是已结算车辆的冻结快照；nil 表示该成员行尚未结算，按实时计算。
 	Frozen *CarpoolSettlementFrozenRow
@@ -353,6 +410,7 @@ type CarpoolSettlementFrozenRow struct {
 type CarpoolPendingLaunch struct {
 	CarpoolID        int64     `json:"carpool_id"`
 	Name             string    `json:"name"`
+	CarType          int       `json:"car_type"`
 	OwnerUserID      *int64    `json:"owner_user_id,omitempty"`
 	OwnerEmail       string    `json:"owner_email,omitempty"`
 	MemberCount      int       `json:"member_count"`
@@ -371,6 +429,7 @@ const CarpoolLaunchSLAHours = 24.0
 type CarpoolSettlement struct {
 	CarpoolID      int64                     `json:"carpool_id"`
 	Status         string                    `json:"status"`
+	CarType        int                       `json:"car_type"`
 	WeeklyLimitUSD float64                   `json:"weekly_limit_usd"`
 	SeatFeeCNY     float64                   `json:"seat_fee_cny"`
 	UsagePoolCNY   float64                   `json:"usage_pool_cny"`
@@ -412,13 +471,31 @@ type CarpoolRepository interface {
 	// confirmed 可用；跌破发车线时会把车退回招募中（AutoUnconfirmed）。
 	RemoveMember(ctx context.Context, carpoolID, memberUserID, actorUserID int64) (*CarpoolMutationResult, error)
 	UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error)
+	// AddMember 管理员代加成员（仅 type 2/3 quota 车）：与自助上车（Join）同一套
+	// 事务保护（锁车、状态闸门、成员上限、Σ≤105%、重复拒绝、报价落库）；
+	// confirmed 车被打出区间时退回招募中（AutoUnconfirmed）。type 1/0 手动车走
+	// AddMemberDirect。
+	AddMember(ctx context.Context, carpoolID, actorUserID int64, input AddCarpoolMemberInput) (*CarpoolMutationResult, error)
+	// AddMemberDirect 手动车（type 1/0，active）代加成员的第一段：锁车校验后落
+	// status='active' 的成员行，返回建订阅所需的 group_id 与车周限额。订阅创建
+	// （AssignOrExtendSubscription，走自己的事务）与 subscription_id 回填由
+	// service 编排；失败补偿走 RemoveDirectMember。
+	AddMemberDirect(ctx context.Context, carpoolID, actorUserID int64, input AddCarpoolMemberInput) (result *CarpoolMutationResult, groupID int64, weeklyLimitUSD float64, err error)
+	// BindMemberSubscription 回填手动车成员行的 subscription_id（AddMemberDirect
+	// 之后、订阅建好之后）；仅对仍 active 且未绑定订阅的成员行生效。
+	BindMemberSubscription(ctx context.Context, carpoolID, userID, subscriptionID int64) error
+	// RemoveDirectMember 是手动车代加成员失败的补偿出口：把尚未绑定订阅的成员行
+	// 退回 left，避免留下「在车上却没订阅」的僵尸席位。
+	RemoveDirectMember(ctx context.Context, carpoolID, userID, actorUserID int64, reason string) error
 	UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error)
 	TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*CarpoolMutationResult, error)
 	GetByID(ctx context.Context, carpoolID, userID int64) (*Carpool, error)
 	GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error)
 	Create(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, inviteHash, inviteHint string) (*CarpoolMutationResult, error)
 	CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error
-	Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool, inviteHash *string) (*CarpoolMutationResult, error)
+	// Join 上车。acknowledgedRisk 是上车风险确认：type 3 新计价车必须为 true，
+	// 否则返回 ErrCarpoolRiskAckRequired；其余车型不强制，传了也照存。
+	Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool, inviteHash *string) (*CarpoolMutationResult, error)
 	Leave(ctx context.Context, carpoolID, userID int64) (*CarpoolMutationResult, error)
 	Confirm(ctx context.Context, carpoolID, ownerUserID int64) (*CarpoolMutationResult, error)
 	Unconfirm(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolMutationResult, error)
@@ -549,22 +626,46 @@ func fillCarpoolPresentation(c *Carpool) {
 	c.AdminWechat = CarpoolAdminWechatID
 }
 
-// Create 创建车辆。isAdmin 决定是否允许自定义额度池参数：普通用户一律使用
-// 设计文档 §3 的默认参数（整车 $2400 / 席位费 ¥400 / 变动池 ¥1000 / 保底 80%），
+// Create 创建车辆。isAdmin 决定是否允许自定义额度池参数与指定车型：普通用户一律
+// 使用 type 3 新计价的默认参数（整车 $2400 / 席位费 ¥50 每人 / 变动池 ¥1200 / 保底 80%），
 // 需要别的规则请走 NotifyCustomRuleInterest 与管理员协商后由管理员开车。
+// admin 可指定车型：2/3 走招募-确认-发车流程；0/1 手动车创建即 active（见
+// createDirectActiveCarpool）。
 func (s *CarpoolService) Create(ctx context.Context, ownerUserID int64, isAdmin bool, input CreateCarpoolInput) (*CarpoolMutationResult, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
+	input.RuleNote = strings.TrimSpace(input.RuleNote)
+
+	// 车型：缺省 3（新计价 quota 车）；指定车型是管理端能力，非 admin 传了直接 403
+	// （与自定义额度参数同一收口口径，不静默忽略免得调用方以为生效了）。
+	carType := CarpoolCarTypeQuotaV2
+	if input.CarType != nil {
+		if !isAdmin {
+			return nil, ErrCarpoolCustomParamsForbidden
+		}
+		carType = *input.CarType
+	}
+	switch carType {
+	case CarpoolCarTypeCustom, CarpoolCarTypeQuotaLegacy, CarpoolCarTypeQuota, CarpoolCarTypeQuotaV2:
+	default:
+		return nil, ErrCarpoolInvalidRequest
+	}
+	input.CarType = &carType
+
 	// 额度参数自助收口：非 admin 传了任何非零额度参数直接拒绝（而非静默忽略，
 	// 免得调用方以为参数生效了）。默认填充发生在这道校验之后。
 	if !isAdmin && input.hasCustomQuotaParams() {
 		return nil, ErrCarpoolCustomParamsForbidden
 	}
+
+	// type 0/1 手动车：直接生效（建 group + active 车 + owner 成员行），
+	// 不走招募那套强制确认与计价参数校验。
+	if carType == CarpoolCarTypeCustom || carType == CarpoolCarTypeQuotaLegacy {
+		return s.createDirectActiveCarpool(ctx, ownerUserID, input, carType)
+	}
+
 	input.applyQuotaDefaults()
 	if input.Name == "" || len(input.Name) > 100 || len(input.Description) > 300 || input.Level < 1 || input.Level > 10 {
-		return nil, ErrCarpoolInvalidRequest
-	}
-	if input.CarType != CarpoolTypeSmall && input.CarType != CarpoolTypeLarge {
 		return nil, ErrCarpoolInvalidRequest
 	}
 	if input.Visibility != CarpoolVisibilityPublic && input.Visibility != CarpoolVisibilityInviteOnly {
@@ -573,13 +674,17 @@ func (s *CarpoolService) Create(ctx context.Context, ownerUserID int64, isAdmin 
 	if err := input.validateQuotaParams(); err != nil {
 		return nil, err
 	}
-	// 两项强制确认：已添加管理员微信 + 上传微信群二维码。
+	// 三项强制确认：已添加管理员微信 + 上传微信群二维码 + 勾选风险确认
+	// （与 type 3 上车同一错误码；管理员创建同样要求）。
 	if !input.AddedAdminWechat {
 		return nil, ErrCarpoolContactConfirmRequired
 	}
 	qrCode, qrCodeContentType, err := parseCarpoolGroupQRCode(input.GroupQRCode)
 	if err != nil {
 		return nil, err
+	}
+	if !input.AcknowledgedRisk {
+		return nil, ErrCarpoolRiskAckRequired
 	}
 	input.GroupQRCodeBytes = qrCode
 	input.GroupQRCodeContentType = qrCodeContentType
@@ -592,6 +697,50 @@ func (s *CarpoolService) Create(ctx context.Context, ownerUserID int64, isAdmin 
 		return nil, err
 	}
 	result.InviteToken = token
+	fillCarpoolPresentation(result.Carpool)
+	return result, nil
+}
+
+// createDirectActiveCarpool 创建手动车（type 0/1，仅 admin 可达）：直接生效——
+// 后台建订阅分组、车 status='active'、owner 成员行 0 申报直接 active，
+// 不发邮件、不进招募，成员由管理端逐人代加（AddMember）。
+// 不强制三项创建确认（added_admin_wechat / 群二维码 / 风险确认）：手动车没有
+// 招募与自助上车环节，风险在代加成员时线下告知并代录。
+func (s *CarpoolService) createDirectActiveCarpool(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, carType int) (*CarpoolMutationResult, error) {
+	input.applyDirectDefaults(carType)
+	if input.Name == "" || len(input.Name) > 100 || len(input.Description) > 300 || input.Level < 1 || input.Level > 10 {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	if input.Visibility != CarpoolVisibilityPublic && input.Visibility != CarpoolVisibilityInviteOnly {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	if input.WeeklyLimitUSD <= 0 || input.WeeklyLimitUSD > 1e9 {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	// type 0 自定义规则车必须写明结算规则（成员看到的就是这段文字）；
+	// 其余车型传了也照存，但同样受长度约束。
+	if utf8.RuneCountInString(input.RuleNote) > CarpoolRuleNoteMaxRunes {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	if carType == CarpoolCarTypeCustom && input.RuleNote == "" {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	// owner 申报是额度预约制的概念，手动车 owner 行恒 0 申报（不建订阅）。
+	input.DeclaredWeeklyQuotaUSD = 0
+	// 群二维码对手动车可选：提供了就按同一口径解析落库，不提供则留空。
+	if strings.TrimSpace(input.GroupQRCode) != "" {
+		qrCode, qrCodeContentType, err := parseCarpoolGroupQRCode(input.GroupQRCode)
+		if err != nil {
+			return nil, err
+		}
+		input.GroupQRCodeBytes = qrCode
+		input.GroupQRCodeContentType = qrCodeContentType
+	}
+	// 手动车没有招募环节，邀请无意义：不生成邀请 token（repo 据此跳过邀请行）。
+	result, err := s.repo.Create(ctx, ownerUserID, input, "", "")
+	if err != nil {
+		return nil, err
+	}
 	fillCarpoolPresentation(result.Carpool)
 	return result, nil
 }
@@ -657,14 +806,14 @@ func validateJoinDeclaration(declaredWeeklyQuotaUSD float64) error {
 	return nil
 }
 
-func (s *CarpoolService) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool) (*CarpoolMutationResult, error) {
+func (s *CarpoolService) Join(ctx context.Context, carpoolID, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool) (*CarpoolMutationResult, error) {
 	if err := validateJoinDeclaration(declaredWeeklyQuotaUSD); err != nil {
 		return nil, err
 	}
 	if !joinedWechatGroup {
 		return nil, ErrCarpoolGroupJoinRequired
 	}
-	result, err := s.repo.Join(ctx, carpoolID, userID, declaredWeeklyQuotaUSD, joinedWechatGroup, nil)
+	result, err := s.repo.Join(ctx, carpoolID, userID, declaredWeeklyQuotaUSD, joinedWechatGroup, acknowledgedRisk, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -674,7 +823,7 @@ func (s *CarpoolService) Join(ctx context.Context, carpoolID, userID int64, decl
 	return result, nil
 }
 
-func (s *CarpoolService) JoinByInvite(ctx context.Context, token string, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup bool) (*CarpoolMutationResult, error) {
+func (s *CarpoolService) JoinByInvite(ctx context.Context, token string, userID int64, declaredWeeklyQuotaUSD float64, joinedWechatGroup, acknowledgedRisk bool) (*CarpoolMutationResult, error) {
 	if err := validateJoinDeclaration(declaredWeeklyQuotaUSD); err != nil {
 		return nil, err
 	}
@@ -682,7 +831,7 @@ func (s *CarpoolService) JoinByInvite(ctx context.Context, token string, userID 
 		return nil, ErrCarpoolGroupJoinRequired
 	}
 	hash := hashInviteToken(token)
-	result, err := s.repo.Join(ctx, 0, userID, declaredWeeklyQuotaUSD, joinedWechatGroup, &hash)
+	result, err := s.repo.Join(ctx, 0, userID, declaredWeeklyQuotaUSD, joinedWechatGroup, acknowledgedRisk, &hash)
 	if err != nil {
 		return nil, err
 	}
@@ -795,12 +944,16 @@ func (s *CarpoolService) ReplaceGroupQRCode(ctx context.Context, carpoolID, acto
 // CarpoolRosterMember 是上车弹窗里的"车上还有谁、各自申报多少"。
 // Email 仅对 admin 输出（管理员在成员管理里要直接联系到人）；普通成员与邀请
 // 持有者看到的是同车名单，邮箱对他们仍是隐私——与结算单 FullView 同一边界。
+// CarType 是本车车型（每行相同，roster 响应不带车行，随成员行一并给出）；
+// AcknowledgedRisk 是该成员上车时的风险确认标记。
 type CarpoolRosterMember struct {
 	UserID                 int64   `json:"user_id"`
 	Username               string  `json:"username"`
 	Email                  string  `json:"email,omitempty"`
 	Role                   string  `json:"role"`
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
+	CarType                int     `json:"car_type"`
+	AcknowledgedRisk       bool    `json:"acknowledged_risk"`
 }
 
 // GetRoster 返回车上现有成员及各自申报额度，供上车前参考。
@@ -826,6 +979,8 @@ func (s *CarpoolService) GetRoster(ctx context.Context, carpoolID, actorUserID i
 			Username:               row.Username,
 			Role:                   row.Role,
 			DeclaredWeeklyQuotaUSD: row.DeclaredWeeklyQuotaUSD,
+			CarType:                item.CarType,
+			AcknowledgedRisk:       row.AcknowledgedRisk,
 		}
 		if isAdmin {
 			member.Email = row.Email
@@ -904,9 +1059,11 @@ func (s *CarpoolService) RemoveMember(ctx context.Context, carpoolID, memberUser
 	return result, nil
 }
 
-// UpdateMemberQuota 管理员代改成员申报额度。下限与用户自己上车时一致。
+// UpdateMemberQuota 改成员申报额度：admin 可代改任何人；非 admin 仅可自助改自己的
+// 申报（招募期调整预期用量不必再找管理员）。下限与用户自己上车时一致，
+// 车状态/上限/AutoUnconfirmed 等闸门都在 repo 层，对两条路径一视同仁。
 func (s *CarpoolService) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, isAdmin bool, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error) {
-	if !isAdmin {
+	if !isAdmin && actorUserID != memberUserID {
 		return nil, ErrCarpoolForbidden
 	}
 	if declaredWeeklyQuotaUSD < CarpoolMinDeclaredWeeklyQuotaUSD {
@@ -920,6 +1077,101 @@ func (s *CarpoolService) UpdateMemberQuota(ctx context.Context, carpoolID, membe
 		s.notifyOwnerAutoUnconfirmed(ctx, result)
 	}
 	return result, nil
+}
+
+// AddCarpoolMemberInput 是管理员代加成员的输入。
+type AddCarpoolMemberInput struct {
+	UserID int64
+	// DeclaredWeeklyQuotaUSD 仅 type 2/3 quota 车需要（与自助上车同一上下限）；
+	// type 1/0 手动车无申报概念，忽略。
+	DeclaredWeeklyQuotaUSD float64
+	// AcknowledgedRisk 代录的风险确认（「已线下告知风险」），照存进成员行。
+	AcknowledgedRisk bool
+}
+
+// AddMember 管理员代加成员，按车型分支：
+//   - type 2/3（recruiting/confirmed）：申报必填，走申报制——与自助上车同一套
+//     事务保护与计价口径，之后的确认/发车/建订阅复用现有流程（admin launch）；
+//   - type 1/0（active 手动车）：只需 user_id，成员行直接 active 并立即建订阅。
+func (s *CarpoolService) AddMember(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, input AddCarpoolMemberInput) (*CarpoolMutationResult, error) {
+	if !isAdmin {
+		return nil, ErrCarpoolForbidden
+	}
+	if input.UserID <= 0 {
+		return nil, ErrCarpoolInvalidRequest
+	}
+	item, err := s.repo.GetByID(ctx, carpoolID, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	if item.CarType == CarpoolCarTypeQuota || item.CarType == CarpoolCarTypeQuotaV2 {
+		// 申报校验与自助上车同一口径：缺申报/越界都在打到仓储之前挡住。
+		if err := validateJoinDeclaration(input.DeclaredWeeklyQuotaUSD); err != nil {
+			return nil, err
+		}
+		result, err := s.repo.AddMember(ctx, carpoolID, actorUserID, input)
+		if err != nil {
+			return nil, err
+		}
+		s.notifyOwnerLaunchBandEntered(ctx, result)
+		if result.AutoUnconfirmed {
+			s.notifyOwnerAutoUnconfirmed(ctx, result)
+		}
+		fillCarpoolPresentation(result.Carpool)
+		return result, nil
+	}
+	return s.addDirectMember(ctx, item, actorUserID, input)
+}
+
+// addDirectMember 手动车（type 1/0）代加成员：先落 active 成员行（repo 锁内做
+// 车型/状态/重复闸门），再用 AssignOrExtendSubscription 建订阅并回填
+// subscription_id。订阅口径：weekly_limit_usd=车周限额、weekly_reserved_usd=NULL
+// （手动车无保底，公共池检查天然不触发）、weekly_window_start 对齐当日 UTC 零点。
+// 订阅创建或回填失败时把未绑定订阅的成员行退回 left（补偿），不留僵尸席位。
+func (s *CarpoolService) addDirectMember(ctx context.Context, car *Carpool, actorUserID int64, input AddCarpoolMemberInput) (*CarpoolMutationResult, error) {
+	if car.Status != "active" {
+		return nil, ErrCarpoolUnavailable
+	}
+	if s.subscriptionService == nil {
+		return nil, fmt.Errorf("carpool direct member assignment requires subscription service")
+	}
+	result, groupID, weeklyLimitUSD, err := s.repo.AddMemberDirect(ctx, car.ID, actorUserID, input)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	windowStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	sub, _, err := s.subscriptionService.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
+		UserID:            input.UserID,
+		GroupID:           groupID,
+		ValidityDays:      30,
+		AssignedBy:        actorUserID,
+		Notes:             fmt.Sprintf("Manually added to carpool #%d by admin", car.ID),
+		WeeklyLimitUSD:    &weeklyLimitUSD,
+		WeeklyWindowStart: &windowStart,
+	})
+	if err != nil {
+		s.compensateDirectMember(ctx, car.ID, input.UserID, actorUserID, "subscription assignment failed")
+		return nil, fmt.Errorf("assign carpool member subscription: %w", err)
+	}
+	if err := s.repo.BindMemberSubscription(ctx, car.ID, input.UserID, sub.ID); err != nil {
+		// 订阅已建好但回填不上：退回成员行；留下的孤儿订阅记错误日志人工清理。
+		s.compensateDirectMember(ctx, car.ID, input.UserID, actorUserID, "subscription bind failed")
+		slog.Error("carpool member subscription bind failed; orphan subscription needs manual cleanup",
+			"carpool_id", car.ID, "user_id", input.UserID, "subscription_id", sub.ID, "error", err)
+		return nil, fmt.Errorf("bind carpool member subscription: %w", err)
+	}
+	fillCarpoolPresentation(result.Carpool)
+	return result, nil
+}
+
+// compensateDirectMember 手动车代加成员的失败补偿：把尚未绑定订阅的成员行退回 left。
+// 补偿本身失败只记日志——成员行还在车上，管理员可从成员管理里再行处理。
+func (s *CarpoolService) compensateDirectMember(ctx context.Context, carpoolID, userID, actorUserID int64, reason string) {
+	if err := s.repo.RemoveDirectMember(ctx, carpoolID, userID, actorUserID, reason); err != nil {
+		slog.Error("carpool direct member compensation failed",
+			"carpool_id", carpoolID, "user_id", userID, "error", err)
+	}
 }
 
 // UpdateCarpool 管理员改车的基本信息。
@@ -1105,6 +1357,7 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 	settlement := &CarpoolSettlement{
 		CarpoolID:       item.ID,
 		Status:          item.Status,
+		CarType:         item.CarType,
 		WeeklyLimitUSD:  item.WeeklyLimitUSD,
 		SeatFeeCNY:      item.SeatFeeCNY,
 		UsagePoolCNY:    item.UsagePoolCNY,
@@ -1165,7 +1418,7 @@ func (s *CarpoolService) buildSettlement(ctx context.Context, item *Carpool, act
 		})
 	}
 
-	members := ComputeCarpoolSettlementMembers(item.WeeklyLimitUSD, item.SeatFeeCNY, item.UsagePoolCNY, item.ReserveRatio, inputs)
+	members := ComputeCarpoolSettlementMembers(item.CarType, item.WeeklyLimitUSD, item.SeatFeeCNY, item.UsagePoolCNY, item.ReserveRatio, inputs)
 	if settlement.Settled {
 		applyFrozenSettlement(members, rows)
 	}
