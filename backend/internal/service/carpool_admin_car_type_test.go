@@ -154,7 +154,7 @@ func TestCarpoolAddMemberRejectsNonAdmin(t *testing.T) {
 // 合法申报连同代录的风险确认一并下传。
 func TestCarpoolAddMemberQuotaValidatesDeclaration(t *testing.T) {
 	repo := &launchFlowRepoStub{
-		carpoolByID:    &Carpool{ID: 10, CarType: CarpoolCarTypeQuotaV2, Status: "recruiting"},
+		carpoolByID:     &Carpool{ID: 10, CarType: CarpoolCarTypeQuotaV2, Status: "recruiting"},
 		addMemberResult: &CarpoolMutationResult{Carpool: &Carpool{ID: 10, CarType: CarpoolCarTypeQuotaV2, Status: "recruiting", WeeklyLimitUSD: 2400, LaunchMaxRatio: 1.05}},
 	}
 	svc := adminOpsService(repo, &recordingSender{}, nil)
