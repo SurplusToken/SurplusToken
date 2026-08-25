@@ -42,6 +42,17 @@ type launchFlowRepoStub struct {
 	qrReplaceData     []byte
 	qrReplaceType     string
 	qrReplaceErr      error
+
+	// 代加成员（AddMember/AddMemberDirect）：记录入参并返回预设结果。
+	addMemberInput     *AddCarpoolMemberInput
+	addMemberResult    *CarpoolMutationResult
+	addMemberErr       error
+	directGroupID      int64
+	directWeeklyLimit  float64
+	boundSubscription  int64
+	bindErr            error
+	removedDirectUser  int64
+	removedDirectCause string
 }
 
 func (s *launchFlowRepoStub) List(ctx context.Context, userID int64) ([]Carpool, error) {
@@ -57,6 +68,29 @@ func (s *launchFlowRepoStub) RemoveMember(ctx context.Context, carpoolID, member
 func (s *launchFlowRepoStub) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*CarpoolMutationResult, error) {
 	s.updatedQuota = declaredWeeklyQuotaUSD
 	return s.quotaResult, nil
+}
+func (s *launchFlowRepoStub) AddMember(ctx context.Context, carpoolID, actorUserID int64, input AddCarpoolMemberInput) (*CarpoolMutationResult, error) {
+	s.addMemberInput = &input
+	if s.addMemberErr != nil {
+		return nil, s.addMemberErr
+	}
+	return s.addMemberResult, nil
+}
+func (s *launchFlowRepoStub) AddMemberDirect(ctx context.Context, carpoolID, actorUserID int64, input AddCarpoolMemberInput) (*CarpoolMutationResult, int64, float64, error) {
+	s.addMemberInput = &input
+	if s.addMemberErr != nil {
+		return nil, 0, 0, s.addMemberErr
+	}
+	return s.addMemberResult, s.directGroupID, s.directWeeklyLimit, nil
+}
+func (s *launchFlowRepoStub) BindMemberSubscription(ctx context.Context, carpoolID, userID, subscriptionID int64) error {
+	s.boundSubscription = subscriptionID
+	return s.bindErr
+}
+func (s *launchFlowRepoStub) RemoveDirectMember(ctx context.Context, carpoolID, userID, actorUserID int64, reason string) error {
+	s.removedDirectUser = userID
+	s.removedDirectCause = reason
+	return nil
 }
 func (s *launchFlowRepoStub) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error) {
 	s.updateInput = &input
@@ -209,7 +243,7 @@ func TestCreateRequiresAddedAdminWechat(t *testing.T) {
 	repo := &launchFlowRepoStub{}
 	svc := newLaunchFlowService(repo, nil, nil)
 	input := CreateCarpoolInput{
-		Name: "weekend-car", Visibility: CarpoolVisibilityPublic,
+		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AcknowledgedRisk: true,
 		GroupQRCode: "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNGBytes),
 	}
 	_, err := svc.Create(context.Background(), 11, false, input)
@@ -221,7 +255,7 @@ func TestCreateRequiresValidGroupQRCode(t *testing.T) {
 	repo := &launchFlowRepoStub{}
 	svc := newLaunchFlowService(repo, nil, nil)
 	base := CreateCarpoolInput{
-		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true,
+		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true, AcknowledgedRisk: true,
 	}
 
 	// 缺二维码 → required
@@ -241,17 +275,36 @@ func TestCreateStoresParsedQRCode(t *testing.T) {
 	repo := &launchFlowRepoStub{createResult: &CarpoolMutationResult{Carpool: &Carpool{ID: 7, OwnerUserID: &owner, WeeklyLimitUSD: 2400, LaunchMaxRatio: 1.05}}}
 	svc := newLaunchFlowService(repo, nil, nil)
 	input := CreateCarpoolInput{
-		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true,
+		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true, AcknowledgedRisk: true,
 		GroupQRCode: "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNGBytes),
 	}
 	result, err := svc.Create(context.Background(), 11, false, input)
 	require.NoError(t, err)
 	require.NotNil(t, repo.createInput)
 	require.True(t, repo.createInput.AddedAdminWechat)
+	require.True(t, repo.createInput.AcknowledgedRisk)
 	require.Equal(t, testPNGBytes, repo.createInput.GroupQRCodeBytes)
 	require.Equal(t, "image/png", repo.createInput.GroupQRCodeContentType)
 	require.NotEmpty(t, result.InviteToken)
 	require.Equal(t, CarpoolAdminWechatID, result.Carpool.AdminWechat)
+}
+
+// 创建车辆必须勾选风险确认（与 type 3 上车同一错误码）：未传 → 400，不触达仓储；
+// 管理员创建同样要求（前端总会传，后端不网开一面）。
+func TestCreateRequiresRiskAcknowledgement(t *testing.T) {
+	repo := &launchFlowRepoStub{}
+	svc := newLaunchFlowService(repo, nil, nil)
+	input := CreateCarpoolInput{
+		Name: "weekend-car", Visibility: CarpoolVisibilityPublic, AddedAdminWechat: true,
+		GroupQRCode: "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNGBytes),
+	}
+	_, err := svc.Create(context.Background(), 11, false, input)
+	require.ErrorIs(t, err, ErrCarpoolRiskAckRequired)
+	require.Nil(t, repo.createInput, "未勾选风险确认不应触达 repo 层")
+
+	_, err = svc.Create(context.Background(), 11, true, input)
+	require.ErrorIs(t, err, ErrCarpoolRiskAckRequired, "管理员创建同样要求风险确认")
+	require.Nil(t, repo.createInput)
 }
 
 func TestJoinRequiresWechatGroupConfirmation(t *testing.T) {

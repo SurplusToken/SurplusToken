@@ -13,6 +13,8 @@ func adminOpsService(repo *launchFlowRepoStub, sender *recordingSender, users ma
 
 // 管理端入口全部以 isAdmin 为唯一闸门。非管理员必须在打到仓储之前就被挡下——
 // 否则一个普通用户就能把别人踢下车。
+// 唯一例外是 UpdateMemberQuota：成员可自助改自己的申报（见下方专项用例），
+// 这里断言的是「非 admin 改别人」仍然 403。
 func TestCarpoolAdminOpsRejectNonAdmin(t *testing.T) {
 	repo := &launchFlowRepoStub{}
 	svc := adminOpsService(repo, &recordingSender{}, nil)
@@ -96,6 +98,30 @@ func TestCarpoolRemoveMemberSurvivesEmailFailure(t *testing.T) {
 	result, err := svc.RemoveMember(context.Background(), 10, 2, 1, true)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+}
+
+// 招募期成员可自助修改自己的申报额度：非 admin 改自己放行到仓储；改别人 403 且
+// 不触达仓储；admin 代改任何人不受影响（回归）。
+func TestCarpoolUpdateMemberQuotaSelfService(t *testing.T) {
+	repo := &launchFlowRepoStub{quotaResult: &CarpoolMutationResult{Carpool: &Carpool{ID: 10}}}
+	svc := adminOpsService(repo, &recordingSender{}, nil)
+	ctx := context.Background()
+
+	// 非 admin 改自己 → 放行
+	_, err := svc.UpdateMemberQuota(ctx, 10, 2, 2, false, 100)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, repo.updatedQuota)
+
+	// 非 admin 改别人 → 403，不触达仓储
+	repo.updatedQuota = 0
+	_, err = svc.UpdateMemberQuota(ctx, 10, 2, 1, false, 100)
+	require.ErrorIs(t, err, ErrCarpoolForbidden)
+	require.Zero(t, repo.updatedQuota)
+
+	// admin 改别人 → 仍成功（回归）
+	_, err = svc.UpdateMemberQuota(ctx, 10, 2, 1, true, 100)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, repo.updatedQuota)
 }
 
 // 代改申报的下限与用户自己上车时一致，并且要在打到仓储之前挡住。

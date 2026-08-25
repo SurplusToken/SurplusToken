@@ -24,9 +24,11 @@ func NewCarpoolHandler(carpoolService *service.CarpoolService) *CarpoolHandler {
 type createCarpoolRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
-	// car_type(string)/level 已废弃（保留兼容、忽略不读）：新建的 quota 车恒为
-	// 整数车型 car_type=3；额度池参数为空时使用 type 3 默认（设计文档 §3）。
-	CarType          string  `json:"car_type"`
+	// car_type 整数车型（指针，缺省 = 3 新计价 quota 车）：仅 admin 可指定，
+	// 非 admin 传了 403（CARPOOL_CUSTOM_PARAMS_FORBIDDEN）；0/1 手动车创建即
+	// active，2/3 quota 车创建后 recruiting。历史 string 形态已随整数车型
+	// （migration 227）移除，前端统一发 number。
+	CarType          *int    `json:"car_type"`
 	Level            int     `json:"level"`
 	Visibility       string  `json:"visibility" binding:"required"`
 	ScheduledStartAt string  `json:"scheduled_start_at" binding:"required"`
@@ -36,11 +38,15 @@ type createCarpoolRequest struct {
 	ReserveRatio     float64 `json:"reserve_ratio"`
 	LaunchMinRatio   float64 `json:"launch_min_ratio"`
 	LaunchMaxRatio   float64 `json:"launch_max_ratio"`
+	// RuleNote 是 type 0 自定义规则车的规则说明（人工结算依据，type 0 必填）。
+	RuleNote string `json:"rule_note"`
 	// DeclaredWeeklyQuotaUSD 是 owner 本人的申报（可选，0 = owner 仅发起不占额度）。
 	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
-	// 两项强制确认：已添加管理员微信（true）+ 群二维码（base64/data URL，≤2MB）。
+	// 三项强制确认：已添加管理员微信（true）+ 群二维码（base64/data URL，≤2MB）
+	// + 风险确认（true，与 type 3 上车同一口径，缺了 400 CARPOOL_RISK_ACK_REQUIRED）。
 	AddedAdminWechat bool   `json:"added_admin_wechat"`
 	GroupQRCode      string `json:"group_qr_code"`
+	AcknowledgedRisk bool   `json:"acknowledged_risk"`
 }
 
 type carpoolInviteRequest struct {
@@ -64,6 +70,14 @@ type carpoolJoinRequest struct {
 
 type carpoolLaunchRequest struct {
 	Force bool `json:"force"`
+}
+
+type carpoolAddMemberRequest struct {
+	UserID int64 `json:"user_id" binding:"required,gt=0"`
+	// DeclaredWeeklyQuotaUSD 仅 type 2/3 quota 车必填（缺了 400）；type 1/0 忽略。
+	DeclaredWeeklyQuotaUSD float64 `json:"declared_weekly_quota_usd"`
+	// AcknowledgedRisk 代录的风险确认（「已线下告知风险」），照存。
+	AcknowledgedRisk bool `json:"acknowledged_risk"`
 }
 
 type carpoolJoinLockRequest struct {
@@ -133,6 +147,8 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 	result, err := h.service.Create(c.Request.Context(), subject.UserID, isCarpoolAdmin(c), service.CreateCarpoolInput{
 		Name:                   req.Name,
 		Description:            req.Description,
+		CarType:                req.CarType,
+		RuleNote:               req.RuleNote,
 		Level:                  req.Level,
 		Visibility:             req.Visibility,
 		ScheduledStartAt:       &start,
@@ -145,6 +161,7 @@ func (h *CarpoolHandler) Create(c *gin.Context) {
 		DeclaredWeeklyQuotaUSD: req.DeclaredWeeklyQuotaUSD,
 		AddedAdminWechat:       req.AddedAdminWechat,
 		GroupQRCode:            req.GroupQRCode,
+		AcknowledgedRisk:       req.AcknowledgedRisk,
 	})
 	if response.ErrorFrom(c, err) {
 		return
@@ -563,6 +580,35 @@ func (h *CarpoolHandler) UpdateMemberQuota(c *gin.Context) {
 	}
 	result, err := h.service.UpdateMemberQuota(c.Request.Context(), id, memberID,
 		subject.UserID, isCarpoolAdmin(c), req.DeclaredWeeklyQuotaUSD)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+// AddMember 管理员代加成员，按车型分支：type 2/3 需申报（代录风险确认照存），
+// 复用上车的事务保护；type 1/0 只需 user_id，添加即生效（后台直接建订阅）。
+func (h *CarpoolHandler) AddMember(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	id, ok := parseCarpoolID(c)
+	if !ok {
+		return
+	}
+	var req carpoolAddMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "user_id is required")
+		return
+	}
+	result, err := h.service.AddMember(c.Request.Context(), id, subject.UserID, isCarpoolAdmin(c),
+		service.AddCarpoolMemberInput{
+			UserID:                 req.UserID,
+			DeclaredWeeklyQuotaUSD: req.DeclaredWeeklyQuotaUSD,
+			AcknowledgedRisk:       req.AcknowledgedRisk,
+		})
 	if response.ErrorFrom(c, err) {
 		return
 	}

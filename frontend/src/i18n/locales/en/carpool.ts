@@ -8,25 +8,21 @@ export default {
       weeklyBadge: 'Locked quota refreshes weekly',
       declare: {
         label: 'Percentage declaration',
-        text: 'Reserve a share of the car quota before joining (the Pro 20x historical weekly limit of $2,800 is for reference), prepay against your declaration, and settle at month end by actual usage. A car launches once total declarations reach 95%–105%.'
+        text: 'Reserve a share of the car quota before joining (the Pro 20x historical weekly limit of $2,400 is for reference), prepay against your declaration, and settle at month end by actual usage. A car launches once total declarations reach 95%–105%.'
       },
       reserve: {
         label: '80% reserved + 20% shared pool',
-        text: '80% of your declaration is locked for you and cannot be taken by anyone; the rest goes to a shared pool, first come first served; your usage is capped at 200% of your declaration. At month end you are billed on max(actual usage, 80% × declaration) with refunds or top-ups — you always pay at least your reserved floor.'
+        text: 'After each weekly reset, 80% of your declared quota is locked as your exclusive quota; the rest goes to a shared pool, first come first served, until it runs out. Your usage is capped at 200% of your declaration. Each week the billable quota is recorded as max(actual usage, 80% × declaration); at month end, refunds or top-ups are settled against the total billable quota.'
       },
       pricing: {
-        label: '¥1,200 + ¥50/member two-part pricing',
-        text: 'Each car has a ¥1,200/month usage pool split by billable usage, plus a flat seat fee of ¥50 per member per month.'
-      },
-      risk: {
-        label: 'Risk acknowledgment',
-        text: 'Joining requires acknowledging losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure. Once confirmed, you cannot leave mid-term.'
+        label: 'Flat seat fee + usage-based split',
+        text: 'A car has a fixed ¥1,200 fee, split by billable quota at month end. To encourage usage and keep each car compact, a ¥50 seat fee is charged per member.'
       }
     },
     notices: {
       weeklyRefresh: 'Locked quota is weekly: it refreshes automatically every week and unused quota does not roll over.',
       consumeOrder: 'Usage drains your locked quota first, then the shared pool. The shared pool is first come first served and not guaranteed.',
-      customRule: 'Custom rules supported: if you need a different quota pool, pricing, or reserve ratio, contact the admin to negotiate.'
+      risk: 'Joining requires acknowledging losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure. Once confirmed, you cannot leave mid-term.'
     },
     plaza: 'Carpool plaza',
     mine: 'My carpools',
@@ -66,8 +62,6 @@ export default {
       declaredOf: '{declared} / {limit} USD reserved',
       launchLine: '{ratio}% launch line',
       remainingJoinable: 'Joinable quota',
-      effectiveRate: 'Effective rate',
-      effectiveRateHint: '¥1 ≈ ${usd} official',
       carMonthlyFee: 'Car monthly fee',
       carMonthlyFeeSeat: 'seat',
       carMonthlyFeePool: 'usage',
@@ -87,6 +81,7 @@ export default {
       launch: 'Launch',
       forceLaunch: 'Launch anyway',
       leave: 'Leave',
+      editMyQuota: 'Edit declaration',
       settlement: 'Settlement',
       lock: 'Close joining',
       unlock: 'Reopen',
@@ -147,20 +142,14 @@ export default {
       title: 'Start a new carpool',
       submit: 'Create and generate invite',
       success: 'Carpool created',
-      ruleMode: 'Carpool rules',
-      ruleModeDefault: 'Default rules',
-      ruleModeCustom: 'Custom rules',
-      customRule: {
-        title: 'Custom rules must be negotiated with the admin (quota pool, pricing, reserve ratio, etc.)',
-        description: 'No need to fill in the form below. Click "Notify admin" to send your request; the admin will reach out by email or WeChat, then create and tune the car for you once agreed.',
-        notify: 'Notify admin',
-        notifySuccess: 'Admin notified. Please add WeChat {wechat} to continue the negotiation.'
-      },
-      ownerQuota: 'My declared quota (optional, USD/week)',
-      ownerQuotaHint: 'Leave empty to organize without reserving quota; a value prepays as one member.',
+      ownerQuota: 'My reserved quota',
+      ownerQuotaHint: 'Converted at the $2,400/week car limit. Leave empty to organize without reserving quota; a value prepays as one member.',
+      previewOnePersonNote: 'Estimated assuming the car is fully declared; the actual amount is locked at launch, with refunds or top-ups for the difference',
       contactTitle: 'Contact & group QR code (required)',
-      contactHint: 'Launches are performed manually by the admin. Add the admin on WeChat first, then upload the WeChat group QR code so members can join the group.',
+      contactHint: 'Launches are performed manually by the admin. Before starting, add the admin on WeChat, create a dedicated group chat for the car, invite the admin, and upload its QR code.',
       addedAdmin: 'I have added the admin on WeChat ({wechat})',
+      createdGroup: 'I have created the WeChat group chat and invited the admin to it',
+      riskAck: 'I acknowledge that losses from car-wide quota adjustments caused by OpenAI risk control or other force majeure are borne by the members, and I cannot leave mid-term',
       qrLabel: 'Group QR code',
       qrHint: 'png / jpeg / webp only, up to 2MB. Create a one-person group via WeChat "Face-to-face group", invite the admin, then upload that group\'s QR code',
       qrInvalidType: 'Only png, jpeg, or webp images are supported',
@@ -177,9 +166,6 @@ export default {
       floorUnit: 'USD/week',
       previewPrepaid: 'Estimated prepay',
       previewAvgPrice: 'Current avg price',
-      previewEffectiveRate: 'Effective rate',
-      effectiveRateUnit: '¥1 ≈ ${usd} official',
-      effectiveRateBasis: 'over 31 days',
       prepaidBreakdown: 'Seat {seat} + usage {pool}',
       seatShareHint: 'seat fee {total} ÷ {people} = {each} each',
       seatSharePerPerson: 'seat fee {each} per person (flat)',
@@ -191,8 +177,6 @@ export default {
       rosterOwner: 'owner',
       rosterYou: 'You (this declaration)',
       rosterAnonymous: 'User #{id}',
-      rateAboveAverage: 'At your declaration the effective rate is {yours}, about {times}× the car average ({average}) — the seat fee is split per head, so a smaller declaration costs relatively more.',
-      rateAboveAverageFlat: 'At your declaration the effective rate is {yours}, about {times}× the car average ({average}) — the seat fee is a flat per-person charge, so a smaller declaration costs relatively more.',
       floorNotice: 'Even if you use less, you are billed for at least 80% of your declaration.',
       exceedsRemaining: 'Declaration exceeds this car\'s remaining joinable quota ({amount} USD); lower it or wait for the next car',
       belowFloor: 'Declared quota must be at least {min} USD/week',
@@ -203,6 +187,13 @@ export default {
       confirm: 'Confirm join',
       success: 'Joined carpool, prepaid ¥{amount}',
       successNoPrepaid: 'Joined carpool'
+    },
+    quotaDialog: {
+      title: 'Edit declared quota',
+      current: 'Current declaration: {amount}',
+      hint: 'The change takes effect immediately and recalculates this car\'s launch progress; it is rejected if it exceeds the remaining joinable quota.',
+      success: 'Declaration updated',
+      autoUnconfirmed: 'Total declaration moved outside the launch band; the car returned to recruiting'
     },
     confirmDialog: {
       title: 'Confirm launch',
@@ -253,9 +244,7 @@ export default {
     },
     detailDialog: {
       title: 'Carpool details',
-      runtime: 'Launch status',
-      linkedGroup: 'Linked group',
-      pendingGroup: 'Will be linked by an administrator at launch'
+      runtime: 'Launch status'
     },
     settlement: {
       title: 'Monthly settlement',
@@ -362,7 +351,31 @@ export default {
       memberRemoved: 'Member removed and their quota released',
       quotaUpdated: 'Declaration updated',
       updated: 'Carpool updated',
-      ownerTransferred: 'Ownership transferred'
+      ownerTransferred: 'Ownership transferred',
+      create: 'Create carpool manually',
+      createDialog: {
+        title: 'Create carpool manually',
+        carType: 'Car type',
+        weeklyLimit: 'Weekly limit (USD)',
+        ruleNote: 'Rule note',
+        ruleNotePlaceholder: 'How this car runs and how members are charged — write it down for manual settlement',
+        members: 'Initial members (optional)',
+        membersHint: 'Members are added one by one after creation: quota cars need a declaration and a recorded risk acknowledgment; legacy/custom cars only need a user pick.',
+        membersFailed: 'Some members failed to be added',
+        submit: 'Create carpool',
+        success: 'Carpool created'
+      },
+      memberEditor: {
+        pickUser: 'Search users (email / username)',
+        declaredPercent: 'Declared quota (%)',
+        declaredUsd: 'Declared quota (USD/week)',
+        riskInformed: 'Risk disclosed offline; the member knows they cannot leave mid-term',
+        add: 'Add member'
+      },
+      addMember: {
+        title: 'Add member',
+        success: 'Member added'
+      }
     },
     admin: {
       locked: 'Joining has been closed',

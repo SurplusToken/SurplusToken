@@ -29,6 +29,8 @@ type carpoolHandlerRepoStub struct {
 	joinResult      *service.CarpoolMutationResult
 	joinErr         error
 	joinAckCaptured bool
+	addMemberInput  *service.AddCarpoolMemberInput
+	addMemberResult *service.CarpoolMutationResult
 }
 
 func (s *carpoolHandlerRepoStub) List(ctx context.Context, userID int64) ([]service.Carpool, error) {
@@ -41,6 +43,19 @@ func (s *carpoolHandlerRepoStub) RemoveMember(ctx context.Context, carpoolID, me
 	panic("unexpected call")
 }
 func (s *carpoolHandlerRepoStub) UpdateMemberQuota(ctx context.Context, carpoolID, memberUserID, actorUserID int64, declaredWeeklyQuotaUSD float64) (*service.CarpoolMutationResult, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) AddMember(ctx context.Context, carpoolID, actorUserID int64, input service.AddCarpoolMemberInput) (*service.CarpoolMutationResult, error) {
+	s.addMemberInput = &input
+	return s.addMemberResult, nil
+}
+func (s *carpoolHandlerRepoStub) AddMemberDirect(ctx context.Context, carpoolID, actorUserID int64, input service.AddCarpoolMemberInput) (*service.CarpoolMutationResult, int64, float64, error) {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) BindMemberSubscription(ctx context.Context, carpoolID, userID, subscriptionID int64) error {
+	panic("unexpected call")
+}
+func (s *carpoolHandlerRepoStub) RemoveDirectMember(ctx context.Context, carpoolID, userID, actorUserID int64, reason string) error {
 	panic("unexpected call")
 }
 func (s *carpoolHandlerRepoStub) UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input service.UpdateCarpoolInput) (*service.CarpoolMutationResult, error) {
@@ -144,7 +159,7 @@ func decodeCarpoolError(t *testing.T, recorder *httptest.ResponseRecorder) (code
 // 创建车辆：缺 added_admin_wechat → 400 CARPOOL_CONTACT_CONFIRM_REQUIRED。
 func TestCarpoolCreateRequiresAddedAdminWechat(t *testing.T) {
 	h := newCarpoolTestHandler(&carpoolHandlerRepoStub{})
-	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","group_qr_code":"` + carpoolHandlerPNGBase64 + `"}`
+	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","acknowledged_risk":true,"group_qr_code":"` + carpoolHandlerPNGBase64 + `"}`
 	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools", body)
 	h.Create(c)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
@@ -155,7 +170,7 @@ func TestCarpoolCreateRequiresAddedAdminWechat(t *testing.T) {
 // 创建车辆：缺 group_qr_code → 400 CARPOOL_GROUP_QR_CODE_REQUIRED。
 func TestCarpoolCreateRequiresGroupQRCode(t *testing.T) {
 	h := newCarpoolTestHandler(&carpoolHandlerRepoStub{})
-	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","added_admin_wechat":true}`
+	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","added_admin_wechat":true,"acknowledged_risk":true}`
 	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools", body)
 	h.Create(c)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
@@ -170,7 +185,7 @@ func TestCarpoolCreateSuccessReturnsAdminWechat(t *testing.T) {
 		Carpool: &service.Carpool{ID: 7, Name: "weekend-car", OwnerUserID: &owner, Status: "recruiting", WeeklyLimitUSD: 2400, LaunchMaxRatio: 1.05, HasGroupQRCode: true},
 	}}
 	h := newCarpoolTestHandler(repo)
-	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","added_admin_wechat":true,"group_qr_code":"` + carpoolHandlerPNGBase64 + `"}`
+	body := `{"name":"weekend-car","visibility":"public","scheduled_start_at":"2026-08-01","added_admin_wechat":true,"acknowledged_risk":true,"group_qr_code":"` + carpoolHandlerPNGBase64 + `"}`
 	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools", body)
 	h.Create(c)
 	require.Equal(t, http.StatusCreated, recorder.Code)
@@ -297,7 +312,7 @@ func TestCarpoolCreateRejectsCustomQuotaParamsForNonAdmin(t *testing.T) {
 	repo := &carpoolHandlerRepoStub{}
 	h := newCarpoolTestHandler(repo)
 	body := `{"name":"whale-car","visibility":"public","scheduled_start_at":"2026-08-01",` +
-		`"added_admin_wechat":true,"weekly_limit_usd":1000000000,` +
+		`"added_admin_wechat":true,"acknowledged_risk":true,"weekly_limit_usd":1000000000,` +
 		`"group_qr_code":"` + carpoolHandlerPNGBase64 + `"}`
 	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools", body)
 	h.Create(c)
@@ -403,4 +418,104 @@ func TestCarpoolJoinPassesAcknowledgedRisk(t *testing.T) {
 	h.Join(c)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.True(t, repo.joinAckCaptured)
+}
+
+// ---------------------------------------------------------------------------
+// 管理端代加成员（POST /api/v1/carpools/:id/members）
+// ---------------------------------------------------------------------------
+
+// 代加成员仅 admin：非 admin → 403，且不触达仓储。
+func TestCarpoolAddMemberRequiresAdmin(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/members",
+		`{"user_id":55,"declared_weekly_quota_usd":100,"acknowledged_risk":true}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	h.AddMember(c)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	_, reason := decodeCarpoolError(t, recorder)
+	require.Equal(t, "CARPOOL_FORBIDDEN", reason)
+	require.Nil(t, repo.addMemberInput)
+}
+
+// type 3 车缺申报 → 400（CARPOOL_INVALID_REQUEST），在打到仓储之前挡住。
+func TestCarpoolAddMemberType3MissingDeclarationReturns400(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{
+		carpool: &service.Carpool{ID: 7, CarType: service.CarpoolCarTypeQuotaV2, Status: "recruiting"},
+	}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/members", `{"user_id":55}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+	h.AddMember(c)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	_, reason := decodeCarpoolError(t, recorder)
+	require.Equal(t, "CARPOOL_INVALID_REQUEST", reason)
+	require.Nil(t, repo.addMemberInput)
+}
+
+// 低于申报下限 → 400 CARPOOL_DECLARATION_TOO_SMALL。
+func TestCarpoolAddMemberDeclarationTooSmallReturns400(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{
+		carpool: &service.Carpool{ID: 7, CarType: service.CarpoolCarTypeQuotaV2, Status: "recruiting"},
+	}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/members",
+		`{"user_id":55,"declared_weekly_quota_usd":1}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+	h.AddMember(c)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	_, reason := decodeCarpoolError(t, recorder)
+	require.Equal(t, "CARPOOL_DECLARATION_TOO_SMALL", reason)
+}
+
+// 合法请求：user_id/申报/代录风险确认透传到 service，响应沿用 CarpoolMutationResult
+// 形状（carpool + auto_unconfirmed）。
+func TestCarpoolAddMemberSuccess(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{
+		carpool: &service.Carpool{ID: 7, CarType: service.CarpoolCarTypeQuotaV2, Status: "recruiting"},
+		addMemberResult: &service.CarpoolMutationResult{
+			Carpool: &service.Carpool{ID: 7, CarType: service.CarpoolCarTypeQuotaV2, Status: "recruiting", WeeklyLimitUSD: 2400, LaunchMaxRatio: 1.05},
+		},
+	}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/members",
+		`{"user_id":55,"declared_weekly_quota_usd":250,"acknowledged_risk":true}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+	h.AddMember(c)
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	require.NotNil(t, repo.addMemberInput)
+	require.Equal(t, int64(55), repo.addMemberInput.UserID)
+	require.InDelta(t, 250, repo.addMemberInput.DeclaredWeeklyQuotaUSD, 1e-9)
+	require.True(t, repo.addMemberInput.AcknowledgedRisk)
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			Carpool struct {
+				ID int64 `json:"id"`
+			} `json:"carpool"`
+			AutoUnconfirmed bool `json:"auto_unconfirmed"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Equal(t, int64(7), resp.Data.Carpool.ID)
+	require.False(t, resp.Data.AutoUnconfirmed)
+}
+
+// 缺 user_id → 400（binding 层）。
+func TestCarpoolAddMemberRequiresUserID(t *testing.T) {
+	repo := &carpoolHandlerRepoStub{}
+	h := newCarpoolTestHandler(repo)
+	c, recorder := newCarpoolTestContext(http.MethodPost, "/api/v1/carpools/7/members",
+		`{"declared_weekly_quota_usd":100}`)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	c.Set(string(middleware2.ContextKeyUserRole), service.RoleAdmin)
+	h.AddMember(c)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Nil(t, repo.addMemberInput)
 }

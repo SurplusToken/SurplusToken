@@ -26,6 +26,7 @@ const {
   settlementMock,
   settleMock,
   unsettleMock,
+  updateMemberQuotaMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -49,6 +50,7 @@ const {
   settlementMock: vi.fn(),
   settleMock: vi.fn(),
   unsettleMock: vi.fn(),
+  updateMemberQuotaMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -73,6 +75,7 @@ vi.mock('@/api/carpools', () => ({
     settlement: settlementMock,
     settle: settleMock,
     unsettle: unsettleMock,
+    updateMemberQuota: updateMemberQuotaMock,
     cancel: vi.fn(),
     setJoinLocked: vi.fn(),
   },
@@ -220,6 +223,7 @@ describe('CarpoolView', () => {
     settlementMock.mockReset()
     settleMock.mockReset()
     unsettleMock.mockReset()
+    updateMemberQuotaMock.mockReset()
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -233,9 +237,11 @@ describe('CarpoolView', () => {
     expect(rules.text()).toContain('carpool.rules.declare.text')
     expect(rules.text()).toContain('carpool.rules.reserve.text')
     expect(rules.text()).toContain('carpool.rules.pricing.text')
+    // 风险说明已从规则条目下移到 notices 区
+    expect(rules.text()).not.toContain('carpool.rules.risk')
     expect(rules.text()).toContain('carpool.notices.weeklyRefresh')
     expect(rules.text()).toContain('carpool.notices.consumeOrder')
-    expect(rules.text()).toContain('carpool.notices.customRule')
+    expect(rules.text()).toContain('carpool.notices.risk')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect(listCarpools).toHaveBeenCalledOnce()
   })
@@ -271,9 +277,11 @@ describe('CarpoolView', () => {
 
     expect(card.text()).toContain('carpool.fields.quotaProgress')
     expect(card.text()).toContain('carpool.fields.remainingJoinable')
-    expect(card.text()).toContain('carpool.fields.effectiveRate')
     expect(card.text()).toContain('carpool.fields.carMonthlyFee')
     expect(card.text()).not.toContain('carpool.fields.seatsRemaining')
+    // 等效倍率与关联分组已从用户侧卡片移除
+    expect(card.text()).not.toContain('carpool.fields.effectiveRate')
+    expect(card.text()).not.toContain('carpool.detailDialog.linkedGroup')
   })
 
   it('hides the join action when no joinable quota remains', async () => {
@@ -411,6 +419,14 @@ describe('CarpoolView', () => {
     await flushPromises()
     // FileReader.onload 异步完成后再等一拍
     await new Promise((resolve) => setTimeout(resolve, 0))
+    // 缺风险确认 → 仍禁提交
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-create-risk').setValue(true)
+    // 缺"已建群并拉管理员入群" → 仍禁提交
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-created-group').setValue(true)
     expect(submit().attributes('disabled')).toBeUndefined()
 
     await wrapper.get('#carpool-create-form').trigger('submit')
@@ -419,58 +435,72 @@ describe('CarpoolView', () => {
     expect(createCarpoolMock).toHaveBeenCalledOnce()
     const payload = createCarpoolMock.mock.calls[0][0] as Record<string, unknown>
     expect(payload.added_admin_wechat).toBe(true)
+    expect(payload.acknowledged_risk).toBe(true)
     expect(String(payload.group_qr_code)).toMatch(/^data:image\/png/)
     // 高级设置已移除：池参数不再由前端提交
     expect(payload.weekly_limit_usd).toBeUndefined()
     expect(payload.seat_fee_cny).toBeUndefined()
   })
 
-  it('custom rule mode disables the form, notifies the admin, and never creates', async () => {
-    let resolveNotify: () => void = () => {}
-    notifyCustomRuleInterestMock.mockImplementation(
-      () => new Promise<void>((resolve) => { resolveNotify = resolve })
-    )
+  // 创建对话框的保底/预付预览（仅申报 > 0 时显示）：按发起人自己的申报份额预估
+  // （整车打满口径），新建车恒为 type 3——保底 = 80%×申报；预付 = ¥50 席位 + 0.8×¥1200×份额。
+  it('previews floor and prepaid for the owner declaration in the create dialog', async () => {
     const wrapper = mountView()
     await flushPromises()
-
     await findButton(wrapper, 'carpool.create').trigger('click')
-    // 默认规则：表单可用、提交按钮存在
-    expect(wrapper.get('[data-testid="rule-mode-default"]').attributes('class')).toContain('border-primary-500')
-    expect(wrapper.get('#carpool-name').attributes('disabled')).toBeUndefined()
-    expect(wrapper.find('button[form="carpool-create-form"]').exists()).toBe(true)
 
-    await wrapper.get('[data-testid="rule-mode-custom"]').trigger('click')
+    const preview = () => wrapper.find('[data-testid="create-preview"]')
+    // 未申报时不显示预览与保底提示
+    expect(preview().exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('carpool.joinDialog.floorNotice')
 
-    // 自定义模式：表单其余项全部禁用，且不展示创建提交按钮
-    expect(wrapper.get('#carpool-name').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('#carpool-description').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('#carpool-start').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('#carpool-owner-quota').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('#carpool-added-admin').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('#carpool-group-qr').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('button[form="carpool-create-form"]').exists()).toBe(false)
+    await wrapper.get('#carpool-owner-quota').setValue(50)
+    // 50% × $2,400 = $1,200：保底 = 80%×1200 = $960；预付 = ¥50 + 0.8×¥1200×50% = ¥530
+    expect(preview().exists()).toBe(true)
+    expect(preview().text()).toContain('$960')
+    expect(preview().text()).toContain('¥530')
+    expect(preview().text()).toContain('¥50')
+    expect(preview().text()).toContain('¥480')
+    expect(wrapper.text()).toContain('carpool.createDialog.previewOnePersonNote')
+    expect(wrapper.text()).toContain('carpool.joinDialog.floorNotice')
+  })
 
-    // 指引区块 + 通知管理员按钮
-    expect(wrapper.get('[data-testid="custom-rule-panel"]').text()).toContain('carpool.createDialog.customRule.title')
-    const notifyButton = wrapper.get('[data-testid="custom-rule-notify"]')
-    await notifyButton.trigger('click')
-    // loading 期间按钮禁用
-    expect(wrapper.get('[data-testid="custom-rule-notify"]').attributes('disabled')).toBeDefined()
-    resolveNotify()
+  // 创建即上车：风险确认是硬门禁，勾选后提交带 acknowledged_risk 与换算后的美元申报。
+  it('requires the risk acknowledgment and submits it with the converted declaration', async () => {
+    createCarpoolMock.mockResolvedValue({ carpool: makeCarpool({ id: 40 }), inviteToken: 'token-40' })
+
+    const wrapper = mountView()
     await flushPromises()
+    await findButton(wrapper, 'carpool.create').trigger('click')
+    const submit = () => wrapper.get('button[form="carpool-create-form"]')
 
-    expect(notifyCustomRuleInterestMock).toHaveBeenCalledOnce()
-    expect(showSuccess).toHaveBeenCalledWith('carpool.createDialog.customRule.notifySuccess')
-    // 成功后展示管理员微信号与复制入口
-    const panel = wrapper.get('[data-testid="custom-rule-panel"]')
-    expect(panel.text()).toContain('Charlemartingale')
-    expect(panel.text()).toContain('common.copy')
+    await wrapper.get('#carpool-name').setValue('weekend-car')
+    await wrapper.get('#carpool-added-admin').setValue(true)
+    await wrapper.get('#carpool-created-group').setValue(true)
+    await wrapper.get('#carpool-owner-quota').setValue(50)
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'qr.png', { type: 'image/png' })
+    const qrInput = wrapper.get('#carpool-group-qr')
+    Object.defineProperty(qrInput.element, 'files', { value: [file], configurable: true })
+    await qrInput.trigger('change')
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    // 此模式下即使触发表单 submit 也不调用创建接口
+    // 未勾选风险确认 → 禁提交
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#carpool-create-risk').setValue(true)
+    expect(submit().attributes('disabled')).toBeUndefined()
+
     await wrapper.get('#carpool-create-form').trigger('submit')
     await flushPromises()
-    expect(createCarpoolMock).not.toHaveBeenCalled()
+
+    expect(createCarpoolMock).toHaveBeenCalledOnce()
+    const payload = createCarpoolMock.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.acknowledged_risk).toBe(true)
+    // 50% × $2,400 = $1,200
+    expect(payload.declared_weekly_quota_usd).toBe(1200)
   })
+
 
   it('rejects an oversized group qr code in the create dialog', async () => {
     const wrapper = mountView()
@@ -563,29 +593,29 @@ describe('CarpoolView', () => {
     expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeUndefined()
   })
 
-  // type 3（新 quota 车）：周限额 $2800、席位费 ¥50/月、额度池 ¥1200/月，卡片按车型参数展示。
+  // type 3（新 quota 车）：周限额 $2,400、席位费 ¥50/月、额度池 ¥1200/月，卡片按车型参数展示。
   it('shows the type-3 car parameters on the card', async () => {
     listCarpools.mockResolvedValue([makeCarpool({
       id: 10,
       carType: 3,
-      weeklyLimitUsd: 2800,
+      weeklyLimitUsd: 2400,
       seatFeeCny: 50,
       usagePoolCny: 1200,
-      declaredTotalUsd: 1400,
-      remainingJoinableUsd: 1540,
+      declaredTotalUsd: 1200,
+      remainingJoinableUsd: 1320,
     })])
 
     const wrapper = mountView()
     await flushPromises()
     const card = wrapper.get('article')
 
-    expect(card.text()).toContain('$2,800')
+    expect(card.text()).toContain('$2,400')
     expect(card.text()).toContain('¥50')
     expect(card.text()).toContain('¥1,200')
     // 席位费是每人固定 ¥50：不能渲染出"席位+用量=¥1,250"这种整车误导合计
     expect(card.text()).not.toContain('¥1,250')
-    // 规则区带新车型说明
-    expect(wrapper.text()).toContain('carpool.rules.risk.text')
+    // 风险说明在规则区的 notices 里
+    expect(wrapper.text()).toContain('carpool.notices.risk')
   })
 
   // type 3 加入对话框：申报改为占全车额度的百分比，实时换算美元；
@@ -594,15 +624,15 @@ describe('CarpoolView', () => {
     listCarpools.mockResolvedValue([makeCarpool({
       id: 10,
       carType: 3,
-      weeklyLimitUsd: 2800,
+      weeklyLimitUsd: 2400,
       seatFeeCny: 50,
       usagePoolCny: 1200,
       memberCount: 2,
-      declaredTotalUsd: 1400,
-      remainingJoinableUsd: 1540,
+      declaredTotalUsd: 1200,
+      remainingJoinableUsd: 1320,
     })])
     rosterMock.mockResolvedValue([
-      { userId: 9, username: 'owner-a', role: 'owner', declaredWeeklyQuotaUsd: 1400, acknowledgedRisk: true },
+      { userId: 9, username: 'owner-a', role: 'owner', declaredWeeklyQuotaUsd: 1200, acknowledgedRisk: true },
     ])
     joinMock.mockResolvedValue({ carpool: makeCarpool({ id: 10, memberRole: 'member' }), prepaidAmountCny: 0 })
 
@@ -616,14 +646,14 @@ describe('CarpoolView', () => {
     expect(wrapper.find('#carpool-join-risk').exists()).toBe(true)
 
     await wrapper.get('#carpool-join-quota').setValue(50)
-    // 50% × $2800 = $1,400：花名册"你"一行按美元显示；保底 80% = $1,120
+    // 50% × $2,400 = $1,200：花名册"你"一行按美元显示；保底 80% = $960
     expect(wrapper.text()).toContain('carpool.joinDialog.quotaPercentEquals')
-    expect(wrapper.text()).toContain('$1,400')
-    expect(wrapper.text()).toContain('$1,120')
+    expect(wrapper.text()).toContain('$1,200')
+    expect(wrapper.text()).toContain('$960')
     // 席位费每人固定 ¥50（不均摊），提示走 per-person 口径
     expect(wrapper.text()).toContain('carpool.joinDialog.seatSharePerPerson')
     expect(wrapper.text()).not.toContain('carpool.joinDialog.seatShareHint')
-    // 预付 = 席位 ¥50（固定） + 80% × ¥1200 × (1400/2800) = ¥530
+    // 预付 = 席位 ¥50（固定） + 80% × ¥1200 × (1200/2400) = ¥530
     expect(wrapper.text()).toContain('¥530')
 
     const confirmButton = () => findButton(wrapper, 'carpool.joinDialog.confirm')
@@ -637,19 +667,48 @@ describe('CarpoolView', () => {
     await confirmButton().trigger('click')
     await flushPromises()
     // 提交的是换算后的美元申报，且带风险确认
-    expect(joinMock).toHaveBeenCalledWith(10, 1400, true)
+    expect(joinMock).toHaveBeenCalledWith(10, 1200, true)
   })
 
-  // type 3 的申报下限提示用百分比口径：$20 / $2800 ≈ 0.72%。
+  // type 3 用量池预付按"占整车周限额的份额"计：车上申报很少时（车主 0 申报、Σ=0），
+  // 不能把 80% 池子几乎全算到新上车的人头上（旧口径会显示 ¥960/¥1,010）。
+  it('quotes the type-3 pool prepay against the car weekly limit, not the current declaration total', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 3,
+      weeklyLimitUsd: 2400,
+      seatFeeCny: 50,
+      usagePoolCny: 1200,
+      memberCount: 1,
+      declaredTotalUsd: 0,
+      remainingJoinableUsd: 2520,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 9, username: 'owner-a', role: 'owner', declaredWeeklyQuotaUsd: 0, acknowledgedRisk: true },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.join').trigger('click')
+    await flushPromises()
+
+    // 报 5%（$120）：用量部分 = 0.8×¥1200×(120/2400) = ¥48，预付 = ¥50 席位 + ¥48 = ¥98
+    await wrapper.get('#carpool-join-quota').setValue(5)
+    expect(wrapper.text()).toContain('¥98')
+    expect(wrapper.text()).not.toContain('¥960')
+    expect(wrapper.text()).not.toContain('¥1,010')
+  })
+
+  // type 3 的申报下限提示用百分比口径：$20 / $2400 ≈ 0.83%。
   it('blocks a type-3 declaration below the floor in percentage terms', async () => {
     listCarpools.mockResolvedValue([makeCarpool({
       id: 10,
       carType: 3,
-      weeklyLimitUsd: 2800,
+      weeklyLimitUsd: 2400,
       seatFeeCny: 50,
       usagePoolCny: 1200,
-      declaredTotalUsd: 1400,
-      remainingJoinableUsd: 1540,
+      declaredTotalUsd: 1200,
+      remainingJoinableUsd: 1320,
     })])
 
     const wrapper = mountView()
@@ -657,14 +716,14 @@ describe('CarpoolView', () => {
     await findButton(wrapper, 'carpool.actions.join').trigger('click')
     await flushPromises()
 
-    await wrapper.get('#carpool-join-quota').setValue(0.5) // 0.5% × 2800 = $14 < $20
+    await wrapper.get('#carpool-join-quota').setValue(0.5) // 0.5% × 2400 = $12 < $20
     await wrapper.get('#carpool-join-group').setValue(true)
     await wrapper.get('#carpool-join-risk').setValue(true)
 
     expect(wrapper.text()).toContain('carpool.joinDialog.belowFloorPercent')
     expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeDefined()
 
-    await wrapper.get('#carpool-join-quota').setValue(1) // 1% = $28 ≥ $20
+    await wrapper.get('#carpool-join-quota').setValue(1) // 1% = $24 ≥ $20
     expect(findButton(wrapper, 'carpool.joinDialog.confirm').attributes('disabled')).toBeUndefined()
   })
 
@@ -682,9 +741,151 @@ describe('CarpoolView', () => {
     expect(wrapper.find('#carpool-join-risk').exists()).toBe(false)
   })
 
-  // 加入对话框展示"你的折算单价"而不是全车均价：席位费按人头均摊，
-  // 申报越小单价越高，均价对轻度用户是系统性低估。
-  it('previews the joiner own effective rate instead of the car average', async () => {
+  // 招募中的 type 3 车，成员可改自己的申报：百分比输入，预填当前值的百分比口径，
+  // 提交时换算成美元调 updateMemberQuota。
+  it('lets a member edit their declaration on a recruiting type-3 car', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 3,
+      weeklyLimitUsd: 2400,
+      seatFeeCny: 50,
+      usagePoolCny: 1200,
+      memberRole: 'member',
+      memberCount: 3,
+      declaredTotalUsd: 1800,
+      remainingJoinableUsd: 720,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 9, username: 'owner-a', role: 'owner', declaredWeeklyQuotaUsd: 1200, acknowledgedRisk: true },
+      { userId: 1, username: 'preview-user', role: 'member', declaredWeeklyQuotaUsd: 600, acknowledgedRisk: true },
+    ])
+    updateMemberQuotaMock.mockResolvedValue({ carpool: makeCarpool({ id: 10 }), autoUnconfirmed: false })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-quota-10"]').trigger('click')
+    await flushPromises()
+
+    // 预填当前申报的百分比口径：$600 / $2,400 = 25%，并展示当前申报
+    expect((wrapper.get('#carpool-quota-input').element as HTMLInputElement).value).toBe('25')
+    expect(wrapper.text()).toContain('carpool.quotaDialog.current')
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaLabelPercent')
+
+    await wrapper.get('#carpool-quota-input').setValue(50)
+    // 50% × $2,400 = $1,200 的实时换算提示
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaPercentEquals')
+
+    await wrapper.get('[data-testid="quota-dialog-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(updateMemberQuotaMock).toHaveBeenCalledWith(10, 1, 1200)
+    expect(showSuccess).toHaveBeenCalledWith('carpool.quotaDialog.success')
+  })
+
+  // 把自己的申报改出 [95%,105%] 发车区间时，后端会把车自动退回招募中——必须明说。
+  it('warns when the quota change pushes the car out of the launch band', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10, memberRole: 'member', declaredTotalUsd: 2350, remainingJoinableUsd: 170,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'preview-user', role: 'member', declaredWeeklyQuotaUsd: 400, acknowledgedRisk: false },
+    ])
+    updateMemberQuotaMock.mockResolvedValue({ carpool: makeCarpool({ id: 10 }), autoUnconfirmed: true })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-quota-10"]').trigger('click')
+    await flushPromises()
+
+    // 降申报：$100 ≥ $20 下限，且不超过 当前 $400 + 剩余 $170
+    await wrapper.get('#carpool-quota-input').setValue(100)
+    await wrapper.get('[data-testid="quota-dialog-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(updateMemberQuotaMock).toHaveBeenCalledWith(10, 1, 100)
+    expect(showWarning).toHaveBeenCalledWith('carpool.quotaDialog.autoUnconfirmed')
+    expect(showSuccess).not.toHaveBeenCalled()
+  })
+
+  // 入口只对"招募中且我在车上"显示：非成员、已发车、已封车都不显示。
+  it('shows the edit-quota entry only to members of a recruiting car', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, name: 'member-car', memberRole: 'member' }),
+      makeCarpool({ id: 11, name: 'stranger-car', memberRole: null }),
+      makeCarpool({ id: 12, name: 'active-car', memberRole: 'member', status: 'active' }),
+      makeCarpool({ id: 13, name: 'locked-car', memberRole: 'member', joinLocked: true }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="edit-quota-10"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="edit-quota-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="edit-quota-12"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="edit-quota-13"]').exists()).toBe(false)
+  })
+
+  // 车主「仅发起」（申报 0）不显示入口：列表响应不带 viewer 的申报，
+  // 前端对"我是车主且招募中"的车补拉花名册确认。
+  it('hides the edit-quota entry from an owner who declared nothing', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10, memberRole: 'owner', declaredTotalUsd: 0, remainingJoinableUsd: 2520,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'preview-user', role: 'owner', declaredWeeklyQuotaUsd: 0, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await flushPromises()
+
+    expect(rosterMock).toHaveBeenCalledWith(10)
+    expect(wrapper.find('[data-testid="edit-quota-10"]').exists()).toBe(false)
+  })
+
+  // 车主有申报则能改：花名册确认申报 > 0 后显示入口。
+  it('shows the edit-quota entry to an owner with a declaration', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10, memberRole: 'owner', declaredTotalUsd: 300, remainingJoinableUsd: 2220,
+    })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'preview-user', role: 'owner', declaredWeeklyQuotaUsd: 300, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="edit-quota-10"]').exists()).toBe(true)
+  })
+
+  // type 2 车维持美元输入：标签、预填、提交都不做百分比换算。
+  it('edits the declaration in USD on a type-2 car', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'preview-user', role: 'member', declaredWeeklyQuotaUsd: 300, acknowledgedRisk: false },
+    ])
+    updateMemberQuotaMock.mockResolvedValue({ carpool: makeCarpool({ id: 10 }), autoUnconfirmed: false })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-quota-10"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.joinDialog.quotaLabel')
+    expect(wrapper.text()).not.toContain('carpool.joinDialog.quotaLabelPercent')
+    // 预填美元原值
+    expect((wrapper.get('#carpool-quota-input').element as HTMLInputElement).value).toBe('300')
+
+    await wrapper.get('#carpool-quota-input').setValue(450)
+    await wrapper.get('[data-testid="quota-dialog-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(updateMemberQuotaMock).toHaveBeenCalledWith(10, 1, 450)
+  })
+
+  // 加入对话框的预付预览：合计 + 席位/用量拆分（等效倍率已移除，均价同样不出现）。
+  it('previews the join prepaid with its seat and pool breakdown', async () => {
     listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberCount: 3, avgPriceCny: 90 })])
 
     const wrapper = mountView()
@@ -692,13 +893,13 @@ describe('CarpoolView', () => {
     await findButton(wrapper, 'carpool.actions.join').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('carpool.joinDialog.previewEffectiveRate')
+    expect(wrapper.text()).toContain('carpool.joinDialog.previewPrepaid')
     expect(wrapper.text()).not.toContain('carpool.joinDialog.previewAvgPrice')
 
     // 申报 $60：预付 = 400/4 + 80%×1000×60/(1200+60) ≈ ¥138.1。
     await wrapper.get('#carpool-join-quota').setValue(60)
     expect(wrapper.text()).toContain('¥138.1')
-    expect(wrapper.text()).toContain('carpool.joinDialog.rateAboveAverage')
+    expect(wrapper.text()).toContain('carpool.joinDialog.prepaidBreakdown')
   })
 
   // 上车前要看得见"车上有几个人、席位费怎么分、别人各报了多少"——
@@ -741,7 +942,7 @@ describe('CarpoolView', () => {
     expect(wrapper.find('[data-testid="carpool-join-roster"]').exists()).toBe(false)
     // 申报输入和预付试算照常工作——花名册失败不影响主流程
     await wrapper.get('#carpool-join-quota').setValue(100)
-    expect(wrapper.text()).toContain('carpool.joinDialog.previewEffectiveRate')
+    expect(wrapper.text()).toContain('carpool.joinDialog.previewPrepaid')
   })
 
   // confirmed 的车原来在前端是死胡同：车主没有任何入口，只能等 admin。

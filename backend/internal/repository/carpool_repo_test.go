@@ -113,7 +113,7 @@ func TestJoinCarpoolRecordsDeclarationAndPrepaid(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2250, 250, 9)
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2400, 2250, 250, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
@@ -155,7 +155,7 @@ func TestJoinCarpoolEnteringLaunchBandMarksNotified(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	repo := NewCarpoolRepository(db)
-	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2350, 300, 9)
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuota, 400, 1000, 2400, 2350, 300, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
@@ -548,7 +548,8 @@ func TestCancelConfirmedCarpoolRequiresAdmin(t *testing.T) {
 	require.NoError(t, mock2.ExpectationsWereMet())
 }
 
-// 创建车辆：确认标记与群二维码随 INSERT 落库。
+// 创建车辆：确认标记（added_admin_wechat + acknowledged_risk）与群二维码随 INSERT 落库；
+// owner 成员行的 acknowledged_risk 一并断言（0 申报也照写）。
 func TestCreateCarpoolStoresQRCodeAndConfirmation(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -562,7 +563,8 @@ func TestCreateCarpoolStoresQRCodeAndConfirmation(t *testing.T) {
 		Level:          1,
 		WeeklyLimitUSD: 2400, SeatFeeCNY: 400, UsagePoolCNY: 1000,
 		ReserveRatio: 0.8, LaunchMinRatio: 0.95, LaunchMaxRatio: 1.05,
-		AddedAdminWechat: true, GroupQRCodeBytes: qrBytes, GroupQRCodeContentType: "image/png",
+		AddedAdminWechat: true, AcknowledgedRisk: true,
+		GroupQRCodeBytes: qrBytes, GroupQRCodeContentType: "image/png",
 	}
 
 	mock.ExpectBegin()
@@ -575,7 +577,7 @@ func TestCreateCarpoolStoresQRCodeAndConfirmation(t *testing.T) {
 			2400.0, 400.0, 1000.0, 0.8, 0.95, 1.05, true, qrBytes, "image/png").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(7)))
 	mock.ExpectExec("INSERT INTO carpool_members").
-		WithArgs(int64(7), int64(11), 0.0, nil).
+		WithArgs(int64(7), int64(11), 0.0, nil, true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO carpool_invites").
 		WithArgs(int64(7), int64(11), "hash", "hint").
@@ -727,7 +729,8 @@ func TestJoinCarpoolType3StoresRiskAcknowledgement(t *testing.T) {
 
 	repo := NewCarpoolRepository(db)
 	// Σ=2400 + 200 = 2600，未进发车区间 [2660, 2940]：不置 launch_notified_at。
-	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuotaV2, 50, 1200, 2600, 200, 9)
+	// type 3 额度池按申报占整车周限额（2800）的份额计，不是按 Σ申报。
+	prepaid := service.CarpoolPrepaidCNY(service.CarpoolCarTypeQuotaV2, 50, 1200, 2800, 2600, 200, 9)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, visibility, join_locked_at IS NOT NULL")).
@@ -753,7 +756,7 @@ func TestJoinCarpoolType3StoresRiskAcknowledgement(t *testing.T) {
 
 	result, err := repo.Join(context.Background(), 7, 55, 200, true, true, nil)
 	require.NoError(t, err)
-	require.InDelta(t, 123.85, result.PrepaidAmountCNY, 0.01) // 50（每人固定）+ 80%×1200×200/2600
+	require.InDelta(t, 118.57, result.PrepaidAmountCNY, 0.01) // 50（每人固定）+ 80%×1200×200/2800
 	require.False(t, result.LaunchBandEntered)
 	require.NotNil(t, result.Carpool)
 	require.Equal(t, service.CarpoolCarTypeQuotaV2, result.Carpool.CarType)

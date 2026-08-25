@@ -382,6 +382,12 @@ type AssignSubscriptionInput struct {
 	ValidityDays int
 	AssignedBy   int64
 	Notes        string
+	// WeeklyLimitUSD 是可选的订阅级周限额覆盖（拼车手动车代加成员用）；
+	// nil 表示未设置，限额检查回退到分组级 group.WeeklyLimitUSD。
+	WeeklyLimitUSD *float64
+	// WeeklyWindowStart 是可选的周窗口锚点（拼车手动车对齐当日 UTC 零点）；
+	// nil 表示不锚定，首次窗口检查时按既有逻辑自动初始化。
+	WeeklyWindowStart *time.Time
 }
 
 // AssignSubscription 分配订阅给用户（不允许重复分配）
@@ -656,6 +662,10 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
+	// 可选的订阅级周限额覆盖与周窗口锚点（拼车手动车代加成员）；先于此设置，
+	// inheritQuotaOverrides 只填 nil 字段，不会覆盖显式传入的值。
+	sub.WeeklyLimitUSD = input.WeeklyLimitUSD
+	sub.WeeklyWindowStart = input.WeeklyWindowStart
 	// 只有当 AssignedBy > 0 时才设置（0 表示系统分配，如兑换码）
 	if input.AssignedBy > 0 {
 		sub.AssignedBy = &input.AssignedBy

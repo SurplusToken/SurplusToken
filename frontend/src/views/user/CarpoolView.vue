@@ -32,7 +32,7 @@
           </span>
         </div>
 
-        <div class="grid gap-x-6 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-x-6 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
           <div v-for="item in ruleItems" :key="item.label" class="py-1.5">
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ item.label }}</h3>
             <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-dark-200">{{ item.text }}</p>
@@ -42,7 +42,7 @@
         <div class="space-y-1 border-t border-amber-200 px-4 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:text-amber-200">
           <p>{{ t('carpool.notices.weeklyRefresh') }}</p>
           <p>{{ t('carpool.notices.consumeOrder') }}</p>
-          <p>{{ t('carpool.notices.customRule') }}</p>
+          <p>{{ t('carpool.notices.risk') }}</p>
         </div>
       </section>
 
@@ -159,7 +159,7 @@
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
               <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义。
-                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2800。 -->
+                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2,400。 -->
               <span
                 v-if="isQuotaCar(carpool)"
                 class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
@@ -218,20 +218,11 @@
               </div>
             </div>
 
-            <dl class="mt-4 grid grid-cols-3 gap-x-4 gap-y-3 text-sm">
+            <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <template v-if="isQuotaCar(carpool)">
                 <div>
                   <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.remainingJoinable') }}</dt>
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatUsd(carpool.remainingJoinableUsd) }}</dd>
-                </div>
-                <div>
-                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.effectiveRate') }}</dt>
-                  <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
-                    {{ formatRate(carEffectiveRate(carpool)) }}
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
-                      {{ t('carpool.fields.effectiveRateHint', { usd: formatDecimal(carUsdPerCny(carpool)) }) }}
-                    </span>
-                  </dd>
                 </div>
                 <div>
                   <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
@@ -251,10 +242,6 @@
               <div>
                 <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.scheduledStart') }}</dt>
                 <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">{{ formatDate(carpool.scheduledStartAt) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
-                <dd class="mt-1 truncate font-medium text-gray-700 dark:text-dark-100">{{ carpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
               </div>
             </dl>
 
@@ -333,6 +320,17 @@
                   <Icon name="play" size="sm" />
                   <span>{{ t('carpool.actions.forceLaunch') }}</span>
                 </button>
+                <!-- 招募中的车，成员可改自己的申报（车主「仅发起」无申报不显示） -->
+                <button
+                  v-if="canEditMyQuota(carpool)"
+                  type="button"
+                  :data-testid="`edit-quota-${carpool.id}`"
+                  class="btn btn-secondary h-9 px-3 py-2"
+                  @click="openQuotaDialog(carpool)"
+                >
+                  <Icon name="edit" size="sm" />
+                  <span>{{ t('carpool.actions.editMyQuota') }}</span>
+                </button>
                 <button
                   v-if="canLeave(carpool)"
                   type="button"
@@ -409,76 +407,58 @@
 
     <BaseDialog :show="createDialogOpen" :title="t('carpool.createDialog.title')" width="normal" @close="createDialogOpen = false">
       <form id="carpool-create-form" class="space-y-4" @submit.prevent="createCarpool">
-        <fieldset>
-          <legend class="input-label">{{ t('carpool.createDialog.ruleMode') }}</legend>
-          <div class="grid grid-cols-2 gap-2">
-            <button
-              v-for="mode in ruleModeOptions"
-              :key="mode.value"
-              type="button"
-              :data-testid="`rule-mode-${mode.value}`"
-              class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
-              :class="createRuleMode === mode.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
-              @click="createRuleMode = mode.value"
-            >
-              <Icon :name="mode.value === 'default' ? 'checkCircle' : 'users'" size="sm" />
-              {{ mode.label }}
-            </button>
-          </div>
-        </fieldset>
-
-        <div
-          v-if="createRuleMode === 'custom'"
-          data-testid="custom-rule-panel"
-          class="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/70 dark:bg-amber-950/20"
-        >
-          <div class="text-xs font-medium text-amber-800 dark:text-amber-300">{{ t('carpool.createDialog.customRule.title') }}</div>
-          <p class="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">{{ t('carpool.createDialog.customRule.description') }}</p>
-          <div class="mt-3">
-            <button
-              type="button"
-              data-testid="custom-rule-notify"
-              class="btn btn-primary h-9 px-3 py-2"
-              :disabled="customRuleNotifyPending"
-              @click="notifyCustomRule"
-            >
-              <Icon name="bell" size="sm" />
-              <span>{{ t('carpool.createDialog.customRule.notify') }}</span>
-            </button>
-          </div>
-          <div
-            v-if="customRuleNotified"
-            class="mt-3 flex items-center justify-between gap-2 rounded-md bg-white/70 px-2.5 py-2 dark:bg-dark-700/40"
-          >
-            <span class="text-sm text-gray-700 dark:text-dark-100">
-              {{ t('carpool.wechat.adminLabel') }}: <span class="font-mono font-medium">{{ ADMIN_WECHAT }}</span>
-            </span>
-            <button type="button" class="btn btn-secondary h-7 px-2 py-1 text-xs" @click="copyAdminWechat(ADMIN_WECHAT)">
-              <Icon name="copy" size="xs" />
-              <span>{{ t('common.copy') }}</span>
-            </button>
-          </div>
-        </div>
-
         <div>
           <label class="input-label" for="carpool-name">{{ t('carpool.fields.name') }}</label>
-          <input id="carpool-name" v-model.trim="createForm.name" class="input" maxlength="100" required :placeholder="t('carpool.fields.namePlaceholder')" :disabled="createFieldsDisabled" />
+          <input id="carpool-name" v-model.trim="createForm.name" class="input" maxlength="100" required :placeholder="t('carpool.fields.namePlaceholder')"/>
         </div>
         <div>
           <label class="input-label" for="carpool-description">{{ t('carpool.fields.description') }}</label>
-          <textarea id="carpool-description" v-model.trim="createForm.description" class="input min-h-20 resize-y" maxlength="300" :placeholder="t('carpool.fields.descriptionPlaceholder')" :disabled="createFieldsDisabled" />
+          <textarea id="carpool-description" v-model.trim="createForm.description" class="input min-h-20 resize-y" maxlength="300" :placeholder="t('carpool.fields.descriptionPlaceholder')"/>
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="input-label" for="carpool-start">{{ t('carpool.fields.scheduledStart') }}</label>
-            <input id="carpool-start" v-model="createForm.scheduledStartAt" type="date" class="input" required :disabled="createFieldsDisabled" />
+            <input id="carpool-start" v-model="createForm.scheduledStartAt" type="date" class="input" required />
           </div>
           <div>
             <label class="input-label" for="carpool-owner-quota">{{ t('carpool.createDialog.ownerQuota') }}</label>
-            <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" step="1" class="input" :disabled="createFieldsDisabled" />
+            <div class="relative">
+              <input id="carpool-owner-quota" v-model.number="createForm.ownerQuota" type="number" min="0" max="100" step="0.1" class="input pr-8" />
+              <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-400 dark:text-dark-400">%</span>
+            </div>
+            <!-- 新建车恒为 type 3：申报填百分比，按整车周限额 $2,400 实时换算出美元额度 -->
+            <p v-if="createOwnerQuotaUsd > 0" class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+              {{ t('carpool.joinDialog.quotaPercentEquals', { usd: formatUsd(createOwnerQuotaUsd) }) }}
+            </p>
             <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.ownerQuotaHint') }}</p>
           </div>
         </div>
+        <!-- 车主申报 > 0 时的保底/预付预览：创建按 1 人记账（与后端 Create 一致），
+             样式与口径同加入对话框预览区 -->
+        <div
+          v-if="createOwnerQuotaUsd > 0"
+          data-testid="create-preview"
+          class="grid grid-cols-2 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600"
+        >
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewFloor') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatUsd(createFloorQuota) }} {{ t('carpool.joinDialog.floorUnit') }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(createPrepaid) }}</div>
+            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
+              {{ t('carpool.fields.carMonthlyFeeSeat') }} {{ formatCny(TYPE3_SEAT_FEE_CNY) }} + {{ t('carpool.fields.carMonthlyFeePool') }} {{ formatCny(createPoolPrepaid) }}
+            </div>
+          </div>
+        </div>
+        <p v-if="createOwnerQuotaUsd > 0" class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.previewOnePersonNote') }}</p>
+        <p
+          v-if="createOwnerQuotaUsd > 0"
+          class="rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          {{ t('carpool.joinDialog.floorNotice') }}
+        </p>
         <fieldset>
           <legend class="input-label">{{ t('carpool.fields.visibility') }}</legend>
           <div class="grid grid-cols-2 gap-2">
@@ -488,7 +468,6 @@
               type="button"
               class="flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors"
               :class="createForm.visibility === visibility.value ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-dark-600 dark:text-dark-200'"
-              :disabled="createFieldsDisabled"
               @click="createForm.visibility = visibility.value"
             >
               <Icon :name="visibility.value === 'public' ? 'globe' : 'lock'" size="sm" />
@@ -508,16 +487,6 @@
               <span>{{ t('common.copy') }}</span>
             </button>
           </div>
-          <label class="mt-3 flex items-center gap-2">
-            <input
-              id="carpool-added-admin"
-              v-model="createForm.addedAdminWechat"
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              :disabled="createFieldsDisabled"
-            />
-            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
-          </label>
           <div class="mt-3">
             <label class="input-label" for="carpool-group-qr">{{ t('carpool.createDialog.qrLabel') }}</label>
             <div class="flex items-start gap-3">
@@ -527,7 +496,6 @@
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:text-dark-300 dark:file:bg-primary-900/20 dark:file:text-primary-300"
-                  :disabled="createFieldsDisabled"
                   @change="handleQrFileChange"
                 />
                 <p class="mt-1 text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.createDialog.qrHint') }}</p>
@@ -542,11 +510,42 @@
             </div>
           </div>
         </div>
+        <!-- 三项确认集中放在表单最下面：加管理员微信、建群拉管理员、风险确认，
+             全部勾选才能创建（风险确认后端同样强制 acknowledged_risk: true） -->
+        <div class="space-y-2.5 rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+          <label class="flex items-start gap-2">
+            <input
+              id="carpool-added-admin"
+              v-model="createForm.addedAdminWechat"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.addedAdmin', { wechat: ADMIN_WECHAT }) }}</span>
+          </label>
+          <label class="flex items-start gap-2">
+            <input
+              id="carpool-created-group"
+              v-model="createForm.createdGroup"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.createdGroup') }}</span>
+          </label>
+          <label class="flex items-start gap-2">
+            <input
+              id="carpool-create-risk"
+              v-model="createForm.acknowledgedRisk"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.createDialog.riskAck') }}</span>
+          </label>
+        </div>
       </form>
       <template #footer>
         <div class="flex justify-end gap-3">
           <button type="button" class="btn btn-secondary" @click="createDialogOpen = false">{{ t('common.cancel') }}</button>
-          <button v-if="createRuleMode === 'default'" type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid || actionPending">
+          <button type="submit" form="carpool-create-form" class="btn btn-primary" :disabled="!createFormValid || actionPending">
             <Icon name="plus" size="sm" />
             {{ t('carpool.createDialog.submit') }}
           </button>
@@ -688,7 +687,7 @@
             : t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
         </p>
 
-        <div class="grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
+        <div class="grid grid-cols-2 divide-x divide-gray-200 rounded-lg border border-gray-200 py-3 text-center dark:divide-dark-600 dark:border-dark-600">
           <div>
             <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewFloor') }}</div>
             <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatUsd(joinFloorQuota) }} {{ t('carpool.joinDialog.floorUnit') }}</div>
@@ -696,34 +695,13 @@
           <div>
             <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewPrepaid') }}</div>
             <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatCny(joinPrepaid) }}</div>
-            <!-- 席位费和用量池的分摊口径不同（人头 vs 申报占比），
-                 合成一个数字看不出多来一个人能省多少。 -->
+            <!-- 席位费和用量池的分摊口径不同（人头/固定 vs 申报占比），
+                 合成一个数字看不出多少钱是席位费。 -->
             <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
               {{ t('carpool.joinDialog.prepaidBreakdown', { seat: formatCny(joinSeatShare), pool: formatCny(joinPoolShare) }) }}
             </div>
           </div>
-          <!-- 显示"你的"倍率而非全车平均：申报越小的人越贵，
-               拿平均当报价对轻度用户是系统性低估。 -->
-          <div>
-            <div class="text-xs text-gray-400">{{ t('carpool.joinDialog.previewEffectiveRate') }}</div>
-            <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{{ formatRate(joinEffectiveRate) }}</div>
-            <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-400">
-              {{ joinUsdPerCny > 0
-                ? t('carpool.joinDialog.effectiveRateUnit', { usd: formatDecimal(joinUsdPerCny) })
-                : t('carpool.joinDialog.effectiveRateBasis') }}
-            </div>
-          </div>
         </div>
-        <p
-          v-if="joinRateRatio > 1.2"
-          class="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
-        >
-          {{ t(joinIsType3 ? 'carpool.joinDialog.rateAboveAverageFlat' : 'carpool.joinDialog.rateAboveAverage', {
-            yours: formatRate(joinEffectiveRate),
-            average: formatRate(carEffectiveRate(joinTarget)),
-            times: formatDecimal(joinRateRatio),
-          }) }}
-        </p>
 
         <p class="rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
           {{ t('carpool.joinDialog.floorNotice') }}
@@ -739,6 +717,60 @@
           <button type="button" class="btn btn-primary" :disabled="!joinFormValid || actionPending" @click="submitJoin">
             <Icon name="userPlus" size="sm" />
             {{ t('carpool.joinDialog.confirm') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <!-- 修改自己的申报：只复用加入对话框的车型换算口径（type 3 百分比 / type 2 美元），
+         不复用加入流程（无群二维码、无风险勾选、无预付试算）。 -->
+    <BaseDialog :show="quotaDialogOpen" :title="t('carpool.quotaDialog.title')" width="normal" @close="quotaDialogOpen = false">
+      <div v-if="quotaTarget" class="space-y-4">
+        <div class="flex items-baseline justify-between gap-2 border-b border-gray-100 pb-3 dark:border-dark-700">
+          <div class="font-semibold text-gray-900 dark:text-white">{{ quotaTarget.name }}</div>
+          <div class="text-xs text-gray-500 dark:text-dark-300">
+            {{ t('carpool.quotaDialog.current', { amount: quotaCurrentLoading ? '…' : formatUsd(quotaCurrentUsd) }) }}
+          </div>
+        </div>
+        <div>
+          <label class="input-label" for="carpool-quota-input">
+            {{ t(quotaIsType3 ? 'carpool.joinDialog.quotaLabelPercent' : 'carpool.joinDialog.quotaLabel') }}
+          </label>
+          <input
+            id="carpool-quota-input"
+            v-model.number="quotaForm.declaredQuota"
+            type="number"
+            :min="quotaIsType3 ? 0.1 : 1"
+            :step="quotaIsType3 ? 0.1 : 1"
+            class="input"
+            required
+          />
+          <p v-if="quotaIsType3 && quotaDeclaredUsd > 0" class="mt-1 text-xs text-gray-500 dark:text-dark-300">
+            {{ t('carpool.joinDialog.quotaPercentEquals', { usd: formatUsd(quotaDeclaredUsd) }) }}
+          </p>
+        </div>
+        <p v-if="quotaExceedsRemaining" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ t('carpool.joinDialog.exceedsRemaining', { amount: formatUsd(quotaCurrentUsd + quotaTarget.remainingJoinableUsd) }) }}
+        </p>
+        <p v-else-if="quotaBelowFloor" class="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ quotaIsType3
+            ? t('carpool.joinDialog.belowFloorPercent', { minPct: quotaMinDeclarePctLabel, min: MIN_DECLARED_USD })
+            : t('carpool.joinDialog.belowFloor', { min: MIN_DECLARED_USD }) }}
+        </p>
+        <p class="text-xs leading-5 text-gray-500 dark:text-dark-300">{{ t('carpool.quotaDialog.hint') }}</p>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="quotaDialogOpen = false">{{ t('common.cancel') }}</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            data-testid="quota-dialog-submit"
+            :disabled="!quotaFormValid || actionPending"
+            @click="submitQuotaUpdate"
+          >
+            <Icon name="checkCircle" size="sm" />
+            {{ t('common.save') }}
           </button>
         </div>
       </template>
@@ -806,10 +838,6 @@
           <div>
             <dt class="text-xs text-gray-400">{{ t('carpool.detailDialog.runtime') }}</dt>
             <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ statusLabel(selectedCarpool) }}</dd>
-          </div>
-          <div>
-            <dt class="text-xs text-gray-400">{{ t('carpool.detailDialog.linkedGroup') }}</dt>
-            <dd class="mt-1 font-medium text-gray-800 dark:text-dark-100">{{ selectedCarpool.groupName || t('carpool.detailDialog.pendingGroup') }}</dd>
           </div>
         </dl>
         <div
@@ -1028,20 +1056,15 @@ const USAGE_PREPAY_RATIO = 0.8
 // type 2（现行 quota 车）保持现有参数：周限额 $2400、席位费 ¥400/月、额度池 ¥1000/月、
 // 美元额度申报——这些值由车辆响应字段（weekly_limit_usd/seat_fee_cny/usage_pool_cny）带回，
 // 前端不再重复硬编码。
-// type 3（新 quota 车）：周限额 $2800、席位费 ¥50/人/月（每人固定收取，不按人头均摊）、
+// type 3（新 quota 车）：周限额 $2,400、席位费 ¥50/人/月（每人固定收取，不按人头均摊）、
 // 额度池 ¥1200/月，申报改为占全车额度的百分比，前端按 百分比 × 周限额 换算成美元再提交。
 // 下面这组常量与后端对齐，用于换算，并在响应字段缺失时给预览兜底。
-const TYPE3_WEEKLY_LIMIT_USD = 2800
+const TYPE3_WEEKLY_LIMIT_USD = 2400
 const TYPE3_SEAT_FEE_CNY = 50
 const TYPE3_USAGE_POOL_CNY = 1200
 
 // 与后端 CarpoolMinDeclaredWeeklyQuotaUSD 对齐：申报下限（美元/周）。
 const MIN_DECLARED_USD = 20
-// 一个计费周期按 31 天算：申报是"每周"额度，周期内可用额度 = 申报 × 31 / 7。
-// "相当于几个 Plus"要求用户先知道一个 Plus 值多少额度；等效倍率不用——
-// 付多少钱换多少官方额度，直接相除即可（付 ¥1 拿到 $8 就是 0.125，不折汇率）。
-const BILLING_PERIOD_DAYS = 31
-const DAYS_PER_WEEK = 7
 
 // 与后端 CarpoolAdminWechatID 对齐：创建/上车前必须添加的管理员微信号。
 const ADMIN_WECHAT = 'Charlemartingale'
@@ -1057,11 +1080,12 @@ interface CreateForm {
   scheduledStartAt: string
   ownerQuota: number | null
   addedAdminWechat: boolean
+  // 已建群并拉管理员入群（纯前端确认，不落库；二维码才是实际凭证）
+  createdGroup: boolean
   groupQrCode: string
+  // 风险确认（创建即上车，后端强制 acknowledged_risk: true，否则 400）
+  acknowledgedRisk: boolean
 }
-
-// 创建对话框的规则模式：default 走现有创建流程；custom 仅通知管理员协商，不调用创建接口。
-type CreateRuleMode = 'default' | 'custom'
 
 // ConfirmTarget 是确认对话框真正需要的那几个字段。刻意比 Carpool 窄：
 // 待启动列表里的车可能根本不在 carpools 列表中（admin 看不到别人的私密车），
@@ -1091,9 +1115,6 @@ const loading = ref(true)
 const actionPending = ref(false)
 const createDialogOpen = ref(false)
 const createQrError = ref('')
-const createRuleMode = ref<CreateRuleMode>('default')
-const customRuleNotifyPending = ref(false)
-const customRuleNotified = ref(false)
 const joinDialogOpen = ref(false)
 const inviteDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
@@ -1119,6 +1140,15 @@ const joinRoster = ref<CarpoolRosterMember[]>([])
 const joinRosterLoading = ref(false)
 const joinRosterFailed = ref(false)
 const joinRosterTotal = computed(() => joinRoster.value.reduce((sum, item) => sum + item.declaredWeeklyQuotaUsd, 0))
+// 「修改预约额度」对话框：招募中的车，车上成员可改自己的申报。
+const quotaDialogOpen = ref(false)
+const quotaTarget = ref<Carpool | null>(null)
+const quotaForm = reactive({ declaredQuota: null as number | null })
+const quotaCurrentUsd = ref(0)
+const quotaCurrentLoading = ref(false)
+// 车主「仅发起」（申报 0）的车不显示改申报入口：列表响应不带 viewer 本人的申报，
+// 只对"我是车主且招募中"的车补拉一次花名册确认（成员上车必有申报 ≥$20，不用拉）。
+const myOwnerDeclarations = ref<Record<number, number>>({})
 const confirmAction = ref<ConfirmAction | null>(null)
 const carpools = ref<Carpool[]>([])
 const pendingLaunches = ref<PendingLaunchCarpool[]>([])
@@ -1177,7 +1207,9 @@ const newCreateForm = (): CreateForm => ({
   scheduledStartAt: isoDateAfterDays(7),
   ownerQuota: null,
   addedAdminWechat: false,
+  createdGroup: false,
   groupQrCode: '',
+  acknowledgedRisk: false,
 })
 
 const createForm = reactive<CreateForm>(newCreateForm())
@@ -1189,17 +1221,10 @@ const visibilityOptions = computed(() => [
   { value: 'public' as const, label: t('carpool.visibility.public') },
   { value: 'invite_only' as const, label: t('carpool.visibility.inviteOnly') }
 ])
-const ruleModeOptions = computed(() => [
-  { value: 'default' as const, label: t('carpool.createDialog.ruleModeDefault') },
-  { value: 'custom' as const, label: t('carpool.createDialog.ruleModeCustom') }
-])
-// 自定义规则模式下表单其余项全部禁用。
-const createFieldsDisabled = computed(() => createRuleMode.value === 'custom')
 const ruleItems = computed(() => [
   { label: t('carpool.rules.declare.label'), text: t('carpool.rules.declare.text') },
   { label: t('carpool.rules.reserve.label'), text: t('carpool.rules.reserve.text') },
   { label: t('carpool.rules.pricing.label'), text: t('carpool.rules.pricing.text') },
-  { label: t('carpool.rules.risk.label'), text: t('carpool.rules.risk.text') },
 ])
 const stats = computed(() => [
   { label: t('carpool.stats.recruiting'), value: carpools.value.filter((item) => item.status === 'recruiting' && !item.joinLocked).length },
@@ -1225,12 +1250,31 @@ const filteredCarpools = computed(() => {
     .filter((item) => !statusFilter.value || item.status === statusFilter.value)
     .filter((item) => !query || item.name.toLowerCase().includes(query) || item.organizer.toLowerCase().includes(query))
 })
+// 车主申报：新建车恒为 type 3，表单填百分比，按整车周限额 $2,400 换算为美元提交
+const createOwnerQuotaUsd = computed(() => {
+  const pct = createForm.ownerQuota
+  if (pct === null || pct <= 0) return 0
+  return Math.round((pct / 100) * TYPE3_WEEKLY_LIMIT_USD * 100) / 100
+})
+// 创建时的保底/预付预览（仅车主申报 > 0 时显示）：创建按 1 人记账，与后端 Create 一致——
+// 新建车恒为 type 3：席位费 ¥50/人固定；额度池 ¥1200 按申报占全车（$2,400）的份额预付 80%——
+// 即按"整车打满"预估发起人自己那份要付多少，实际以发车时锁定金额为准，多退少补。
+// 保底比例与后端 CarpoolDefaultReserveRatio(0.8) 对齐。
+const createFloorQuota = computed(() => 0.8 * createOwnerQuotaUsd.value)
+const createPoolPrepaid = computed(() => (
+  USAGE_PREPAY_RATIO * TYPE3_USAGE_POOL_CNY * (createOwnerQuotaUsd.value / TYPE3_WEEKLY_LIMIT_USD)
+))
+const createPrepaid = computed(() => (
+  createOwnerQuotaUsd.value > 0 ? TYPE3_SEAT_FEE_CNY + createPoolPrepaid.value : 0
+))
 const createFormValid = computed(() => (
   createForm.name.length > 0
   && createForm.scheduledStartAt.length > 0
-  && (createForm.ownerQuota === null || createForm.ownerQuota >= 0)
+  && (createForm.ownerQuota === null || (createForm.ownerQuota >= 0 && createForm.ownerQuota <= 100))
   && createForm.addedAdminWechat
+  && createForm.createdGroup
   && createForm.groupQrCode.length > 0
+  && createForm.acknowledgedRisk
   && !createQrError.value
 ))
 // 新 quota 车（type 3）：申报口径是"占全车额度的百分比"，提交前换算成美元。
@@ -1246,7 +1290,7 @@ const joinDeclaredUsd = computed(() => {
   if (!joinIsType3.value) return declared
   return Math.round((declared / 100) * joinCarWeeklyLimitUsd.value * 100) / 100
 })
-// type 3 的申报下限提示用百分比口径：$20 / $2800 ≈ 0.72%。
+// type 3 的申报下限提示用百分比口径：$20 / $2,400 ≈ 0.83%。
 const joinMinDeclarePctLabel = computed(() => {
   const limit = joinCarWeeklyLimitUsd.value
   return limit > 0 ? (MIN_DECLARED_USD / limit * 100).toFixed(2) : ''
@@ -1264,10 +1308,19 @@ const joinSeatShare = computed(() => {
   if (joinIsType3.value) return joinCarSeatFeeCny.value
   return joinCarSeatFeeCny.value / Math.max(1, joinHeadcount.value)
 })
+// 用量池预付的分母按车型分：type 2 维持"占 Σ申报 的份额"（含本次申报）；
+// type 3 改为"占整车周限额的份额"——车上申报很少时按 Σ 会把 80% 池子几乎全算到
+// 新上车的人头上（¥960），而发车时 Σ≈95%–105%×限额，按限额报价与发车锁定基本一致
+// （与后端 type 3 上车报价口径、创建对话框 createPoolPrepaid 一致）。
 const joinPoolShare = computed(() => {
   const car = joinTarget.value
   const declared = joinDeclaredUsd.value
   if (!car || declared <= 0) return 0
+  if (joinIsType3.value) {
+    const limit = joinCarWeeklyLimitUsd.value
+    if (limit <= 0) return 0
+    return USAGE_PREPAY_RATIO * joinCarUsagePoolCny.value * declared / limit
+  }
   const declaredTotal = car.declaredTotalUsd + declared
   if (declaredTotal <= 0) return 0
   return USAGE_PREPAY_RATIO * joinCarUsagePoolCny.value * declared / declaredTotal
@@ -1282,35 +1335,6 @@ const joinExceedsRemaining = computed(() => (
 const joinBelowFloor = computed(() => (
   joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinDeclaredUsd.value < MIN_DECLARED_USD
 ))
-// 等效倍率：这一位成员付的钱相当于官方价的几倍。
-// 分母是一个计费周期（31 天）内他能用的额度 = 申报 × 31 / 7。
-// 用"你的"而不是全车平均——席位费按人头均摊、用量池按申报分摊，
-// 申报越小的人越贵（设计文档举过"实际单价可能是均价两倍"的例子）。
-const joinPeriodQuotaUsd = computed(() => {
-  if (joinDeclaredUsd.value <= 0) return 0
-  return joinDeclaredUsd.value * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
-})
-// 等效倍率 = 付出的人民币 ÷ 拿到的官方额度（美元）。
-const joinEffectiveRate = computed(() => (
-  joinPeriodQuotaUsd.value > 0 ? joinPrepaid.value / joinPeriodQuotaUsd.value : 0
-))
-// 倒数：¥1 换到多少官方额度。小数倍率不好念，这个更直观。
-const joinUsdPerCny = computed(() => (joinEffectiveRate.value > 0 ? 1 / joinEffectiveRate.value : 0))
-// 整车口径的同一个指标，用于卡片展示和"你比平均贵多少"的对比。
-// type 3 席位费每人固定：整车席位总额 = 50×当前人数（无人按 1 计）；
-// type 1/2 全车一份。加入对话框里决策用的"你的倍率"同样按 50 固定精确计算。
-function carEffectiveRate(carpool: Carpool): number {
-  const periodQuota = carpool.weeklyLimitUsd * BILLING_PERIOD_DAYS / DAYS_PER_WEEK
-  if (periodQuota <= 0) return 0
-  const seatTotal = carpool.carType === 3
-    ? carpool.seatFeeCny * Math.max(carpool.memberCount, 1)
-    : carpool.seatFeeCny
-  return (seatTotal + carpool.usagePoolCny) / periodQuota
-}
-function carUsdPerCny(carpool: Carpool): number {
-  const rate = carEffectiveRate(carpool)
-  return rate > 0 ? 1 / rate : 0
-}
 // 整车月费主数值：type 3 的席位费按人固定收取，与按车计的用量池直接相加
 // 会得到"¥1,250/车"这类误导合计，所以 type 3 显示"用量池 + 席位/人"。
 function carMonthlyFeeText(carpool: Carpool): string {
@@ -1325,18 +1349,38 @@ function carMonthlyFeeBreakdownText(carpool: Carpool): string {
   const pool = `${t('carpool.fields.carMonthlyFeePool')} ${formatCny(carpool.usagePoolCny)}`
   return carpool.carType === 3 ? `${seat}/${t('carpool.fields.perPerson')} + ${pool}` : `${seat} + ${pool}`
 }
-// 与全车平均倍率的偏离，> 1 说明这位用户比平均更贵。
-const joinRateRatio = computed(() => {
-  const car = joinTarget.value
-  if (!car || joinEffectiveRate.value <= 0) return 0
-  const avg = carEffectiveRate(car)
-  return avg > 0 ? joinEffectiveRate.value / avg : 0
-})
 const joinFormValid = computed(() => (
   !!joinForm.declaredQuota && joinForm.declaredQuota > 0
   && !joinExceedsRemaining.value && !joinBelowFloor.value && joinForm.joinedGroup
   // 新 quota 车（type 3）必须勾选风险确认才能提交（后端同样强制，漏了会被拒）。
   && (!joinIsType3.value || joinForm.acknowledgedRisk)
+))
+
+// —— 修改自己的申报（招募中的车）：与加入对话框同一套车型口径，但不走加入流程 ——
+const quotaIsType3 = computed(() => quotaTarget.value?.carType === 3)
+const quotaWeeklyLimitUsd = computed(() => quotaTarget.value?.weeklyLimitUsd || (quotaIsType3.value ? TYPE3_WEEKLY_LIMIT_USD : 0))
+// 换算口径与 joinDeclaredUsd 一致：type 3 输入的是占全车额度的百分比，×周限额换算成美元。
+const quotaDeclaredUsd = computed(() => {
+  const declared = quotaForm.declaredQuota
+  if (!declared || declared <= 0) return 0
+  if (!quotaIsType3.value) return declared
+  return Math.round((declared / 100) * quotaWeeklyLimitUsd.value * 100) / 100
+})
+const quotaMinDeclarePctLabel = computed(() => {
+  const limit = quotaWeeklyLimitUsd.value
+  return limit > 0 ? (MIN_DECLARED_USD / limit * 100).toFixed(2) : ''
+})
+// 新申报的上限 = 我当前的申报（已占用的额度）+ 车的剩余可预约额度。
+const quotaExceedsRemaining = computed(() => (
+  !!quotaTarget.value && quotaDeclaredUsd.value > 0
+  && quotaDeclaredUsd.value > quotaCurrentUsd.value + quotaTarget.value.remainingJoinableUsd + 1e-9
+))
+const quotaBelowFloor = computed(() => (
+  quotaForm.declaredQuota !== null && quotaForm.declaredQuota > 0 && quotaDeclaredUsd.value < MIN_DECLARED_USD
+))
+const quotaFormValid = computed(() => (
+  !!quotaForm.declaredQuota && quotaForm.declaredQuota > 0
+  && !quotaBelowFloor.value && !quotaExceedsRemaining.value
 ))
 const confirmTitle = computed(() => {
   if (!confirmAction.value) return ''
@@ -1378,12 +1422,30 @@ async function loadCarpools(): Promise<void> {
   try {
     carpools.value = await carpoolAPI.list()
     ensureQrCodes(carpools.value)
+    refreshMyOwnerDeclarations(carpools.value)
   } catch (error) {
     appStore.showError(carpoolError(error, 'carpool.loadFailed'))
   } finally {
     loading.value = false
   }
   await loadPendingLaunches()
+}
+
+// 为 canEditMyQuota 补数据：列表响应不带 viewer 本人的申报，而「修改预约额度」入口
+// 要排除申报为 0 的「仅发起」车主。只对"我是车主且招募中"的车拉一次花名册；
+// 失败就不显示入口（宁可少显示，也不让仅发起的车主改出一个幽灵申报）。
+function refreshMyOwnerDeclarations(items: Carpool[]): void {
+  const userId = authStore.user?.id
+  if (!userId) return
+  for (const car of items) {
+    if (!isQuotaCar(car) || car.status !== 'recruiting' || car.memberRole !== 'owner') continue
+    carpoolAPI.roster(car.id)
+      .then((members) => {
+        const mine = members.find((member) => member.userId === userId)
+        myOwnerDeclarations.value = { ...myOwnerDeclarations.value, [car.id]: mine?.declaredWeeklyQuotaUsd ?? 0 }
+      })
+      .catch(() => {})
+  }
 }
 
 // 待启动列表只对 admin 有意义，非 admin 直接跳过（后端也会 403）。
@@ -1531,6 +1593,15 @@ function canLeave(carpool: Carpool): boolean {
   return carpool.status === 'recruiting' && carpool.memberRole === 'member'
 }
 
+// 修改自己的申报：仅招募中、未封车、我在车上。车主「仅发起」（申报 0）不显示——
+// 靠 myOwnerDeclarations（花名册补拉）判定；普通成员上车必有申报（≥$20），直接显示。
+function canEditMyQuota(carpool: Carpool): boolean {
+  if (!isQuotaCar(carpool) || carpool.status !== 'recruiting' || carpool.joinLocked) return false
+  if (carpool.memberRole === 'member') return true
+  if (carpool.memberRole === 'owner') return (myOwnerDeclarations.value[carpool.id] ?? 0) > 0
+  return false
+}
+
 // 两段确认第一段：车主在 recruiting 且 Σ 申报进入发车区间后确认发车。
 function canConfirm(carpool: Carpool): boolean {
   return carpool.status === 'recruiting' && carpool.memberRole === 'owner'
@@ -1600,12 +1671,6 @@ function formatDecimal(value: number): string {
   return new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 1 }).format(value)
 }
 
-// 倍率是 0.0x 量级，formatDecimal 的 1 位小数会把它全部压成 "0"。
-function formatRate(value: number): string {
-  if (!(value > 0)) return '—'
-  return `${new Intl.NumberFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 3 }).format(value)}×`
-}
-
 function formatDate(value: string): string {
   if (!value) return '-'
   return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
@@ -1635,9 +1700,6 @@ function deltaLabel(delta: number): string {
 function openCreateDialog(): void {
   Object.assign(createForm, newCreateForm())
   createQrError.value = ''
-  createRuleMode.value = 'default'
-  customRuleNotifyPending.value = false
-  customRuleNotified.value = false
   createDialogOpen.value = true
 }
 
@@ -1669,23 +1731,8 @@ async function copyAdminWechat(wechat: string): Promise<void> {
   appStore.showSuccess(t('carpool.wechat.copied'))
 }
 
-// 自定义规则模式：不创建车辆，仅通知管理员协商；成功后展示管理员微信供添加。
-async function notifyCustomRule(): Promise<void> {
-  if (customRuleNotifyPending.value) return
-  customRuleNotifyPending.value = true
-  try {
-    await carpoolAPI.notifyCustomRuleInterest()
-    customRuleNotified.value = true
-    appStore.showSuccess(t('carpool.createDialog.customRule.notifySuccess', { wechat: ADMIN_WECHAT }))
-  } catch (error) {
-    appStore.showError(carpoolError(error))
-  } finally {
-    customRuleNotifyPending.value = false
-  }
-}
-
 async function createCarpool(): Promise<void> {
-  if (createRuleMode.value !== 'default' || !createFormValid.value || actionPending.value) return
+  if (!createFormValid.value || actionPending.value) return
   actionPending.value = true
   try {
     const payload: CreateCarpoolRequest = {
@@ -1696,9 +1743,10 @@ async function createCarpool(): Promise<void> {
       added_admin_wechat: createForm.addedAdminWechat,
       group_qr_code: createForm.groupQrCode,
     }
-    if (createForm.ownerQuota && createForm.ownerQuota > 0) {
-      payload.declared_weekly_quota_usd = createForm.ownerQuota
+    if (createOwnerQuotaUsd.value > 0) {
+      payload.declared_weekly_quota_usd = createOwnerQuotaUsd.value
     }
+    payload.acknowledged_risk = createForm.acknowledgedRisk
     const result = await carpoolAPI.create(payload)
     createDialogOpen.value = false
     activeTab.value = 'mine'
@@ -1839,6 +1887,53 @@ async function submitJoin(): Promise<void> {
         ? t('carpool.joinDialog.success', { amount: result.prepaidAmountCny.toFixed(1) })
         : t('carpool.joinDialog.successNoPrepaid')
     )
+    await loadCarpools()
+  } catch (error) {
+    appStore.showError(carpoolError(error))
+  } finally {
+    actionPending.value = false
+  }
+}
+
+// 打开「修改预约额度」：拉花名册拿当前申报做预填（type 3 预填成百分比）。
+// 花名册只是预填参考，拉取失败时留空由用户自己填，不挡住修改流程。
+async function openQuotaDialog(carpool: Carpool): Promise<void> {
+  quotaTarget.value = carpool
+  quotaForm.declaredQuota = null
+  quotaCurrentUsd.value = 0
+  quotaDialogOpen.value = true
+  quotaCurrentLoading.value = true
+  try {
+    const members = await carpoolAPI.roster(carpool.id)
+    const mine = members.find((member) => member.userId === authStore.user?.id)
+    quotaCurrentUsd.value = mine?.declaredWeeklyQuotaUsd ?? 0
+    if (quotaCurrentUsd.value > 0) {
+      quotaForm.declaredQuota = quotaIsType3.value
+        ? Math.round((quotaCurrentUsd.value / quotaWeeklyLimitUsd.value) * 1000) / 10
+        : Math.round(quotaCurrentUsd.value * 10) / 10
+    }
+  } catch {
+    // 预填失败不阻塞修改
+  } finally {
+    quotaCurrentLoading.value = false
+  }
+}
+
+async function submitQuotaUpdate(): Promise<void> {
+  const car = quotaTarget.value
+  const userId = authStore.user?.id
+  if (!car || !userId || !quotaFormValid.value || actionPending.value) return
+  actionPending.value = true
+  try {
+    const { autoUnconfirmed } = await carpoolAPI.updateMemberQuota(car.id, userId, quotaDeclaredUsd.value)
+    quotaDialogOpen.value = false
+    // 把自己的申报改出 [95%,105%] 发车区间时，车会被后端自动退回招募中——必须明说，
+    // 否则车主会以为系统把车弄坏了（与管理端的 autoUnconfirmed 提示同一口径）。
+    if (autoUnconfirmed) {
+      appStore.showWarning(t('carpool.quotaDialog.autoUnconfirmed'))
+    } else {
+      appStore.showSuccess(t('carpool.quotaDialog.success'))
+    }
     await loadCarpools()
   } catch (error) {
     appStore.showError(carpoolError(error))

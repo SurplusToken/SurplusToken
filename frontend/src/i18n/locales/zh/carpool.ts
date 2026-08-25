@@ -8,25 +8,21 @@ export default {
       weeklyBadge: '锁定额度按周刷新',
       declare: {
         label: '百分比申报',
-        text: '上车前预约一定份额的全车额度（Pro 20x 过往周限额 2800 供参考），并按申报预付，月末按照实际使用量结算。一辆车总申报达 95%-105% 可发车。'
+        text: '上车前预约一定份额的全车额度（Pro 20x 过往周限额 $2,400 供参考），并按申报预付，月末按照实际使用量结算。一辆车总申报达 95%-105% 可发车。'
       },
       reserve: {
         label: '80% 保底 + 20% 公共池',
-        text: '申报的 80% 定向锁定给你，任何人抢不走；其余进入机动公共池，全员先到先得；个人使用上限为申报的 200%。月末按 max（实际用量，80% × 申报）计费，多退少补——报多少保底多少，保底多少至少付多少。'
+        text: '每周重置后，为每位用户锁定申报的 80% 额度，为独享额度，其余进入机动公共池，全员先到先得，用完即止；个人使用上限为申报的 200%。每周按 max（实际用量，80% × 申报）记录一次额度，月末按照总计费额度多退少补。'
       },
       pricing: {
-        label: '¥1200 + ¥50/人 两部制',
-        text: '每车每月 ¥1200 用量池按计费用量占比分摊；席位费每人 ¥50/月，固定收取。'
-      },
-      risk: {
-        label: '风险确认',
-        text: '上车需确认知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，确认后无法中途跳车。'
+        label: '固定席位费+按额度均摊',
+        text: '一辆车的固定费用为 1200，月末按照计费额度均摊；另外为鼓励大家多用、同时控制一辆车的规模，收取每人 50 的上车席位费'
       }
     },
     notices: {
       weeklyRefresh: '锁定额度按周计算，每周自动刷新，未用完不结转。',
       consumeOrder: '用量优先消耗你的锁定额度，用完后才使用公共池；公共池全员共享、先到先得，不保证可用。',
-      customRule: '支持自定义规则：如需不同的额度池、价格或保底比例，可联系管理员协商。'
+      risk: '上车需确认知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，确认后无法中途跳车。'
     },
     plaza: '拼车广场',
     mine: '我的拼车',
@@ -66,8 +62,6 @@ export default {
       declaredOf: '已预约 {declared} / {limit} USD',
       launchLine: '{ratio}% 发车线',
       remainingJoinable: '剩余可预约',
-      effectiveRate: '等效倍率',
-      effectiveRateHint: '¥1 ≈ 官方 ${usd}',
       carMonthlyFee: '整车月费',
       carMonthlyFeeSeat: '席位',
       carMonthlyFeePool: '用量',
@@ -87,6 +81,7 @@ export default {
       launch: '启动',
       forceLaunch: '降档发车',
       leave: '下车',
+      editMyQuota: '修改预约额度',
       settlement: '结算单',
       lock: '停止上人',
       unlock: '重新开放',
@@ -147,20 +142,14 @@ export default {
       title: '发起新拼车',
       submit: '创建并生成邀请链接',
       success: '拼车已创建',
-      ruleMode: '拼车规则',
-      ruleModeDefault: '默认规则',
-      ruleModeCustom: '自定义规则',
-      customRule: {
-        title: '自定义规则需联系管理员协商（额度池 / 价格 / 保底比例等）',
-        description: '此模式下无需填写下方表单。点击“通知管理员”告知你的需求，管理员会通过邮件或微信与你联系；协商确认后由管理员为你创建并调整车辆。',
-        notify: '通知管理员',
-        notifySuccess: '已通知管理员，请添加微信 {wechat} 继续协商'
-      },
-      ownerQuota: '我的申报额度（可选，USD/周）',
-      ownerQuotaHint: '留空表示仅发起拼车、不占用额度；填写则按 1 人记账预付。',
+      ownerQuota: '我的预约额度',
+      ownerQuotaHint: '按整车周限额 $2,400 换算；留空表示仅发起拼车、不占用额度；填写则按 1 人记账预付。',
+      previewOnePersonNote: '按整车申报打满预估；实际以发车时锁定金额为准，多退少补',
       contactTitle: '联系方式与群二维码（必填）',
-      contactHint: '发车由管理员人工执行，发起前请先添加管理员微信，并上传微信群二维码供成员扫码入群。',
+      contactHint: '发车由管理员人工执行，发起前请先添加管理员微信，创建小车单独群聊，拉管理员入群并上传小群二维码。',
       addedAdmin: '我已添加管理员微信 {wechat}',
+      createdGroup: '我已创建微信群聊，并且拉管理员入群',
+      riskAck: '已确认知晓 OpenAI 风控或其他不可抗力造成的全车额度调整等损失，无法中途跳车',
       qrLabel: '群聊二维码',
       qrHint: '支持 png / jpeg / webp，大小不超过 2MB。请先用微信「面对面建群」建好一人小群、拉管理员入群，再上传该群的二维码',
       qrInvalidType: '仅支持 png / jpeg / webp 格式图片',
@@ -177,9 +166,6 @@ export default {
       floorUnit: 'USD/周',
       previewPrepaid: '预计预付',
       previewAvgPrice: '该车当前均价',
-      previewEffectiveRate: '等效倍率',
-      effectiveRateUnit: '¥1 ≈ 官方 ${usd}',
-      effectiveRateBasis: '按 31 天折算',
       prepaidBreakdown: '席位 {seat} + 用量 {pool}',
       seatShareHint: '席位费 {total} ÷ {people} 人 = {each}/人',
       seatSharePerPerson: '席位费 {each}/人（固定收取）',
@@ -191,8 +177,6 @@ export default {
       rosterOwner: '车主',
       rosterYou: '你（本次申报）',
       rosterAnonymous: '同学 #{id}',
-      rateAboveAverage: '按你的申报折算，你的等效倍率是 {yours}，约为全车平均（{average}）的 {times} 倍——席位费按人头均摊，申报越少越不划算。',
-      rateAboveAverageFlat: '按你的申报折算，你的等效倍率是 {yours}，约为全车平均（{average}）的 {times} 倍——席位费每人固定收取，申报越少越不划算。',
       floorNotice: '即使未用满，也至少按申报的 80% 计费。',
       exceedsRemaining: '申报超过该车剩余可预约额度（{amount} USD），请调低或等待下一辆车',
       belowFloor: '申报额度不能低于 {min} USD/周',
@@ -203,6 +187,13 @@ export default {
       confirm: '确认上车',
       success: '已加入拼车，预付 ¥{amount}',
       successNoPrepaid: '已加入拼车'
+    },
+    quotaDialog: {
+      title: '修改预约额度',
+      current: '当前申报：{amount}',
+      hint: '修改后立即生效，并重算这辆车的发车进度；超出剩余可预约额度会被拒绝。',
+      success: '申报额度已更新',
+      autoUnconfirmed: '申报总额已打出发车区间，这辆车已自动退回招募中'
     },
     confirmDialog: {
       title: '确认发车',
@@ -253,9 +244,7 @@ export default {
     },
     detailDialog: {
       title: '拼车详情',
-      runtime: '开车状态',
-      linkedGroup: '关联分组',
-      pendingGroup: '等待管理员开车时绑定'
+      runtime: '开车状态'
     },
     settlement: {
       title: '月度结算单',
@@ -362,7 +351,31 @@ export default {
       memberRemoved: '成员已移出，申报额度已释放',
       quotaUpdated: '申报额度已更新',
       updated: '拼车信息已更新',
-      ownerTransferred: '车主已转让'
+      ownerTransferred: '车主已转让',
+      create: '手动创建车辆',
+      createDialog: {
+        title: '手动创建车辆',
+        carType: '车型',
+        weeklyLimit: '周限额（USD）',
+        ruleNote: '规则说明',
+        ruleNotePlaceholder: '这辆车按什么规则运行、如何收款，写清楚方便后续人工结算',
+        members: '初始成员（可选）',
+        membersHint: '创建后逐个代加：额度车需填申报并代录风险确认；老车/自定义车只选人即生效。',
+        membersFailed: '部分成员添加失败',
+        submit: '创建车辆',
+        success: '车辆已创建'
+      },
+      memberEditor: {
+        pickUser: '搜索用户（邮箱 / 用户名）',
+        declaredPercent: '申报额度（%）',
+        declaredUsd: '申报额度（USD/周）',
+        riskInformed: '已线下告知风险，成员知晓无法中途跳车',
+        add: '添加成员'
+      },
+      addMember: {
+        title: '添加成员',
+        success: '成员已添加'
+      }
     },
     admin: {
       locked: '已停止新成员上车',

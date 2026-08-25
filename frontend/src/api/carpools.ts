@@ -104,6 +104,13 @@ export interface CreateCarpoolRequest {
   // 两项强制确认：已添加管理员微信（必须为 true）+ 群二维码（base64/data URL，≤2MB png/jpeg/webp）
   added_admin_wechat: boolean
   group_qr_code: string
+  // 风险确认：创建即上车，后端强制要求 true（否则 400 CARPOOL_RISK_ACK_REQUIRED）
+  acknowledged_risk?: boolean
+  // 车型：仅 admin 可指定（缺省 = 3 新 quota 车）；0=自定义规则车（创建即 active，需 rule_note），
+  // 1=无保底老车（创建即 active），2/3=quota 车（创建后 recruiting）。
+  car_type?: CarpoolType
+  // type 0 自定义规则车的规则说明（人工结算依据）
+  rule_note?: string
   // 以下额度池/价格参数仅 admin 可传，普通用户传任何一个都会被后端 403
   // （CARPOOL_CUSTOM_PARAMS_FORBIDDEN）；缺省时使用默认值 2400/400/1000/0.8/0.95/1.05。
   weekly_limit_usd?: number
@@ -450,6 +457,22 @@ export async function updateMemberQuota(id: number, userId: number, declaredWeek
   return { carpool: mapCarpool(data.carpool), autoUnconfirmed: !!data.auto_unconfirmed }
 }
 
+// admin 代加成员（设计文档「手动创建车辆 + 按车型添加成员」）：
+// type 2/3 需要申报 + 代录风险确认（acknowledged_risk=true），复用 Join 的事务保护；
+// type 1/0 只需 user_id，添加即生效（后台直接建订阅）。若因此把 confirmed 车打出
+// 发车区间，响应里的 auto_unconfirmed 为 true。
+export interface AddMemberRequest {
+  user_id: number
+  declared_weekly_quota_usd?: number
+  acknowledged_risk?: boolean
+}
+
+export async function addMember(id: number, payload: AddMemberRequest): Promise<{ carpool: Carpool; autoUnconfirmed: boolean }> {
+  const { data } = await apiClient.post<CarpoolMutationResponse & { auto_unconfirmed?: boolean }>(
+    `/carpools/${id}/members`, payload)
+  return { carpool: mapCarpool(data.carpool), autoUnconfirmed: !!data.auto_unconfirmed }
+}
+
 export interface UpdateCarpoolPayload {
   name?: string
   description?: string
@@ -585,6 +608,7 @@ export default {
   adminOverview,
   removeMember,
   updateMemberQuota,
+  addMember,
   updateCarpool,
   transferOwner,
   launch,
