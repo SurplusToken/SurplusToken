@@ -822,6 +822,9 @@ type carpoolMemberOpState struct {
 	launchMinRatio float64
 	launchMaxRatio float64
 	pricingModel   string
+	carType        int
+	seatFeeCNY     float64
+	usagePoolCNY   float64
 }
 
 // loadCarpoolForMemberOp 锁车、校验状态、确认目标确实在册。
@@ -831,9 +834,10 @@ func loadCarpoolForMemberOp(ctx context.Context, tx *sql.Tx, carpoolID, memberUs
 	var st carpoolMemberOpState
 	err := tx.QueryRowContext(ctx, `
 SELECT status, owner_user_id, weekly_limit_usd, launch_min_ratio, launch_max_ratio,
-    COALESCE(pricing_model, 'quota')
+    COALESCE(pricing_model, 'quota'), car_type, seat_fee_cny, usage_pool_cny
 FROM carpools WHERE id = $1 FOR UPDATE`, carpoolID).Scan(&st.status, &st.ownerUserID,
-		&st.weeklyLimitUSD, &st.launchMinRatio, &st.launchMaxRatio, &st.pricingModel)
+		&st.weeklyLimitUSD, &st.launchMinRatio, &st.launchMaxRatio, &st.pricingModel,
+		&st.carType, &st.seatFeeCNY, &st.usagePoolCNY)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrCarpoolNotFound
 	}
@@ -965,20 +969,46 @@ func (r *carpoolRepository) UpdateMemberQuota(ctx context.Context, carpoolID, me
 		return nil, service.ErrCarpoolCustomRuleClosed
 	}
 
+	// 同时取"其他人的申报之和"与"含本人在内的在册人数"：前者用于上限校验，
+	// 两者一起用于重算报价（见下方）。
 	var othersTotal float64
+	var memberCount int
 	if err := tx.QueryRowContext(ctx, `
-SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members
-WHERE carpool_id = $1 AND user_id <> $2 AND status IN ('joined', 'active')`,
-		carpoolID, memberUserID).Scan(&othersTotal); err != nil {
+SELECT COALESCE(SUM(declared_weekly_quota_usd) FILTER (WHERE user_id <> $2), 0),
+       COUNT(*)
+FROM carpool_members
+WHERE carpool_id = $1 AND status IN ('joined', 'active')`,
+		carpoolID, memberUserID).Scan(&othersTotal, &memberCount); err != nil {
 		return nil, fmt.Errorf("sum other carpool declarations: %w", err)
+	}
+	if memberCount < 1 {
+		memberCount = 1
 	}
 	if othersTotal+declaredWeeklyQuotaUSD > st.launchMaxRatio*st.weeklyLimitUSD+1e-9 {
 		return nil, service.ErrCarpoolQuotaExceeded
 	}
 
+	// 申报变了，报价必须跟着变。
+	//
+	// 只改申报不改报价，界面上那个"应付多少"就会停在旧申报对应的金额：线上
+	// 出现过一位成员报价 ¥482（申报 1080 时的报价）而发车后实际应付 ¥434
+	// （申报改成 960）的情况，两个数字直接打架，只能靠人工去核对。
+	//
+	// 用与上车完全相同的公式（CarpoolPrepaidCNY，按车型分支）。本接口只在
+	// recruiting/confirmed 下可用（loadCarpoolForMemberOp 已挡住已发车的车），
+	// 此时 prepaid_amount_cny 与 quoted_prepaid_amount_cny 本就该相等——
+	// 发车时 Launch 会按最终人数与 Σ申报 再统一重写 prepaid_amount_cny。
+	newDeclaredTotal := othersTotal + declaredWeeklyQuotaUSD
+	prepaidAmountCNY := service.CarpoolPrepaidCNY(st.carType, st.seatFeeCNY, st.usagePoolCNY,
+		st.weeklyLimitUSD, newDeclaredTotal, declaredWeeklyQuotaUSD, memberCount)
 	if _, err := tx.ExecContext(ctx, `
-UPDATE carpool_members SET declared_weekly_quota_usd = $3, updated_at = NOW()
-WHERE carpool_id = $1 AND user_id = $2`, carpoolID, memberUserID, declaredWeeklyQuotaUSD); err != nil {
+UPDATE carpool_members
+SET declared_weekly_quota_usd = $3,
+    prepaid_amount_cny = $4,
+    quoted_prepaid_amount_cny = $4,
+    updated_at = NOW()
+WHERE carpool_id = $1 AND user_id = $2`,
+		carpoolID, memberUserID, declaredWeeklyQuotaUSD, prepaidAmountCNY); err != nil {
 		return nil, fmt.Errorf("update carpool member quota: %w", err)
 	}
 	if err := insertCarpoolEvent(ctx, tx, carpoolID, actorUserID, "member_quota_adjusted"); err != nil {
@@ -999,6 +1029,7 @@ WHERE carpool_id = $1 AND user_id = $2`, carpoolID, memberUserID, declaredWeekly
 	return &service.CarpoolMutationResult{
 		Carpool:                item,
 		DeclaredWeeklyQuotaUSD: declaredWeeklyQuotaUSD,
+		PrepaidAmountCNY:       prepaidAmountCNY,
 		AutoUnconfirmed:        autoUnconfirmed,
 	}, nil
 }
