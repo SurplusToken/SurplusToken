@@ -281,6 +281,7 @@ func RegisterUserRoutes(
 			carpools.GET("/admin/overview", h.Carpool.AdminOverview)
 			carpools.PATCH("/:id", h.Carpool.UpdateCarpool)
 			carpools.POST("/:id/transfer-owner", h.Carpool.TransferOwner)
+			carpools.POST("/:id/members", middleware.RequestBodyLimit(carpoolSmallMaxBodyBytes), h.Carpool.AddMember)
 			carpools.POST("/:id/members/:userId/remove", h.Carpool.RemoveMember)
 			carpools.PATCH("/:id/members/:userId/quota", h.Carpool.UpdateMemberQuota)
 		}

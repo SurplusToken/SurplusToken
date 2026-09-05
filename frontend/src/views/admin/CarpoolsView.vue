@@ -31,6 +31,10 @@
             <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('common.refresh')" @click="load">
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
+            <button type="button" class="btn btn-primary" data-testid="open-create-carpool" @click="openCreate">
+              <Icon name="plus" size="sm" />
+              <span>{{ t('carpool.adminPage.create') }}</span>
+            </button>
             <span class="text-xs text-gray-500 dark:text-dark-300">
               {{ t('carpool.adminPage.total', { count: filteredCarpools.length, all: carpools.length }) }}
             </span>
@@ -49,6 +53,10 @@
                 </span>
                 <span v-if="!isQuotaCar(row)" class="badge badge-gray">
                   {{ t('carpool.customRule.badge') }}
+                </span>
+                <!-- 车型标签（type 1/2/3）；自定义规则车已由上面的 badge 标注，不重复 -->
+                <span v-if="carTypeLabel(row)" class="badge badge-gray">
+                  {{ carTypeLabel(row) }}
                 </span>
                 <span
                   v-for="kind in carpoolAlerts(row)"
@@ -192,6 +200,16 @@
                 <span v-if="member.role === 'owner'" class="badge badge-gray shrink-0">
                   {{ t('carpool.joinDialog.rosterOwner') }}
                 </span>
+                <!-- 新 quota 车（type 3）成员的风险确认状态（只读）：上车时后端强制要求确认 -->
+                <span
+                  v-if="activeCarpool.carType === 3"
+                  class="shrink-0 rounded px-1 text-[10px]"
+                  :class="member.acknowledgedRisk
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-300'"
+                >
+                  {{ t(member.acknowledgedRisk ? 'carpool.adminPage.membersDialog.riskAcked' : 'carpool.adminPage.membersDialog.riskNotAcked') }}
+                </span>
               </span>
               <span v-if="member.email" class="truncate text-xs text-gray-400">{{ member.email }}</span>
             </span>
@@ -224,10 +242,211 @@
             </span>
           </li>
         </ul>
+
+        <!--
+          添加成员：type 2/3 需申报 + 代录风险确认（后端校验）；type 1/0 仅选人、
+          添加即生效（后台直接建订阅，不走招募/发车）。
+        -->
+        <div
+          v-if="canAddMembers(activeCarpool)"
+          data-testid="add-member-section"
+          class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.adminPage.addMember.title') }}</div>
+          <div class="mt-2">
+            <Select
+              v-model="addDraft.userId"
+              :options="memberUserOptions"
+              remote
+              :loading="memberUserLoading"
+              :placeholder="t('carpool.adminPage.memberEditor.pickUser')"
+              @search="searchMemberUsers"
+            />
+          </div>
+          <div v-if="activeCarpool.carType === 3 || activeCarpool.carType === 2" class="mt-2 space-y-2">
+            <input
+              id="add-member-declared"
+              v-model.number="addDraft.declaredInput"
+              type="number"
+              :min="activeCarpool.carType === 3 ? 0.1 : 1"
+              :step="activeCarpool.carType === 3 ? 0.1 : 1"
+              class="input"
+              :placeholder="t(activeCarpool.carType === 3 ? 'carpool.adminPage.memberEditor.declaredPercent' : 'carpool.adminPage.memberEditor.declaredUsd')"
+            />
+            <label class="flex items-center gap-2">
+              <input
+                id="add-member-risk"
+                v-model="addDraft.acknowledgedRisk"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.adminPage.memberEditor.riskInformed') }}</span>
+            </label>
+          </div>
+          <div class="mt-2 flex justify-end">
+            <button
+              type="button"
+              class="btn btn-primary h-8 px-3 py-1.5"
+              data-testid="add-member-submit"
+              :disabled="!canSubmitAddMember || memberPending"
+              @click="submitAddMember"
+            >
+              {{ t('carpool.adminPage.memberEditor.add') }}
+            </button>
+          </div>
+        </div>
       </div>
       <template #footer>
         <div class="flex justify-end">
           <button type="button" class="btn btn-secondary" @click="closeMembers">{{ t('common.close') }}</button>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <!--
+      手动创建车辆：车型决定字段与后续流程——type 2/3 创建后 recruiting（二维码必传，
+      之后走现有确认/启动流程）；type 1/0 创建即 active（后台自动建分组，无需二维码）。
+      初始成员逐个代加：失败的逐个提示，成功的保留。
+    -->
+    <BaseDialog :show="createOpen" :title="t('carpool.adminPage.createDialog.title')" width="normal" @close="createOpen = false">
+      <div class="space-y-4">
+        <div>
+          <label class="input-label" for="admin-create-car-type">{{ t('carpool.adminPage.createDialog.carType') }}</label>
+          <Select id="admin-create-car-type" v-model="createForm.carType" :options="carTypeOptions" />
+        </div>
+        <div>
+          <label class="input-label" for="admin-create-name">{{ t('carpool.fields.name') }}</label>
+          <input id="admin-create-name" v-model.trim="createForm.name" class="input" maxlength="100" :placeholder="t('carpool.fields.namePlaceholder')" />
+        </div>
+
+        <!-- type 2/3（quota 车）：备注、预计发车日、可见性、群二维码 -->
+        <template v-if="createIsQuota">
+          <div>
+            <label class="input-label" for="admin-create-desc">{{ t('carpool.fields.description') }}</label>
+            <textarea id="admin-create-desc" v-model.trim="createForm.description" rows="2" class="input" :placeholder="t('carpool.fields.descriptionPlaceholder')"></textarea>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="input-label" for="admin-create-start">{{ t('carpool.fields.scheduledStart') }}</label>
+              <input id="admin-create-start" v-model="createForm.scheduledStartAt" type="date" class="input" />
+            </div>
+            <div>
+              <label class="input-label" for="admin-create-visibility">{{ t('carpool.fields.visibility') }}</label>
+              <Select id="admin-create-visibility" v-model="createForm.visibility" :options="visibilityOptions" />
+            </div>
+          </div>
+          <div>
+            <label class="input-label" for="admin-create-qr">{{ t('carpool.createDialog.qrLabel') }}</label>
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <input
+                  id="admin-create-qr"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:text-dark-300 dark:file:bg-primary-900/20 dark:file:text-primary-300"
+                  @change="handleCreateQrFileChange"
+                />
+                <p v-if="createQrError" class="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{{ createQrError }}</p>
+              </div>
+              <img
+                v-if="createForm.groupQrCode"
+                :src="createForm.groupQrCode"
+                :alt="t('carpool.createDialog.qrLabel')"
+                class="h-16 w-16 shrink-0 rounded-md border border-gray-200 object-cover dark:border-dark-600"
+              />
+            </div>
+          </div>
+        </template>
+
+        <!-- type 1（无保底老车）：仅需周限额 -->
+        <div v-if="createForm.carType === 1">
+          <label class="input-label" for="admin-create-weekly-limit">{{ t('carpool.adminPage.createDialog.weeklyLimit') }}</label>
+          <input id="admin-create-weekly-limit" v-model.number="createForm.weeklyLimitUsd" type="number" min="1" step="1" class="input" />
+        </div>
+
+        <!-- type 0（自定义规则车）：规则说明是人工结算依据 -->
+        <div v-if="createForm.carType === 0">
+          <label class="input-label" for="admin-create-rule-note">{{ t('carpool.adminPage.createDialog.ruleNote') }}</label>
+          <textarea id="admin-create-rule-note" v-model.trim="createForm.ruleNote" rows="3" class="input" :placeholder="t('carpool.adminPage.createDialog.ruleNotePlaceholder')"></textarea>
+        </div>
+
+        <!-- 成员编辑器：远程搜索用户加入暂存列表；type 3 申报填百分比、type 2 填美元，
+             quota 车成员必须代录风险确认；type 1/0 只选人 -->
+        <div class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.adminPage.createDialog.members') }}</div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-dark-300">{{ t('carpool.adminPage.createDialog.membersHint') }}</p>
+          <div class="mt-2">
+            <Select
+              v-model="memberDraft.userId"
+              :options="memberUserOptions"
+              remote
+              :loading="memberUserLoading"
+              :placeholder="t('carpool.adminPage.memberEditor.pickUser')"
+              @search="searchMemberUsers"
+            />
+          </div>
+          <div v-if="createIsQuota" class="mt-2 space-y-2">
+            <input
+              id="create-member-declared"
+              v-model.number="memberDraft.declaredInput"
+              type="number"
+              :min="createForm.carType === 3 ? 0.1 : 1"
+              :step="createForm.carType === 3 ? 0.1 : 1"
+              class="input"
+              :placeholder="t(createForm.carType === 3 ? 'carpool.adminPage.memberEditor.declaredPercent' : 'carpool.adminPage.memberEditor.declaredUsd')"
+            />
+            <label class="flex items-center gap-2">
+              <input
+                id="create-member-risk"
+                v-model="memberDraft.acknowledgedRisk"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-dark-200">{{ t('carpool.adminPage.memberEditor.riskInformed') }}</span>
+            </label>
+          </div>
+          <div class="mt-2 flex justify-end">
+            <button
+              type="button"
+              class="btn btn-secondary h-8 px-3 py-1.5"
+              data-testid="create-member-add"
+              :disabled="!canStageMember"
+              @click="stageMember"
+            >
+              {{ t('carpool.adminPage.memberEditor.add') }}
+            </button>
+          </div>
+          <ul v-if="stagedMembers.length > 0" class="mt-2 space-y-1" data-testid="create-staged-members">
+            <li
+              v-for="member in stagedMembers"
+              :key="member.userId"
+              class="flex items-center justify-between gap-2 rounded-md bg-gray-50 px-2.5 py-1.5 text-xs dark:bg-dark-700/40"
+            >
+              <span class="min-w-0 truncate text-gray-700 dark:text-dark-200">
+                {{ member.label }}
+                <span v-if="member.declaredInput" class="text-gray-400">
+                  · {{ createForm.carType === 3 ? `${member.declaredInput}%` : `$${member.declaredInput}` }}
+                </span>
+              </span>
+              <button type="button" class="shrink-0 text-gray-400 hover:text-red-500" @click="unstageMember(member.userId)">
+                <Icon name="xCircle" size="sm" />
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="createOpen = false">{{ t('common.cancel') }}</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            data-testid="create-submit"
+            :disabled="!createFormValid || createPending"
+            @click="submitCreate"
+          >
+            {{ t('carpool.adminPage.createDialog.submit') }}
+          </button>
         </div>
       </template>
     </BaseDialog>
@@ -319,10 +538,15 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { Column } from '@/components/common/types'
 import carpoolAPI, {
+  type AddMemberRequest,
   type Carpool,
   type CarpoolRosterMember,
+  type CarpoolType,
   type CarpoolVisibility,
+  type CreateCarpoolRequest,
 } from '@/api/carpools'
+import usersAPI from '@/api/admin/users'
+import type { AdminUser } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateOnly } from '@/utils/format'
@@ -334,6 +558,10 @@ const STATUSES = ['recruiting', 'confirmed', 'starting', 'active', 'ended', 'can
 
 // 「确认后多久还没启动算超时」——与设计文档里承诺给车主的 24 小时一致。
 const LAUNCH_OVERDUE_MS = 24 * 60 * 60 * 1000
+
+// 与后端 CarpoolType3WeeklyLimitUSD / CarpoolDefaultWeeklyLimitUSD 对齐：
+// 手动创建时 type 1 的默认周限额，也是 type 3 百分比申报的换算基准。
+const DEFAULT_WEEKLY_LIMIT_USD = 2400
 
 type AlertKind = 'launchOverdue' | 'unsettled' | 'overDeclared' | 'readyToConfirm'
 type ConfirmKind = 'unconfirm' | 'launch' | 'cancel'
@@ -364,6 +592,36 @@ const qrZoomUrl = ref<string | null>(null)
 const qrFileInput = ref<HTMLInputElement | null>(null)
 const qrReplacing = ref(false)
 
+// —— 手动创建车辆（设计文档「手动创建车辆 + 按车型添加成员」）——
+const createOpen = ref(false)
+const createPending = ref(false)
+const createQrError = ref('')
+const createForm = reactive({
+  carType: 3 as CarpoolType,
+  name: '',
+  description: '',
+  visibility: 'public' as CarpoolVisibility,
+  scheduledStartAt: '',
+  weeklyLimitUsd: DEFAULT_WEEKLY_LIMIT_USD,
+  ruleNote: '',
+  groupQrCode: '',
+})
+// 成员编辑器暂存：type 3 申报填百分比、type 2 填美元；type 1/0 只选人。
+interface StagedMember {
+  userId: number
+  label: string
+  declaredInput: number | null
+  acknowledgedRisk: boolean
+}
+const stagedMembers = ref<StagedMember[]>([])
+// 远程用户搜索（创建对话框与成员弹窗共用；两个弹窗不会同时打开）
+const memberUserOptions = ref<{ value: number; label: string }[]>([])
+const memberUserLoading = ref(false)
+let memberSearchSeq = 0
+const memberDraft = reactive({ userId: null as number | null, declaredInput: null as number | null, acknowledgedRisk: false })
+// 成员弹窗「添加成员」区的草稿
+const addDraft = reactive({ userId: null as number | null, declaredInput: null as number | null, acknowledgedRisk: false })
+
 const editForm = reactive({
   name: '',
   description: '',
@@ -380,6 +638,48 @@ const visibilityOptions = computed(() => [
   { value: 'public', label: t('carpool.visibility.public') },
   { value: 'invite_only', label: t('carpool.visibility.inviteOnly') },
 ])
+
+// 车型选择：3 新 quota 车（默认）/ 2 现行 quota 车 / 1 无保底老车 / 0 自定义规则车。
+const carTypeOptions = computed(() => ([3, 2, 1, 0] as CarpoolType[]).map((value) => ({
+  value,
+  label: t(`carpool.carTypes.type${value}`),
+})))
+// 2/3 是 quota 车（创建后 recruiting，需要发车日 + 群二维码）；1/0 创建即 active。
+const createIsQuota = computed(() => createForm.carType === 2 || createForm.carType === 3)
+
+const createFormValid = computed(() => {
+  if (!createForm.name.trim()) return false
+  if (createForm.carType === 0) return !!createForm.ruleNote.trim()
+  if (createForm.carType === 1) return createForm.weeklyLimitUsd > 0
+  return !!createForm.scheduledStartAt && !!createForm.groupQrCode && !createQrError.value
+})
+
+// 成员编辑器：quota 车（2/3）的暂存成员必须填申报并代录风险确认。
+const canStageMember = computed(() => {
+  if (!memberDraft.userId) return false
+  if (stagedMembers.value.some((m) => m.userId === memberDraft.userId)) return false
+  if (!createIsQuota.value) return true
+  return !!memberDraft.declaredInput && memberDraft.declaredInput > 0 && memberDraft.acknowledgedRisk
+})
+
+// 成员弹窗的添加区：type 1/0 创建即 active，加人是主要操作（直接生效建订阅）；
+// type 2/3 只在发车前（recruiting/confirmed）能加。
+function canAddMembers(carpool: Carpool): boolean {
+  if (carpool.carType === 0 || carpool.carType === 1) {
+    return carpool.status !== 'cancelled' && carpool.status !== 'ended'
+  }
+  return canManageMembers(carpool)
+}
+
+const addMemberWeeklyLimit = computed(() => activeCarpool.value?.weeklyLimitUsd || DEFAULT_WEEKLY_LIMIT_USD)
+const canSubmitAddMember = computed(() => {
+  const car = activeCarpool.value
+  if (!car || !addDraft.userId) return false
+  if (car.carType === 2 || car.carType === 3) {
+    return !!addDraft.declaredInput && addDraft.declaredInput > 0 && addDraft.acknowledgedRisk
+  }
+  return true
+})
 
 const transferOptions = computed(() =>
   roster.value
@@ -402,6 +702,20 @@ const columns = computed<Column[]>(() => [
 // 自定义规则车（含升级前的老车）不走申报制，额度相关的列与操作对它们没有意义。
 function isQuotaCar(carpool: Carpool): boolean {
   return (carpool.pricingModel || 'quota') === 'quota'
+}
+
+// 车型标签（与后端 CarType 对齐）：1=无保底老车，2=现行 quota 车，3=新 quota 车。
+// type 0（自定义规则车）已由「自定义规则」badge 覆盖，仅在 pricing_model 数据异常时兜底显示。
+function carTypeLabel(carpool: Carpool): string {
+  if (!isQuotaCar(carpool)) return ''
+  const keys: Record<number, string> = {
+    0: 'carpool.carTypes.type0',
+    1: 'carpool.carTypes.type1',
+    2: 'carpool.carTypes.type2',
+    3: 'carpool.carTypes.type3',
+  }
+  const key = keys[carpool.carType]
+  return key ? t(key) : ''
 }
 
 function declaredPercent(carpool: Carpool): number {
@@ -552,8 +866,12 @@ async function loadQrCode(carpoolID: number): Promise<void> {
 function openMembers(carpool: Carpool): void {
   activeCarpool.value = carpool
   editingUserId.value = null
+  addDraft.userId = null
+  addDraft.declaredInput = null
+  addDraft.acknowledgedRisk = false
   membersOpen.value = true
   qrFailed.value = false
+  void searchMemberUsers('')
   if (carpool.hasGroupQrCode) void loadQrCode(carpool.id)
   void loadRoster(carpool.id)
 }
@@ -561,6 +879,170 @@ function openMembers(carpool: Carpool): void {
 function closeMembers(): void {
   membersOpen.value = false
   revokeQrCode()
+}
+
+// —— 手动创建车辆 / 添加成员 ——
+
+function userLabel(user: AdminUser): string {
+  return user.username ? `${user.username}（${user.email}）` : user.email
+}
+
+// 远程搜索用户（邮箱/用户名）。连输时先发的请求后回来会覆盖新结果，用序号丢弃。
+async function searchMemberUsers(query: string): Promise<void> {
+  const seq = ++memberSearchSeq
+  memberUserLoading.value = true
+  try {
+    const res = await usersAPI.list(1, 10, { search: query || undefined })
+    if (seq !== memberSearchSeq) return
+    memberUserOptions.value = res.items.map((user) => ({ value: user.id, label: userLabel(user) }))
+  } catch {
+    // 搜索失败保留旧候选
+  } finally {
+    if (seq === memberSearchSeq) memberUserLoading.value = false
+  }
+}
+
+// type 3 的申报口径是占全车额度的百分比，按周限额换算成美元提交；type 2 输入即美元。
+function declaredInputToUsd(input: number, weeklyLimitUsd: number): number {
+  return Math.round((input / 100) * weeklyLimitUsd * 100) / 100
+}
+
+// 代加成员的请求体：type 2/3 带申报与代录的风险确认；type 1/0 只带 user_id。
+function buildAddMemberPayload(carType: CarpoolType, userId: number, declaredInput: number | null, acknowledgedRisk: boolean, weeklyLimitUsd: number): AddMemberRequest {
+  const payload: AddMemberRequest = { user_id: userId }
+  if (carType === 3) {
+    payload.declared_weekly_quota_usd = declaredInputToUsd(declaredInput ?? 0, weeklyLimitUsd)
+    payload.acknowledged_risk = acknowledgedRisk
+  } else if (carType === 2) {
+    payload.declared_weekly_quota_usd = declaredInput ?? 0
+    payload.acknowledged_risk = acknowledgedRisk
+  }
+  return payload
+}
+
+function stageMember(): void {
+  if (!canStageMember.value) return
+  const userId = memberDraft.userId as number
+  const label = memberUserOptions.value.find((o) => o.value === userId)?.label || `#${userId}`
+  stagedMembers.value = [...stagedMembers.value, {
+    userId,
+    label,
+    declaredInput: createIsQuota.value ? memberDraft.declaredInput : null,
+    acknowledgedRisk: createIsQuota.value ? memberDraft.acknowledgedRisk : false,
+  }]
+  memberDraft.userId = null
+  memberDraft.declaredInput = null
+  memberDraft.acknowledgedRisk = false
+}
+
+function unstageMember(userId: number): void {
+  stagedMembers.value = stagedMembers.value.filter((m) => m.userId !== userId)
+}
+
+function openCreate(): void {
+  createForm.carType = 3
+  createForm.name = ''
+  createForm.description = ''
+  createForm.visibility = 'public'
+  createForm.scheduledStartAt = ''
+  createForm.weeklyLimitUsd = DEFAULT_WEEKLY_LIMIT_USD
+  createForm.ruleNote = ''
+  createForm.groupQrCode = ''
+  createQrError.value = ''
+  stagedMembers.value = []
+  memberDraft.userId = null
+  memberDraft.declaredInput = null
+  memberDraft.acknowledgedRisk = false
+  memberUserOptions.value = []
+  createOpen.value = true
+  void searchMemberUsers('')
+}
+
+// 群二维码（type 2/3 需要）：读成 data URL，复用创建那套后端校验（png/jpeg/webp ≤2MB）。
+function handleCreateQrFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  createQrError.value = ''
+  createForm.groupQrCode = ''
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    createQrError.value = t('carpool.createDialog.qrInvalidType')
+    input.value = ''
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    createQrError.value = t('carpool.createDialog.qrTooLarge')
+    input.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    createForm.groupQrCode = typeof reader.result === 'string' ? reader.result : ''
+  }
+  reader.readAsDataURL(file)
+}
+
+// 先创建车，再逐个代加暂存的初始成员：失败的逐个列出来提示，成功的保留在车上。
+async function submitCreate(): Promise<void> {
+  if (!createFormValid.value || createPending.value) return
+  createPending.value = true
+  try {
+    const payload: CreateCarpoolRequest = {
+      name: createForm.name.trim(),
+      description: createForm.description,
+      visibility: createForm.visibility,
+      // type 0/1 创建即 active，发车日无意义，给后端一个合法日期即可
+      scheduled_start_at: createForm.scheduledStartAt || new Date().toISOString().slice(0, 10),
+      // 契约：admin 手动创建时两项强制确认固定 true（后台代录）；二维码 type 0/1 不需要
+      added_admin_wechat: true,
+      acknowledged_risk: true,
+      group_qr_code: createForm.groupQrCode,
+      car_type: createForm.carType,
+    }
+    if (createForm.carType === 0) payload.rule_note = createForm.ruleNote.trim()
+    if (createForm.carType === 1) payload.weekly_limit_usd = createForm.weeklyLimitUsd
+    const { carpool } = await carpoolAPI.create(payload)
+    const failed: string[] = []
+    for (const member of stagedMembers.value) {
+      try {
+        await carpoolAPI.addMember(carpool.id, buildAddMemberPayload(createForm.carType, member.userId, member.declaredInput, member.acknowledgedRisk, payload.weekly_limit_usd ?? DEFAULT_WEEKLY_LIMIT_USD))
+      } catch {
+        failed.push(member.label)
+      }
+    }
+    createOpen.value = false
+    if (failed.length > 0) {
+      appStore.showWarning(t('carpool.adminPage.createDialog.membersFailed', { names: failed.join('、') }))
+    } else {
+      appStore.showSuccess(t('carpool.adminPage.createDialog.success'))
+    }
+    await load()
+  } catch (error) {
+    appStore.showError(errorMessage(error))
+  } finally {
+    createPending.value = false
+  }
+}
+
+// 成员弹窗「添加成员」：type 2/3 需申报+代录风险（后端校验）；type 1/0 添加即生效。
+async function submitAddMember(): Promise<void> {
+  const car = activeCarpool.value
+  if (!car || !canSubmitAddMember.value || memberPending.value) return
+  memberPending.value = true
+  try {
+    const { autoUnconfirmed } = await carpoolAPI.addMember(
+      car.id,
+      buildAddMemberPayload(car.carType, addDraft.userId as number, addDraft.declaredInput, addDraft.acknowledgedRisk, addMemberWeeklyLimit.value))
+    addDraft.userId = null
+    addDraft.declaredInput = null
+    addDraft.acknowledgedRisk = false
+    reportMemberChange(autoUnconfirmed, 'carpool.adminPage.addMember.success')
+    await Promise.all([load(), loadRoster(car.id)])
+  } catch (error) {
+    appStore.showError(errorMessage(error))
+  } finally {
+    memberPending.value = false
+  }
 }
 
 // 更换群二维码：读成 data URL 直接复用创建那套后端校验（png/jpeg/webp ≤2MB）。

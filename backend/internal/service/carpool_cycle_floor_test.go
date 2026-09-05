@@ -97,7 +97,7 @@ func TestUsagePoolStillBalancesWithCycles(t *testing.T) {
 			cycle(base, 120, 96, 10), cycle(base.AddDate(0, 0, 7), 120, 96, 400),
 		}},
 	}
-	members := ComputeCarpoolSettlementMembers(2400, 400, 1000, 0.8, inputs)
+	members := ComputeCarpoolSettlementMembers(CarpoolCarTypeQuota, 2400, 400, 1000, 0.8, inputs)
 	require.Len(t, members, 2)
 
 	total := 0.0

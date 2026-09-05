@@ -9,6 +9,9 @@ const {
   showError,
   adminOverviewMock,
   rosterMock,
+  createMock,
+  addMemberMock,
+  usersListMock,
   removeMemberMock,
   updateMemberQuotaMock,
   updateCarpoolMock,
@@ -25,6 +28,9 @@ const {
   showError: vi.fn(),
   adminOverviewMock: vi.fn(),
   rosterMock: vi.fn(),
+  createMock: vi.fn(),
+  addMemberMock: vi.fn(),
+  usersListMock: vi.fn(),
   removeMemberMock: vi.fn(),
   updateMemberQuotaMock: vi.fn(),
   updateCarpoolMock: vi.fn(),
@@ -41,6 +47,8 @@ vi.mock('@/api/carpools', () => ({
   default: {
     adminOverview: adminOverviewMock,
     roster: rosterMock,
+    create: createMock,
+    addMember: addMemberMock,
     removeMember: removeMemberMock,
     updateMemberQuota: updateMemberQuotaMock,
     updateCarpool: updateCarpoolMock,
@@ -51,6 +59,13 @@ vi.mock('@/api/carpools', () => ({
     cancel: cancelMock,
     groupQrCode: groupQrCodeMock,
     replaceGroupQrCode: replaceGroupQrCodeMock,
+  },
+}))
+
+// 成员编辑器的远程用户搜索（创建对话框与成员弹窗共用同一个 usersAPI.list）
+vi.mock('@/api/admin/users', () => ({
+  default: {
+    list: usersListMock,
   },
 }))
 
@@ -81,7 +96,7 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     ownerUserId: 1,
     platform: 'openai',
     planType: 'openai_pro',
-    carType: 'large',
+    carType: 2,
     level: 1,
     capacity: 30,
     memberCount: 3,
@@ -152,6 +167,45 @@ function findButton(wrapper: ReturnType<typeof mountView>, text: string) {
   return btn
 }
 
+// Select 桩不会自己发 update:modelValue（真实件是自定义下拉）。按候选值定位到目标桩
+// 直接 emit——v-model 的监听器挂在 vnode props 上，emit 即可回写父组件（同 KeysView.spec）。
+async function selectOption(wrapper: ReturnType<typeof mountView>, optionValues: unknown[], value: unknown) {
+  const select = wrapper.findAllComponents({ name: 'Select' }).find((s) => {
+    const values = (s.props('options') as { value: unknown }[]).map((o) => o.value)
+    return optionValues.every((v) => values.includes(v))
+  })
+  if (!select) throw new Error(`select not found for options: ${optionValues.join(', ')}`)
+  await select.vm.$emit('update:modelValue', value)
+  await flushPromises()
+}
+
+// 打开「手动创建车辆」对话框；openCreate 会立刻搜一次空串，flush 后用户候选就位。
+async function openCreateDialog(wrapper: ReturnType<typeof mountView>) {
+  await wrapper.get('[data-testid="open-create-carpool"]').trigger('click')
+  await flushPromises()
+}
+
+// 创建对话框的群二维码走 FileReader（宏任务），flushPromises 一轮不一定等得到。
+async function pickCreateQr(wrapper: ReturnType<typeof mountView>) {
+  const input = wrapper.find('#admin-create-qr')
+  const file = new File(['x'], 'qr.png', { type: 'image/png' })
+  Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+  await input.trigger('change')
+  await new Promise((r) => setTimeout(r, 20))
+  await flushPromises()
+}
+
+// 创建对话框里把用户加进暂存列表：quota 车（2/3）必须带申报与代录风险勾选，否则按钮禁用。
+async function stageCreateMember(wrapper: ReturnType<typeof mountView>, userId: number, declaredPercent?: number) {
+  await selectOption(wrapper, [42, 43], userId)
+  if (declaredPercent !== undefined) {
+    await wrapper.find('#create-member-declared').setValue(declaredPercent)
+    await wrapper.find('#create-member-risk').setValue(true)
+  }
+  await wrapper.get('[data-testid="create-member-add"]').trigger('click')
+  await flushPromises()
+}
+
 describe('admin CarpoolsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -173,6 +227,56 @@ describe('admin CarpoolsView', () => {
     expect(adminOverviewMock).toHaveBeenCalledTimes(1)
     expect(wrapper.findAll('[data-testid="row"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('car-b')
+  })
+
+  // 车型标签：type 1/2/3 的车在名称列有可读标签；type 0 已由「自定义规则」badge 覆盖，不重复标注。
+  it('shows a readable car-type badge on each row', async () => {
+    adminOverviewMock.mockResolvedValue([
+      makeCarpool({ id: 1, name: 'car-quota', carType: 2 }),
+      makeCarpool({ id: 2, name: 'car-new', carType: 3 }),
+      makeCarpool({ id: 3, name: 'car-custom', carType: 0, pricingModel: 'custom' }),
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.carTypes.type2')
+    expect(wrapper.text()).toContain('carpool.carTypes.type3')
+    expect(wrapper.text()).not.toContain('carpool.carTypes.type0')
+    expect(wrapper.text()).toContain('carpool.customRule.badge')
+  })
+
+  // 新 quota 车（type 3）的成员管理弹窗要能看到每个人的风险确认状态（只读）。
+  it('shows each member risk acknowledgment state for type-3 cars', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 3, status: 'recruiting' })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'alice', role: 'owner', declaredWeeklyQuotaUsd: 1400, acknowledgedRisk: true },
+      { userId: 2, username: 'bob', role: 'member', declaredWeeklyQuotaUsd: 700, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('carpool.adminPage.membersDialog.riskAcked')
+    expect(wrapper.text()).toContain('carpool.adminPage.membersDialog.riskNotAcked')
+  })
+
+  // 其他车型的成员不渲染风险确认标记——该字段只对 type 3 有意义。
+  it('hides the risk acknowledgment badge for non-type-3 cars', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 2, status: 'recruiting' })])
+    rosterMock.mockResolvedValue([
+      { userId: 2, username: 'bob', role: 'member', declaredWeeklyQuotaUsd: 400, acknowledgedRisk: false },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('carpool.adminPage.membersDialog.riskAcked')
+    expect(wrapper.text()).not.toContain('carpool.adminPage.membersDialog.riskNotAcked')
   })
 
   // 异常条是这页的主要价值：管理员要的是「哪几辆现在要我处理」。
@@ -442,5 +546,221 @@ describe('cancel active and QR replace', () => {
     expect(replaceGroupQrCodeMock).toHaveBeenCalledWith(1, expect.stringMatching(/^data:image\/png/))
     // 打开弹窗取了一次，换完又重取了一次
     expect(groupQrCodeMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('manual create and add member', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    adminOverviewMock.mockResolvedValue([])
+    rosterMock.mockResolvedValue([])
+    usersListMock.mockResolvedValue({
+      items: [
+        { id: 42, username: 'bob', email: 'bob@test.local' },
+        { id: 43, username: 'carol', email: 'carol@test.local' },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 10,
+      pages: 1,
+    })
+    createMock.mockResolvedValue({ carpool: makeCarpool({ id: 99 }), inviteToken: '' })
+    addMemberMock.mockResolvedValue({ carpool: makeCarpool(), autoUnconfirmed: false })
+  })
+
+  // 车型决定创建表单：type 3（quota 车）要发车日/可见性/二维码，成员编辑器带申报+风险；
+  // type 1 只剩周限额，type 0 只剩规则说明，申报栏同样只属 quota 车。
+  it('switches the create dialog fields with the selected car type', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await openCreateDialog(wrapper)
+
+    // 默认 type 3
+    expect(wrapper.find('#admin-create-start').exists()).toBe(true)
+    expect(wrapper.find('#admin-create-visibility').exists()).toBe(true)
+    expect(wrapper.find('#admin-create-qr').exists()).toBe(true)
+    expect(wrapper.find('#create-member-declared').exists()).toBe(true)
+    expect(wrapper.find('#create-member-risk').exists()).toBe(true)
+    expect(wrapper.find('#admin-create-weekly-limit').exists()).toBe(false)
+    expect(wrapper.find('#admin-create-rule-note').exists()).toBe(false)
+
+    await selectOption(wrapper, [3, 2, 1, 0], 1)
+    expect(wrapper.find('#admin-create-weekly-limit').exists()).toBe(true)
+    expect(wrapper.find('#admin-create-start').exists()).toBe(false)
+    expect(wrapper.find('#admin-create-qr').exists()).toBe(false)
+    expect(wrapper.find('#create-member-declared').exists()).toBe(false)
+    expect(wrapper.find('#create-member-risk').exists()).toBe(false)
+    expect(wrapper.find('#admin-create-rule-note').exists()).toBe(false)
+
+    await selectOption(wrapper, [3, 2, 1, 0], 0)
+    expect(wrapper.find('#admin-create-rule-note').exists()).toBe(true)
+    expect(wrapper.find('#admin-create-weekly-limit').exists()).toBe(false)
+  })
+
+  // type 3 提交：先按 car_type=3 创建车，再把暂存成员逐个代加；申报口径是百分比，
+  // 按默认周限额 2400 换算成美元（50% → 1200）。
+  it('creates a type-3 carpool, then adds staged members with percent converted to USD', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await openCreateDialog(wrapper)
+
+    await wrapper.find('#admin-create-name').setValue('manual-quota')
+    await wrapper.find('#admin-create-start').setValue('2026-09-01')
+    await pickCreateQr(wrapper)
+    await stageCreateMember(wrapper, 42, 50)
+
+    const staged = wrapper.get('[data-testid="create-staged-members"]').text()
+    expect(staged).toContain('bob（bob@test.local）')
+    expect(staged).toContain('50%')
+
+    await wrapper.get('[data-testid="create-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'manual-quota',
+      car_type: 3,
+      scheduled_start_at: '2026-09-01',
+      added_admin_wechat: true,
+      acknowledged_risk: true,
+      group_qr_code: expect.stringMatching(/^data:image\/png/),
+    }))
+    expect(addMemberMock).toHaveBeenCalledTimes(1)
+    expect(addMemberMock).toHaveBeenCalledWith(99, {
+      user_id: 42,
+      declared_weekly_quota_usd: 1200,
+      acknowledged_risk: true,
+    })
+    expect(showSuccess).toHaveBeenCalledWith('carpool.adminPage.createDialog.success')
+    // 提交成功后对话框关闭、总览重新加载
+    expect(wrapper.find('[data-testid="create-submit"]').exists()).toBe(false)
+    expect(adminOverviewMock).toHaveBeenCalledTimes(2)
+  })
+
+  // type 1（无保底老车）：payload 带 weekly_limit_usd；成员只选人，
+  // addMember 请求体里不能出现申报/风险字段（后端按车型分别校验）。
+  it('creates a type-1 carpool whose staged members carry no declaration', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await openCreateDialog(wrapper)
+
+    await selectOption(wrapper, [3, 2, 1, 0], 1)
+    await wrapper.find('#admin-create-name').setValue('legacy-car')
+    await wrapper.find('#admin-create-weekly-limit').setValue(1200)
+    await stageCreateMember(wrapper, 43)
+
+    const staged = wrapper.get('[data-testid="create-staged-members"]').text()
+    expect(staged).toContain('carol（carol@test.local）')
+    expect(staged).not.toContain('$')
+
+    await wrapper.get('[data-testid="create-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'legacy-car',
+      car_type: 1,
+      weekly_limit_usd: 1200,
+      group_qr_code: '',
+      // type 1 创建即 active，发车日无意义，前端补一个合法日期
+      scheduled_start_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    }))
+    expect(addMemberMock).toHaveBeenCalledWith(99, { user_id: 43 })
+    expect(showSuccess).toHaveBeenCalledWith('carpool.adminPage.createDialog.success')
+  })
+
+  // 初始成员逐个代加：某个失败不能中断后面的；结束时点名警告而不是报成功。
+  it('keeps adding the remaining staged members when one fails and warns instead of success', async () => {
+    addMemberMock.mockRejectedValueOnce(new Error('boom'))
+
+    const wrapper = mountView()
+    await flushPromises()
+    await openCreateDialog(wrapper)
+
+    await wrapper.find('#admin-create-name').setValue('manual-quota')
+    await wrapper.find('#admin-create-start').setValue('2026-09-01')
+    await pickCreateQr(wrapper)
+    await stageCreateMember(wrapper, 42, 50)
+    await stageCreateMember(wrapper, 43, 25)
+
+    await wrapper.get('[data-testid="create-submit"]').trigger('click')
+    await flushPromises()
+
+    // 第一个失败后第二个照样调
+    expect(addMemberMock).toHaveBeenCalledTimes(2)
+    expect(addMemberMock).toHaveBeenNthCalledWith(1, 99, {
+      user_id: 42,
+      declared_weekly_quota_usd: 1200,
+      acknowledged_risk: true,
+    })
+    expect(addMemberMock).toHaveBeenNthCalledWith(2, 99, {
+      user_id: 43,
+      declared_weekly_quota_usd: 600,
+      acknowledged_risk: true,
+    })
+    expect(showWarning).toHaveBeenCalledWith('carpool.adminPage.createDialog.membersFailed')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="create-submit"]').exists()).toBe(false)
+  })
+
+  // 成员弹窗添加区（type 3）：缺申报或缺风险勾选时提交禁用；补齐后申报百分比
+  // 按车的周限额换算（25% of 2400 = 600），成功后刷新总览与花名册。
+  it('requires declaration and risk acknowledgment when adding a member to a type-3 carpool', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 3, status: 'recruiting' })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'alice', role: 'owner', declaredWeeklyQuotaUsd: 1200, acknowledgedRisk: true },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    const submit = () => wrapper.get('[data-testid="add-member-submit"]')
+    await selectOption(wrapper, [42, 43], 42)
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await wrapper.find('#add-member-declared').setValue(25)
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await wrapper.find('#add-member-risk').setValue(true)
+    expect(submit().attributes('disabled')).toBeUndefined()
+
+    await submit().trigger('click')
+    await flushPromises()
+
+    expect(addMemberMock).toHaveBeenCalledWith(1, {
+      user_id: 42,
+      declared_weekly_quota_usd: 600,
+      acknowledged_risk: true,
+    })
+    expect(showSuccess).toHaveBeenCalledWith('carpool.adminPage.addMember.success')
+    expect(rosterMock).toHaveBeenCalledTimes(2)
+    expect(adminOverviewMock).toHaveBeenCalledTimes(2)
+  })
+
+  // type 1（active 老车）的添加区只有选人：不渲染申报/风险，添加即生效并刷新花名册。
+  it('adds a member to a type-1 carpool with only a user pick', async () => {
+    adminOverviewMock.mockResolvedValue([makeCarpool({ id: 1, carType: 1, status: 'active' })])
+    rosterMock.mockResolvedValue([
+      { userId: 1, username: 'alice', role: 'owner', declaredWeeklyQuotaUsd: 0 },
+    ])
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.adminPage.actions.members').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="add-member-section"]').exists()).toBe(true)
+    expect(wrapper.find('#add-member-declared').exists()).toBe(false)
+    expect(wrapper.find('#add-member-risk').exists()).toBe(false)
+
+    await selectOption(wrapper, [42, 43], 42)
+    expect(wrapper.get('[data-testid="add-member-submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="add-member-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(addMemberMock).toHaveBeenCalledWith(1, { user_id: 42 })
+    expect(showSuccess).toHaveBeenCalledWith('carpool.adminPage.addMember.success')
+    expect(rosterMock).toHaveBeenCalledTimes(2)
   })
 })

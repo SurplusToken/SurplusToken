@@ -11,14 +11,61 @@ import (
 )
 
 // 管理端「发车前改成员」两个操作共用的前置查询：锁车 + 确认目标在册。
+// 默认按 type 2 存量车（席位费 ¥400 全车均摊 / 变动池 ¥1000）。
 func expectMemberOpLoad(mock sqlmock.Sqlmock, status string, ownerID int64, pricingModel string, memberID int64) {
+	expectMemberOpLoadTyped(mock, status, ownerID, pricingModel, memberID,
+		service.CarpoolCarTypeQuota, 400.0, 1000.0)
+}
+
+func expectMemberOpLoadTyped(mock sqlmock.Sqlmock, status string, ownerID int64, pricingModel string,
+	memberID int64, carType int, seatFeeCNY, usagePoolCNY float64) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status, owner_user_id, weekly_limit_usd, launch_min_ratio, launch_max_ratio,")).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"status", "owner_user_id", "weekly_limit_usd", "launch_min_ratio", "launch_max_ratio", "pricing_model"}).
-			AddRow(status, ownerID, 2400.0, 0.95, 1.05, pricingModel))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "owner_user_id", "weekly_limit_usd", "launch_min_ratio",
+			"launch_max_ratio", "pricing_model", "car_type", "seat_fee_cny", "usage_pool_cny"}).
+			AddRow(status, ownerID, 2400.0, 0.95, 1.05, pricingModel, carType, seatFeeCNY, usagePoolCNY))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT status FROM carpool_members WHERE carpool_id = $1 AND user_id = $2")).
 		WithArgs(int64(7), memberID).
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("joined"))
+}
+
+// 改申报必须同时重算报价，否则界面上的「应付」会停在旧申报对应的金额。
+// 线上出现过：一位成员申报 1080 时报价 ¥482，随后申报被改成 960，报价却没动，
+// 发车后实际应付 ¥434 —— 两个数字打架，只能人工核对。
+func TestUpdateMemberQuotaRecomputesQuotedPrepaid(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := NewCarpoolRepository(db)
+	mock.ExpectBegin()
+	// type 3 新计价车：席位费 ¥50 每人固定、变动池 ¥1200、整车 $2400。
+	expectMemberOpLoadTyped(mock, "recruiting", 11, "quota", 55,
+		service.CarpoolCarTypeQuotaV2, 50.0, 1200.0)
+	// 其他人合计 1440，含本人在册 4 人。
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd) FILTER (WHERE user_id <> $2), 0),")).
+		WithArgs(int64(7), int64(55)).
+		WillReturnRows(sqlmock.NewRows([]string{"total", "member_count"}).AddRow(1440.0, 4))
+	// 申报 960 → 报价 = 50 + 80%×1200×960/2400 = 50 + 384 = 434（分母是整车周限额，
+	// 与人数无关；席位费每人固定不均摊）。两列必须一起写。
+	mock.ExpectExec(regexp.QuoteMeta("SET declared_weekly_quota_usd = $3,")).
+		WithArgs(int64(7), int64(55), 960.0, 434.0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO carpool_events").
+		WithArgs(int64(7), int64(99), "member_quota_adjusted").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(2400.0))
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE c.id = $2")).
+		WithArgs(int64(99), int64(7)).
+		WillReturnRows(carpoolDetailRow())
+	mock.ExpectCommit()
+
+	result, err := repo.UpdateMemberQuota(context.Background(), 7, 55, 99, 960)
+	require.NoError(t, err)
+	require.InDelta(t, 434.0, result.PrepaidAmountCNY, 1e-9)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // 管理员把 confirmed 车的成员移走、Σ申报 跌破发车线：车必须自动退回招募中，
@@ -106,9 +153,9 @@ func TestUpdateMemberQuotaEnforcesHardCap(t *testing.T) {
 	repo := NewCarpoolRepository(db)
 	mock.ExpectBegin()
 	expectMemberOpLoad(mock, "confirmed", 11, "quota", 55)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd) FILTER (WHERE user_id <> $2), 0),")).
 		WithArgs(int64(7), int64(55)).
-		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(2450.0))
+		WillReturnRows(sqlmock.NewRows([]string{"total", "member_count"}).AddRow(2450.0, 3))
 	mock.ExpectRollback()
 
 	_, err = repo.UpdateMemberQuota(context.Background(), 7, 55, 99, 100)
@@ -125,11 +172,12 @@ func TestUpdateMemberQuotaKeepsConfirmedWhenStillInBand(t *testing.T) {
 	repo := NewCarpoolRepository(db)
 	mock.ExpectBegin()
 	expectMemberOpLoad(mock, "confirmed", 11, "quota", 55)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd), 0) FROM carpool_members")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(SUM(declared_weekly_quota_usd) FILTER (WHERE user_id <> $2), 0),")).
 		WithArgs(int64(7), int64(55)).
-		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(2100.0))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE carpool_members SET declared_weekly_quota_usd = $3, updated_at = NOW()")).
-		WithArgs(int64(7), int64(55), 250.0).
+		WillReturnRows(sqlmock.NewRows([]string{"total", "member_count"}).AddRow(2100.0, 3))
+	// 本例只关心 confirmed 不被打断，报价金额由专项测试钉死。
+	mock.ExpectExec(regexp.QuoteMeta("SET declared_weekly_quota_usd = $3,")).
+		WithArgs(int64(7), int64(55), 250.0, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO carpool_events").
 		WithArgs(int64(7), int64(99), "member_quota_adjusted").
