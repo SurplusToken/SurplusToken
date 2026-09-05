@@ -176,6 +176,31 @@ func TestListAvailable_DefaultsEmptyBillingModelSource(t *testing.T) {
 	require.Equal(t, BillingModelSourceUpstream, byName["explicit"])
 }
 
+func TestPricingNeedsFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *ChannelModelPricing
+		want bool
+	}{
+		{"nil", nil, true},
+		{"empty struct", &ChannelModelPricing{BillingMode: BillingModeToken}, true},
+		{"all-empty intervals", &ChannelModelPricing{
+			BillingMode: BillingModeImage,
+			Intervals:   []PricingInterval{{TierLabel: "1K"}, {TierLabel: "2K"}},
+		}, true},
+		{"flat input set", &ChannelModelPricing{InputPrice: testPtrFloat64(3e-6)}, false},
+		{"flat per_request set", &ChannelModelPricing{PerRequestPrice: testPtrFloat64(0.04)}, false},
+		{"interval with price", &ChannelModelPricing{
+			Intervals: []PricingInterval{{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.04)}},
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, pricingNeedsFallback(tt.in))
+		})
+	}
+}
+
 func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 	lp := &LiteLLMModelPricing{
 		Mode:                        "chat",
@@ -230,14 +255,14 @@ func TestFillGlobalPricingFallback_NilPricing(t *testing.T) {
 	models := []SupportedModel{
 		{Name: "claude-opus-4-5", Platform: "anthropic"},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.NotNil(t, models[0].Pricing)
 	require.NotNil(t, models[0].Pricing.InputPrice)
 	require.InDelta(t, 5e-6, *models[0].Pricing.InputPrice, 1e-12)
 }
 
-func TestFillGlobalPricingFallback_EmptyChannelPricingStaysAtomic(t *testing.T) {
-	// admin UI 建了 pricing 条目但没填价时保持原样，不从 LiteLLM 混合补价。
+func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
+	// 核心场景：admin UI 建了 pricing 条目（image 模式）但没填价，应走 LiteLLM 兜底。
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"gpt-image-1": {
 			Mode:                    "image_generation",
@@ -256,11 +281,11 @@ func TestFillGlobalPricingFallback_EmptyChannelPricingStaysAtomic(t *testing.T) 
 			},
 		},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.NotNil(t, models[0].Pricing)
 	require.Equal(t, BillingModeImage, models[0].Pricing.BillingMode)
-	require.Nil(t, models[0].Pricing.ImageOutputPrice)
-	require.False(t, channelPricingUsable(models[0].Pricing))
+	require.NotNil(t, models[0].Pricing.ImageOutputPrice)
+	require.InDelta(t, 4e-5, *models[0].Pricing.ImageOutputPrice, 1e-12)
 }
 
 func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {
@@ -277,7 +302,7 @@ func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {
 	models := []SupportedModel{
 		{Name: "served-model", Platform: "anthropic", Pricing: existing},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.Same(t, existing, models[0].Pricing)
 }
 

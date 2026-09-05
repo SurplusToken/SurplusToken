@@ -128,12 +128,17 @@ type UsageLog struct {
 	BillingTier *string
 	// BillingMode 计费模式：token/image
 	BillingMode *string
-	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
+	// ServiceTier records the billable request tier, e.g. OpenAI "priority" / "flex"
+	// or Anthropic "fast".
 	ServiceTier *string
-	// ReasoningEffort is the request's reasoning effort level.
+	// ReasoningEffort is the effective effort recorded for this request after
+	// group policy rewriting and model-family remapping (e.g. max -> xhigh).
 	// OpenAI: "low" / "medium" / "high" / "xhigh"; Claude: "low" / "medium" / "high" / "max".
 	// Nil means not provided / not applicable.
 	ReasoningEffort *string
+	// RequestedReasoningEffort is the client-requested effort before mapping.
+	// Nil means historical rows, or that no explicit/suffix-derived effort was observed.
+	RequestedReasoningEffort *string
 	// InboundEndpoint is the client-facing API endpoint path, e.g. /v1/chat/completions.
 	InboundEndpoint *string
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
@@ -170,18 +175,23 @@ type UsageLog struct {
 	// SharingRateMultiplier 计费时使用的账号共享报价倍率快照（nil 表示非共享消费或历史数据，按 1.0 处理）
 	SharingRateMultiplier *float64
 
-	BillingType  int8
-	RequestType  RequestType
-	Stream       bool
-	OpenAIWSMode bool
-	DurationMs   *int
-	FirstTokenMs *int
-	UserAgent    *string
-	IPAddress    *string
+	BillingType        int8
+	RequestType        RequestType
+	Stream             bool
+	OpenAIWSMode       bool
+	NativeCompactionV2 bool
+	DurationMs         *int
+	FirstTokenMs       *int
+	UserAgent          *string
+	IPAddress          *string
 	// SessionID is the explicit client-provided request correlation identifier
 	// (e.g. the session_id / X-Session-Id headers). Nil when the client sent no
 	// valid session header. It is never derived from prompt_cache_key or content.
 	SessionID *string
+	// UpstreamRequestID 是直接上游在响应头中声明的请求标识，只读账户
+	// extra.upstream_request_id_header 指定的头；账户未指定头名、WS 轮次
+	// 与上游没有该头的路径为 nil。
+	UpstreamRequestID *string
 
 	// Cache TTL Override 标记（管理员强制替换了缓存 TTL 计费）
 	CacheTTLOverridden bool

@@ -50,22 +50,7 @@ func (s *GatewayService) GetAdvertisedModelsForGroup(ctx context.Context, group 
 	groupID := group.ID
 	available := s.GetAvailableModels(ctx, &groupID, group.Platform)
 	models := resolveAdvertisedModelsForGroup(group, available, SharingRateActiveFromContext(ctx))
-	return s.FilterModelsWithUsablePricing(ctx, &groupID, models)
-}
-
-// FilterModelsWithUsablePricing removes models that would fail the strict
-// channel -> LiteLLM pricing gate.
-func (s *GatewayService) FilterModelsWithUsablePricing(ctx context.Context, groupID *int64, models []string) []string {
-	if s == nil || s.resolver == nil {
-		return cloneStringSlice(models)
-	}
-	filtered := make([]string, 0, len(models))
-	for _, model := range models {
-		if s.resolver.HasUsablePricing(ctx, PricingInput{Model: model, GroupID: groupID}) {
-			filtered = append(filtered, model)
-		}
-	}
-	return filtered
+	return models
 }
 
 func resolveAdvertisedModelsForGroup(group *Group, available []string, sharingFilterActive bool) []string {

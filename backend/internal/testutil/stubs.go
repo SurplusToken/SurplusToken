@@ -118,6 +118,13 @@ func (c StubGatewayCache) ReleaseGrokVideoBilled(_ context.Context, _ string) er
 	return nil
 }
 
+func (c StubGatewayCache) SetReasoningContent(_ context.Context, _ string, _ string, _ time.Duration) error {
+	return nil
+}
+func (c StubGatewayCache) GetReasoningContent(_ context.Context, _ string) (string, error) {
+	return "", service.ErrReasoningContentNotFound
+}
+
 // ============================================================
 // StubSessionLimitCache — service.SessionLimitCache 的空实现
 // ============================================================
@@ -130,6 +137,9 @@ func (c StubSessionLimitCache) RegisterSession(_ context.Context, _ int64, _ str
 	return true, nil
 }
 func (c StubSessionLimitCache) RefreshSession(_ context.Context, _ int64, _ string, _ time.Duration) error {
+	return nil
+}
+func (c StubSessionLimitCache) UnregisterSession(_ context.Context, _ int64, _ string) error {
 	return nil
 }
 func (c StubSessionLimitCache) GetActiveSessionCount(_ context.Context, _ int64) (int, error) {

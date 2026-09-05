@@ -235,6 +235,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
+		SettingKeyPluginManagementEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeySharingPoolDisplayEnabled,
@@ -367,8 +368,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 
-		ModelPlazaEnabled:     settings[SettingKeyModelPlazaEnabled] == "true",
-		ModelPlazaRequireAuth: settings[SettingKeyModelPlazaRequireAuth] == "true",
+		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
+		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
+		PluginManagementEnabled: settings[SettingKeyPluginManagementEnabled] == "true",
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
@@ -634,15 +636,16 @@ type PublicSettingsInjectionPayload struct {
 	AvailableChannelsEnabled   bool    `json:"available_channels_enabled"`
 	ModelPlazaEnabled          bool    `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth      bool    `json:"model_plaza_require_auth"`
+	PluginManagementEnabled    bool    `json:"plugin_management_enabled"`
 	AffiliateEnabled           bool    `json:"affiliate_enabled"`
 	RiskControlEnabled         bool    `json:"risk_control_enabled"`
+	AllowUserViewErrorRequests bool    `json:"allow_user_view_error_requests"`
 	SharingPoolDisplayEnabled  bool    `json:"sharing_pool_display_enabled"`
 	SharingRangeFilterEnabled  bool    `json:"sharing_range_filter_enabled"`
 	SharingPoolBillingEnabled  bool    `json:"sharing_pool_billing_enabled"`
 	SharingRateFloor           float64 `json:"sharing_rate_floor"`
 	SharingRateCap             float64 `json:"sharing_rate_cap"`
 	SharingRateCooldownMinutes int     `json:"sharing_rate_cooldown_minutes"`
-	AllowUserViewErrorRequests bool    `json:"allow_user_view_error_requests"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -720,6 +723,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
+		PluginManagementEnabled:              settings.PluginManagementEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		SharingPoolDisplayEnabled:            settings.SharingPoolDisplayEnabled,

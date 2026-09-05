@@ -28,15 +28,14 @@ type AvailableGroupRef struct {
 // AvailableChannel 可用渠道视图：用于「可用渠道」页面展示渠道基础信息 +
 // 关联的分组 + 推导出的支持模型列表（无通配符）。
 type AvailableChannel struct {
-	ID                      int64
-	Name                    string
-	Description             string
-	Status                  string
-	BillingModelSource      string
-	RestrictModels          bool
-	Groups                  []AvailableGroupRef
-	SupportedModels         []SupportedModel
-	AccountPricingOverrides []AccountModelPricingOverride
+	ID                 int64
+	Name               string
+	Description        string
+	Status             string
+	BillingModelSource string
+	RestrictModels     bool
+	Groups             []AvailableGroupRef
+	SupportedModels    []SupportedModel
 }
 
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。
@@ -77,14 +76,6 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		}
 	}
 
-	var accountOverrides []AccountModelPricingOverride
-	if repo, ok := s.repo.(accountModelPricingOverrideRepository); ok {
-		accountOverrides, err = repo.ListAccountModelPricingOverrides(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list account model pricing overrides: %w", err)
-		}
-	}
-
 	out := make([]AvailableChannel, 0, len(channels))
 	for i := range channels {
 		ch := &channels[i]
@@ -99,19 +90,17 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		ch.normalizeBillingModelSource()
 
 		supported := ch.SupportedModels()
-		s.fillGlobalPricingFallback(supported)
-		supported = filterUsableSupportedModels(supported)
+		fillGlobalPricingFallback(s.pricingService, supported)
 
 		out = append(out, AvailableChannel{
-			ID:                      ch.ID,
-			Name:                    ch.Name,
-			Description:             ch.Description,
-			Status:                  ch.Status,
-			BillingModelSource:      ch.BillingModelSource,
-			RestrictModels:          ch.RestrictModels,
-			Groups:                  groups,
-			SupportedModels:         supported,
-			AccountPricingOverrides: accountOverridesForGroups(accountOverrides, ch.GroupIDs),
+			ID:                 ch.ID,
+			Name:               ch.Name,
+			Description:        ch.Description,
+			Status:             ch.Status,
+			BillingModelSource: ch.BillingModelSource,
+			RestrictModels:     ch.RestrictModels,
+			Groups:             groups,
+			SupportedModels:    supported,
 		})
 	}
 
@@ -121,45 +110,106 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	return out, nil
 }
 
-func accountOverridesForGroups(overrides []AccountModelPricingOverride, groupIDs []int64) []AccountModelPricingOverride {
-	allowed := make(map[int64]struct{}, len(groupIDs))
-	for _, groupID := range groupIDs {
-		allowed[groupID] = struct{}{}
-	}
-	result := make([]AccountModelPricingOverride, 0)
-	for _, override := range overrides {
-		if _, ok := allowed[override.GroupID]; ok {
-			result = append(result, override)
-		}
-	}
-	return result
-}
-
 // fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份
 // 展示用定价。仅用于「可用渠道」展示，不影响真实计费链路。
 //
-// 仅当 Pricing == nil 时回落。渠道一旦声明定价，就作为原子配置处理，
-// 不从 LiteLLM 补齐缺失字段。
-func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
-	if s.pricingService == nil {
-		return
-	}
+// 触发条件：
+//  1. Pricing == nil（渠道完全没声明该模型的定价条目）
+//  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
+//
+// 当 pricingService 为 nil（测试场景），跳过价格回落，但仍补充内置模型倍率。
+// 可用渠道与模型广场共用。
+func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
 	for i := range models {
-		if models[i].Pricing != nil {
-			continue
+		if pricingService != nil && pricingNeedsFallback(models[i].Pricing) {
+			if lp := pricingService.GetModelPricing(models[i].Name); lp != nil {
+				models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+			}
 		}
-		lp := s.pricingService.GetModelPricing(models[i].Name)
-		if !liteLLMTokenPricingUsable(lp) && !liteLLMImagePricingUsable(lp) {
-			continue
-		}
-		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
 	}
 }
 
-// BuildSupportedModelsForDisplay converts resolved model IDs into the same
-// display shape used by configured channels and fills prices from LiteLLM.
-// Trailing-wildcard mappings are expanded against the platform defaults so the
-// user-facing catalog only contains model IDs that can be called directly.
+// pricingNeedsFallback 判定一个 ChannelModelPricing 是否需要走全局回落。
+// 价格全部缺失（无 flat 字段且无任何带价 interval）即视为未配置。
+func pricingNeedsFallback(p *ChannelModelPricing) bool {
+	if p == nil {
+		return true
+	}
+	if p.InputPrice != nil || p.OutputPrice != nil ||
+		p.CacheWritePrice != nil || p.CacheWrite1hPrice != nil || p.CacheReadPrice != nil ||
+		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
+		return false
+	}
+	for _, iv := range p.Intervals {
+		if iv.InputPrice != nil || iv.OutputPrice != nil ||
+			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheReadPrice != nil ||
+			iv.PerRequestPrice != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// synthesizePricingFromLiteLLM 把 LiteLLM 的定价数据转成 ChannelModelPricing 形态，
+// 仅用于展示。
+//
+// 计费模式优先级：
+//  1. 渠道已选 BillingMode（admin 在 UI 里选了 image / per_request 但没填价的场景，
+//     按选定模式合成对应字段）
+//  2. LiteLLM mode="image_generation" → image
+//  3. 默认 token
+//
+// LiteLLM 中字段 0 视为未配置，不带入展示。
+func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
+	if lp == nil {
+		return existing
+	}
+
+	mode := BillingModeToken
+	switch {
+	case existing != nil && existing.BillingMode != "":
+		mode = existing.BillingMode
+	case lp.Mode == "image_generation":
+		mode = BillingModeImage
+	}
+
+	if mode == BillingModeImage || mode == BillingModePerRequest {
+		return &ChannelModelPricing{
+			BillingMode:                  mode,
+			PerRequestPrice:              nonZeroPtr(lp.OutputCostPerImage),
+			ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
+			InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
+			OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
+			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
+		}
+	}
+	return &ChannelModelPricing{
+		BillingMode:                  mode,
+		InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
+		OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
+		CacheWritePrice:              nonZeroPtr(lp.CacheCreationInputTokenCost),
+		CacheWrite1hPrice:            nonZeroPtr(lp.CacheCreationInputTokenCostAbove1hr),
+		CacheReadPrice:               nonZeroPtr(lp.CacheReadInputTokenCost),
+		ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
+		MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
+	}
+}
+
+func maxReasoningEffortMultiplierFromPricing(pricing *ChannelModelPricing) *float64 {
+	if pricing == nil {
+		return nil
+	}
+	return pricing.MaxReasoningEffortMultiplier
+}
+
+func nonZeroPtr(v float64) *float64 {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
 func (s *ChannelService) BuildSupportedModelsForDisplay(platform string, modelIDs []string) []SupportedModel {
 	expanded := make([]string, 0, len(modelIDs))
 	defaults := defaultAdvertisedModelIDsForPlatform(platform)
@@ -192,65 +242,6 @@ func (s *ChannelService) BuildSupportedModelsForDisplay(platform string, modelID
 	sort.SliceStable(models, func(i, j int) bool {
 		return strings.ToLower(models[i].Name) < strings.ToLower(models[j].Name)
 	})
-	s.fillGlobalPricingFallback(models)
-	return filterUsableSupportedModels(models)
-}
-
-func filterUsableSupportedModels(models []SupportedModel) []SupportedModel {
-	filtered := make([]SupportedModel, 0, len(models))
-	for _, model := range models {
-		if channelPricingUsable(model.Pricing) {
-			filtered = append(filtered, model)
-		}
-	}
-	return filtered
-}
-
-// synthesizePricingFromLiteLLM 把 LiteLLM 的定价数据转成 ChannelModelPricing 形态，
-// 仅用于展示。
-//
-// 计费模式优先级：
-//  1. 渠道已选 BillingMode（admin 在 UI 里选了 image / per_request 但没填价的场景，
-//     按选定模式合成对应字段）
-//  2. LiteLLM mode="image_generation" → image
-//  3. 默认 token
-//
-// LiteLLM 中字段 0 视为未配置，不带入展示。
-func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
-	if lp == nil {
-		return existing
-	}
-
-	mode := BillingModeToken
-	switch {
-	case existing != nil && existing.BillingMode != "":
-		mode = existing.BillingMode
-	case lp.Mode == "image_generation":
-		mode = BillingModeImage
-	}
-
-	if mode == BillingModeImage || mode == BillingModePerRequest {
-		return &ChannelModelPricing{
-			BillingMode:      mode,
-			PerRequestPrice:  nonZeroPtr(lp.OutputCostPerImage),
-			ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
-			InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-			OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
-		}
-	}
-	return &ChannelModelPricing{
-		BillingMode:      mode,
-		InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-		OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
-		CacheWritePrice:  nonZeroPtr(lp.CacheCreationInputTokenCost),
-		CacheReadPrice:   nonZeroPtr(lp.CacheReadInputTokenCost),
-		ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
-	}
-}
-
-func nonZeroPtr(v float64) *float64 {
-	if v == 0 {
-		return nil
-	}
-	return &v
+	fillGlobalPricingFallback(s.pricingService, models)
+	return models
 }

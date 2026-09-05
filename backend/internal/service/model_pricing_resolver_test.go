@@ -13,13 +13,6 @@ import (
 func newTestBillingServiceForResolver() *BillingService {
 	bs := &BillingService{
 		fallbackPrices: make(map[string]*ModelPricing),
-		pricingService: &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-			"claude-sonnet-4": {
-				InputCostPerToken:       3e-6,
-				OutputCostPerToken:      15e-6,
-				CacheReadInputTokenCost: 0.3e-6,
-			},
-		}},
 	}
 	bs.fallbackPrices["claude-sonnet-4"] = &ModelPricing{
 		InputPricePerToken:         3e-6,
@@ -60,8 +53,8 @@ func TestResolve_UnknownModel(t *testing.T) {
 
 	require.NotNil(t, resolved)
 	require.Nil(t, resolved.BasePricing)
-	// Unknown models fail closed when neither channel nor LiteLLM can price them.
-	require.Equal(t, PricingSourceUnavailable, resolved.Source)
+	// Unknown model: GetModelPricing returns error, source is "fallback"
+	require.Equal(t, "fallback", resolved.Source)
 }
 
 func TestGetIntervalPricing_NoIntervals(t *testing.T) {
@@ -149,7 +142,7 @@ func TestGPT56ExplicitZeroCacheWritePriceIsPreserved(t *testing.T) {
 	})
 
 	t.Run("interval price", func(t *testing.T) {
-		pricing := intervalToModelPricing(&PricingInterval{CacheWritePrice: &zero}, false, nil)
+		pricing := intervalToModelPricing(&PricingInterval{CacheWritePrice: &zero}, &ModelPricing{}, nil)
 		require.True(t, pricing.CacheCreationPriceExplicit)
 
 		cost, err := bs.CalculateCostUnified(CostInput{
@@ -268,14 +261,13 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	require.Equal(t, "channel", resolved.Source)
 	require.NotNil(t, resolved.BasePricing)
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerTokenPriority, 1e-12)
+	require.Zero(t, resolved.BasePricing.InputPricePerTokenPriority)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerTokenPriority, 1e-12)
+	require.Zero(t, resolved.BasePricing.OutputPricePerTokenPriority)
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
-	// Partial channel pricing overrides only configured fields; omitted fields keep
-	// the official/LiteLLM base price.
+	// Channel only sets InputPrice; OutputPrice should remain from the base (LiteLLM/fallback).
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -294,6 +286,7 @@ func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
 	require.NotNil(t, resolved.BasePricing)
 	// InputPrice overridden by channel
 	require.InDelta(t, 20e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	// OutputPrice kept from base (fallback: 15e-6)
 	require.InDelta(t, 15e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 }
 
@@ -311,10 +304,12 @@ func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
 	resolved := r.Resolve(context.Background(), PricingInput{
 		Model:   "claude-sonnet-4",
 		GroupID: groupIDPtr(),
+		Group:   &Group{LongContextPricingEnabled: false},
 	})
 
 	require.NotNil(t, resolved)
 	require.Equal(t, "channel", resolved.Source)
+	require.False(t, resolved.longContextPricingEnabled)
 	require.Len(t, resolved.Intervals, 2)
 
 	// GetIntervalPricing should use channel intervals
@@ -534,12 +529,12 @@ func TestGetIntervalPricing_WithChannelIntervals(t *testing.T) {
 }
 
 func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
-	// Channel intervals don't match token count → falls back to the official
-	// base pricing.
+	// Channel intervals don't match token count → falls back to BasePricing.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
 		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(4e-6),
 		Intervals: []PricingInterval{
 			// Only covers tokens > 50000
 			{MinTokens: 50000, MaxTokens: testPtrInt(200000), InputPrice: testPtrFloat64(9e-6)},
@@ -553,10 +548,10 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 
 	// Token count 1000 doesn't match any interval (1000 <= 50000 minTokens)
 	pricing := r.GetIntervalPricing(resolved, 1000)
-	// Should fall back to BasePricing.
+	// Should fall back to BasePricing after applying the channel default.
 	require.NotNil(t, pricing)
 	require.Equal(t, resolved.BasePricing, pricing)
-	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 4e-6, pricing.InputPricePerToken, 1e-12)
 }
 
 // ===========================================================================
@@ -694,6 +689,13 @@ func TestFilterValidIntervals(t *testing.T) {
 			name: "interval with only PerRequestPrice kept",
 			intervals: []PricingInterval{
 				{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.04)},
+			},
+			wantLen: 1,
+		},
+		{
+			name: "interval with only multiplier kept",
+			intervals: []PricingInterval{
+				{MinTokens: 272000, InputMultiplier: testPtrFloat64(2)},
 			},
 			wantLen: 1,
 		},
@@ -864,9 +866,6 @@ func TestResolve_GroupLongContextUsesPresetNotCustomIntervals(t *testing.T) {
 	bs.fallbackPrices["claude-sonnet-4"].LongContextThresholdInclusive = true
 	bs.fallbackPrices["claude-sonnet-4"].LongContextInputMultiplier = 2
 	bs.fallbackPrices["claude-sonnet-4"].LongContextOutputMultiplier = 2
-	// Force this test through the configured built-in preset instead of the
-	// lightweight dynamic-pricing fixture used by other resolver tests.
-	bs.pricingService = nil
 	r := NewModelPricingResolver(nil, bs)
 	group := &Group{ID: 100, ModelPricing: []ChannelModelPricing{{
 		Models: []string{"claude-sonnet-4"}, BillingMode: BillingModeToken,
