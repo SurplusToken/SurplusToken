@@ -3,9 +3,12 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"math"
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -34,6 +37,8 @@ type carpoolUpstreamWindowRepository struct {
 	mu       sync.RWMutex
 	cache    map[int64]carpoolUpstreamWindowEntry
 	capacity map[int64]carpoolCapacityEntry
+	// reservedTotals 记住每组上一次同步后的 Σ保底，用于判断本次是否真的变了。
+	reservedTotals map[int64]float64
 }
 
 // NewCarpoolUpstreamWindowRepository 创建上游周窗口查询器。
@@ -41,7 +46,8 @@ func NewCarpoolUpstreamWindowRepository(db *sql.DB) service.CarpoolUpstreamWindo
 	return &carpoolUpstreamWindowRepository{
 		db:       db,
 		cache:    make(map[int64]carpoolUpstreamWindowEntry),
-		capacity: make(map[int64]carpoolCapacityEntry),
+		capacity:       make(map[int64]carpoolCapacityEntry),
+		reservedTotals: make(map[int64]float64),
 	}
 }
 
@@ -158,10 +164,102 @@ WHERE us.group_id = $1
 	if trusted {
 		smoothed = service.CarpoolSmoothObservedCapacity(cached.smoothed, sample)
 	}
-	snapshot := service.BuildCarpoolCapacitySnapshot(smoothed, totalReserved.Float64, trusted && smoothed > 0)
+
+	// 保底跟随实测容量。上游被风控缩水时，钉死的 0.8×申报 会让
+	// 公共池 = 容量 − Σ保底 变成 0 甚至负数，把刚越过保底的成员全拦掉
+	// （生产实例：实测 1899 < Σ保底 1920，一位成员超出 0.07 即被拒）。
+	// 按份额缩放后公共池恒与容量同号。
+	//
+	// 写库放在这里是因为本函数带 30 秒进程内缓存，每组每 30 秒最多写一次；
+	// 失败只记日志不阻断请求——退回本次读到的旧 Σ保底即可。
+	reservedTotal := totalReserved.Float64
+	reservesSynced := false
+	if trusted && smoothed > 0 {
+		if synced, err := r.syncGroupReserves(ctx, groupID, smoothed); err != nil {
+			logger.LegacyPrintf("repository.carpool_window",
+				"ALERT: sync carpool reserves failed group=%d capacity=%.2f: %v (保底维持原值)",
+				groupID, smoothed, err)
+		} else if synced.changed {
+			reservedTotal = synced.reservedTotal
+			reservesSynced = true
+		} else {
+			reservedTotal = synced.reservedTotal
+		}
+	}
+
+	snapshot := service.BuildCarpoolCapacitySnapshot(smoothed, reservedTotal, trusted && smoothed > 0)
+	snapshot.ReservesSynced = reservesSynced
 
 	r.mu.Lock()
 	r.capacity[groupID] = carpoolCapacityEntry{snapshot: snapshot, cachedAt: now, smoothed: smoothed}
 	r.mu.Unlock()
 	return snapshot, nil
+}
+
+// carpoolReserveSync 是一次保底同步的结果。
+type carpoolReserveSync struct {
+	reservedTotal float64
+	changed       bool
+}
+
+// syncGroupReserves 按实测容量重写全组成员的 weekly_reserved_usd。
+//
+//	保底 = 容量 × (申报 ÷ 车周限额) × reserve_ratio
+//
+// 只动带保底的拼车订阅（weekly_reserved_usd IS NOT NULL）——保底为 NULL 的
+// 是普通订阅或已撤销受管的车，不在此列；申报为 0 的自定义规则车算出来仍是 0，
+// 天然不受影响。
+//
+// changed 用 1e-6 的阈值判定，避免浮点噪声导致每 30 秒都被判为"变了"而
+// 反复触发计数器重算。
+func (r *carpoolUpstreamWindowRepository) syncGroupReserves(ctx context.Context, groupID int64, capacityUSD float64) (carpoolReserveSync, error) {
+	var out carpoolReserveSync
+	if r == nil || r.db == nil || groupID <= 0 || capacityUSD <= 0 {
+		return out, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+UPDATE user_subscriptions us
+SET weekly_reserved_usd = $2 * (m.declared_weekly_quota_usd / c.weekly_limit_usd) * c.reserve_ratio,
+    updated_at = NOW()
+FROM carpools c, carpool_members m
+WHERE c.group_id = $1
+  AND m.carpool_id = c.id
+  AND m.status IN ('joined', 'active')
+  AND us.group_id = $1
+  AND us.user_id = m.user_id
+  AND us.deleted_at IS NULL
+  AND us.weekly_reserved_usd IS NOT NULL
+  AND c.weekly_limit_usd > 0
+  AND c.reserve_ratio > 0
+RETURNING us.weekly_reserved_usd,
+          $2 * (m.declared_weekly_quota_usd / c.weekly_limit_usd) * c.reserve_ratio
+            IS DISTINCT FROM us.weekly_reserved_usd`, groupID, capacityUSD)
+	if err != nil {
+		return out, fmt.Errorf("sync carpool reserves: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var reserved float64
+		var differed bool
+		if err := rows.Scan(&reserved, &differed); err != nil {
+			return carpoolReserveSync{}, fmt.Errorf("scan carpool reserve sync: %w", err)
+		}
+		out.reservedTotal += reserved
+		_ = differed
+	}
+	if err := rows.Err(); err != nil {
+		return carpoolReserveSync{}, fmt.Errorf("iterate carpool reserve sync: %w", err)
+	}
+
+	r.mu.RLock()
+	prev := r.reservedTotals[groupID]
+	r.mu.RUnlock()
+	out.changed = math.Abs(out.reservedTotal-prev) > 1e-6
+	if out.changed {
+		r.mu.Lock()
+		r.reservedTotals[groupID] = out.reservedTotal
+		r.mu.Unlock()
+	}
+	return out, nil
 }

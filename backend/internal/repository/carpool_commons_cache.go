@@ -135,6 +135,13 @@ WHERE us.group_id = $1
 	return rebuilt, nil
 }
 
+// ResyncCommonsUsage 按当前保底重算计数器。复用 rebuildCommonsUsage 的
+// max(现值, 重算值) 语义：保底下调时重算值更大、会把计数器抬上去（偏严，
+// 正是需要的方向）；保底上调时保留现值，不会把已记的消耗抹掉。
+func (c *carpoolCommonsCache) ResyncCommonsUsage(ctx context.Context, groupID int64, windowStart time.Time) (float64, error) {
+	return c.rebuildCommonsUsage(ctx, carpoolCommonsKey(groupID, windowStart), groupID, windowStart)
+}
+
 func (c *carpoolCommonsCache) AddCommonsUsage(ctx context.Context, groupID int64, windowStart time.Time, delta float64) error {
 	if delta == 0 {
 		return nil

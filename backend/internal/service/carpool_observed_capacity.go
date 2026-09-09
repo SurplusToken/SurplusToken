@@ -29,6 +29,10 @@ type CarpoolCapacitySnapshot struct {
 	CommonsUSD float64
 	// Trusted 为 false 时调用方应退回发车时锁定的公共池容量。
 	Trusted bool
+	// ReservesSynced 为 true 表示本次已按实测容量重写了全组保底。调用方据此
+	// 重算公共池计数器——计数器累加的是 max(0,新−r)−max(0,旧−r)，r 一变
+	// 历史累加值就不再对应当前保底。
+	ReservesSynced bool
 	// Oversold 为 true 表示实测容量已经低于全车保底之和——这辆车超卖了，
 	// 保底在物理上无法全部兑现，运营需要知道。
 	Oversold bool
