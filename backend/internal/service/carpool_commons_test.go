@@ -12,8 +12,8 @@ import (
 
 // fakeCarpoolCommonsCounter 记录调用的 CarpoolCommonsCounter 假实现。
 type fakeCarpoolCommonsCounter struct {
-	used     float64
-	err      error
+	used        float64
+	err         error
 	getCalls    int
 	addCalls    int
 	resyncCalls int
