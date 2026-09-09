@@ -32,6 +32,9 @@ type CarpoolCommonsCounter interface {
 	// GetCommonsUsage 读取指定组在指定周窗口内已消耗的公共池用量（USD）。
 	// 计数器不存在（窗口未产生超额消耗）时必须返回 0, nil。
 	GetCommonsUsage(ctx context.Context, groupID int64, windowStart time.Time) (float64, error)
+	// ResyncCommonsUsage 按订阅行当前的保底重算并回填计数器。保底变动后必须
+	// 调用：累加值是按变动前的保底算的，不重算则计数器与现行保底脱节。
+	ResyncCommonsUsage(ctx context.Context, groupID int64, windowStart time.Time) (float64, error)
 	// AddCommonsUsage 原子累加公共池用量。delta 通常为正（见
 	// CarpoolCommonsExcessDelta）；调用方保证只在计费成功提交后调用。
 	AddCommonsUsage(ctx context.Context, groupID int64, windowStart time.Time, delta float64) error

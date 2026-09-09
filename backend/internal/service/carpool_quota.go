@@ -138,6 +138,28 @@ func CarpoolMemberLaunchWeeklyLimitUSD(carType int, weeklyLimitUSD, reserveRatio
 	return CarpoolMemberWeeklyLimitUSD(weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD, declaredTotalUSD)
 }
 
+// CarpoolReservedFromCapacityUSD 按整车实测容量计算成员保底：
+//
+//	保底 = 容量 × (申报 ÷ 车周限额) × reserveRatio
+//
+// 车周限额只当"申报占整车份额"的分母（对用户可见、不随人数波动），容量则取
+// 上游实测值。容量恰等于车周限额时本式退化为 reserveRatio×申报，与原口径一致。
+//
+// 改成跟随实测容量是因为上游会因风控缩水：容量掉下来而保底还钉在
+// 0.8×申报，公共池 = 容量 − Σ保底 会被算成 0 甚至负数，刚越过保底的成员
+// 当场被拒。生产上真发生过——codexpro 实测容量 1899 低于 Σ保底 1920，
+// 一位成员只超出保底 0.07 就被拦。
+//
+// 按份额缩放后，公共池恒为 容量 × (1 − reserveRatio × Σ申报/车周限额)，
+// 与容量同号，永远不会被挤成负数。
+func CarpoolReservedFromCapacityUSD(capacityUSD, weeklyLimitUSD, reserveRatio, declaredWeeklyQuotaUSD float64) float64 {
+	if weeklyLimitUSD <= 0 || capacityUSD <= 0 {
+		// 没有可信容量（上游用量还太低）时退回标称口径。
+		return CarpoolMemberReservedUSD(reserveRatio, declaredWeeklyQuotaUSD)
+	}
+	return capacityUSD * (declaredWeeklyQuotaUSD / weeklyLimitUSD) * reserveRatio
+}
+
 // CarpoolMemberReservedUSD 计算成员的保底额度 r = reserveRatio×申报。
 // 发车时写入订阅的 weekly_reserved_usd；周用量 < r 无条件放行（保底硬保证）。
 func CarpoolMemberReservedUSD(reserveRatio, declaredWeeklyQuotaUSD float64) float64 {

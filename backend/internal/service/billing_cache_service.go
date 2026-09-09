@@ -186,6 +186,14 @@ func (s *BillingCacheService) carpoolCommonsCapacity(ctx context.Context, sub *U
 	if snapshot == nil || !snapshot.Trusted {
 		return locked
 	}
+	// 保底刚被重写过：计数器累加的是按旧保底算的超额，必须按新保底重算，
+	// 否则拦截判据与现行保底脱节（保底下调时计数器偏小 → 拦不住）。
+	if snapshot.ReservesSynced && s.carpoolCommons != nil {
+		if _, err := s.carpoolCommons.ResyncCommonsUsage(ctx, sub.GroupID, *sub.WeeklyWindowStart); err != nil {
+			logger.LegacyPrintf("service.billing_cache",
+				"ALERT: resync carpool commons after reserve change failed group=%d: %v", sub.GroupID, err)
+		}
+	}
 	if snapshot.Oversold {
 		logger.LegacyPrintf("service.billing_cache",
 			"ALERT: carpool oversold group=%d observed=%.2f reserved=%.2f — 实测容量已低于全车保底之和，保底无法全部兑现",

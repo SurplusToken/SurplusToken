@@ -12,14 +12,21 @@ import (
 
 // fakeCarpoolCommonsCounter 记录调用的 CarpoolCommonsCounter 假实现。
 type fakeCarpoolCommonsCounter struct {
-	used     float64
-	err      error
-	getCalls int
-	addCalls int
+	used        float64
+	err         error
+	getCalls    int
+	addCalls    int
+	resyncCalls int
 }
 
 func (f *fakeCarpoolCommonsCounter) GetCommonsUsage(_ context.Context, _ int64, _ time.Time) (float64, error) {
 	f.getCalls++
+	return f.used, f.err
+}
+
+// ResyncCommonsUsage 在测试里等价于再读一次：桩不维护 DB，重算值就是当前值。
+func (f *fakeCarpoolCommonsCounter) ResyncCommonsUsage(_ context.Context, _ int64, _ time.Time) (float64, error) {
+	f.resyncCalls++
 	return f.used, f.err
 }
 
