@@ -5,9 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -22,16 +20,16 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Desktop2Web SSO ticket contract. These mirror desktop2web
 // packages/contracts/src/sso-ticket.ts and are validated for exact equality by the
 // gateway on every redemption, so they are protocol constants rather than tunables.
 const (
-	desktop2WebTicketVersion   = 1
-	desktop2WebTicketAudience  = "desktop2web-gateway"
-	desktop2WebTicketType      = "desktop2web-sso+jwt"
-	desktop2WebTicketAlgorithm = "ES256"
+	desktop2WebTicketVersion  = 1
+	desktop2WebTicketAudience = "desktop2web-gateway"
+	desktop2WebTicketType     = "desktop2web-sso+jwt"
 
 	// desktop2WebTicketMaxLifetime is the gateway's hard ceiling (exp - iat <= 120s).
 	desktop2WebTicketMaxLifetime = 120 * time.Second
@@ -323,7 +321,8 @@ func (c *Desktop2WebClient) MintTicket(userID, accessID, slotID string, grantExp
 
 // desktop2WebTicketClaims is the ticket payload. The gateway parses it with a strict
 // schema, so the field set is contract: no extra key may appear, and every timestamp
-// is an integer epoch in *seconds*.
+// is an integer epoch in *seconds*. The JSON tags are the wire format; the jwt.Claims
+// getters below only adapt the stored values and do not affect encoding.
 type desktop2WebTicketClaims struct {
 	Version   int    `json:"version"`
 	Issuer    string `json:"iss"`
@@ -336,34 +335,39 @@ type desktop2WebTicketClaims struct {
 	GrantExp  int64  `json:"grantExp"`
 }
 
-// sign builds the compact JWS. The signature is the raw R||S concatenation required
-// for ES256 (RFC 7518); the ASN.1 DER form x509 produces is not interchangeable.
-func (c *Desktop2WebClient) sign(claims desktop2WebTicketClaims) (string, error) {
-	headerJSON, err := json.Marshal(map[string]string{
-		"alg": desktop2WebTicketAlgorithm,
-		"kid": c.keyID,
-		"typ": desktop2WebTicketType,
-	})
-	if err != nil {
-		return "", fmt.Errorf("encode desktop2web ticket header: %w", err)
-	}
-	claimsJSON, err := json.Marshal(claims)
-	if err != nil {
-		return "", fmt.Errorf("encode desktop2web ticket claims: %w", err)
-	}
+var _ jwt.Claims = desktop2WebTicketClaims{}
 
-	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." +
-		base64.RawURLEncoding.EncodeToString(claimsJSON)
-	digest := sha256.Sum256([]byte(signingInput))
-	r, s, err := ecdsa.Sign(rand.Reader, c.privateKey, digest[:])
+func (c desktop2WebTicketClaims) GetExpirationTime() (*jwt.NumericDate, error) {
+	return jwt.NewNumericDate(time.Unix(c.ExpiresAt, 0)), nil
+}
+
+func (c desktop2WebTicketClaims) GetIssuedAt() (*jwt.NumericDate, error) {
+	return jwt.NewNumericDate(time.Unix(c.IssuedAt, 0)), nil
+}
+
+func (c desktop2WebTicketClaims) GetNotBefore() (*jwt.NumericDate, error) { return nil, nil }
+
+func (c desktop2WebTicketClaims) GetIssuer() (string, error) { return c.Issuer, nil }
+
+func (c desktop2WebTicketClaims) GetSubject() (string, error) { return c.Subject, nil }
+
+func (c desktop2WebTicketClaims) GetAudience() (jwt.ClaimStrings, error) {
+	return jwt.ClaimStrings{c.Audience}, nil
+}
+
+// sign builds the compact JWS with golang-jwt, the same library the rest of the
+// codebase signs JWTs with. Its ES256 signature is the raw R||S pair (RFC 7518) the
+// gateway requires, and its header encoding is byte-identical to the fixed
+// {alg,kid,typ} header the gateway pins.
+func (c *Desktop2WebClient) sign(claims desktop2WebTicketClaims) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["typ"] = desktop2WebTicketType
+	token.Header["kid"] = c.keyID
+	signed, err := token.SignedString(c.privateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign desktop2web ticket: %w", err)
 	}
-	size := (c.privateKey.Curve.Params().BitSize + 7) / 8
-	signature := make([]byte, 2*size)
-	r.FillBytes(signature[:size])
-	s.FillBytes(signature[size:])
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+	return signed, nil
 }
 
 // newTicketID returns a jti that satisfies the gateway's stable-id grammar. Hex is
