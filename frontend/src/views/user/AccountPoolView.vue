@@ -574,57 +574,17 @@
             </template>
 
             <template #cell-actions="{ row: account }">
-              <!-- Remote browser (Kasm) actions for Pro contributed accounts. -->
+              <!-- Remote browser hand-off for Pro contributed accounts: mints a -->
+              <!-- single-use ticket and submits it to the Desktop2Web gateway. -->
               <div v-if="isProAccount(account)" class="mb-1 flex flex-wrap items-center gap-1">
                 <button
-                  v-if="account.is_mine && !isRemoteSeedReady(account)"
                   type="button"
-                  class="btn btn-secondary btn-xs"
-                  :disabled="remoteState(account.id).busy"
-                  @click="setupRemoteLogin(account)"
+                  class="btn btn-primary btn-xs"
+                  :disabled="remoteBusyIds.has(account.id)"
+                  @click="connectRemoteSession(account)"
                 >
-                  {{ t('accountPool.remote.setup') }}
+                  {{ remoteBusyIds.has(account.id) ? t('accountPool.remote.connecting') : t('accountPool.remote.connect') }}
                 </button>
-                <template v-else-if="isRemoteSeedReady(account)">
-                  <template v-if="remoteState(account.id).queued">
-                    <span class="text-xs text-amber-600 dark:text-amber-400">
-                      {{ t('accountPool.remote.queued', { position: remoteState(account.id).position ?? '—' }) }}
-                    </span>
-                    <button type="button" class="btn btn-secondary btn-xs" @click="cancelRemoteQueue(account)">
-                      {{ t('accountPool.remote.cancelQueue') }}
-                    </button>
-                  </template>
-                  <template v-else>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-xs"
-                      :disabled="remoteState(account.id).busy"
-                      @click="connectRemoteSession(account)"
-                    >
-                      {{ remoteState(account.id).busy ? t('accountPool.remote.connecting') : t('accountPool.remote.connect') }}
-                    </button>
-                    <button
-                      v-if="remoteState(account.id).kasmId"
-                      type="button"
-                      class="btn btn-secondary btn-xs"
-                      :disabled="remoteState(account.id).busy"
-                      @click="disconnectRemoteSession(account)"
-                    >
-                      {{ t('accountPool.remote.disconnect') }}
-                    </button>
-                    <!-- Owner can re-run setup anytime to refresh the seed login (e.g. when
-                         the ChatGPT session expires), instead of being stuck on connect. -->
-                    <button
-                      v-if="account.is_mine"
-                      type="button"
-                      class="btn btn-secondary btn-xs"
-                      :disabled="remoteState(account.id).busy"
-                      @click="setupRemoteLogin(account)"
-                    >
-                      {{ t('accountPool.remote.relogin') }}
-                    </button>
-                  </template>
-                </template>
               </div>
               <div v-if="account.is_mine" class="flex items-center gap-1">
                 <button
@@ -1890,196 +1850,45 @@ const pagination = reactive({
   total: 0,
 })
 
-// --- Remote browser session (Kasm) state, keyed by account id ----------------
-interface RemoteSessionState {
-  busy: boolean // setup / connect request in flight
-  queued: boolean
-  position: number | null
-  kasmId: string | null // set once a session is running, enables "断开"
-  timer: number | null // polling timer for queued sessions
-}
-const remoteSessions = reactive<Map<number, RemoteSessionState>>(new Map())
-
-// The opened Kasm Window handle and its close-poll interval are kept OUT of the
-// reactive state on purpose: Vue introspects reactive values (reads __v_isReadonly),
-// which throws a SecurityError on a cross-origin Window. Plain non-reactive maps.
-const remoteWindows = new Map<number, Window>()
-const remoteWatchTimers = new Map<number, number>()
-// Keepalive ping timers (every ~30s while the Kasm tab is open). Kept out of reactive
-// state for the same cross-origin reason as the window/watch maps above.
-const remoteKeepaliveTimers = new Map<number, number>()
-
-function remoteState(id: number): RemoteSessionState {
-  let state = remoteSessions.get(id)
-  if (!state) {
-    state = { busy: false, queued: false, position: null, kasmId: null, timer: null }
-    remoteSessions.set(id, state)
-  }
-  return state
-}
-
-function clearRemoteTimer(state: RemoteSessionState) {
-  if (state.timer !== null) {
-    window.clearTimeout(state.timer)
-    state.timer = null
-  }
-}
-
-function clearRemoteWatch(accountId: number) {
-  const t = remoteWatchTimers.get(accountId)
-  if (t !== undefined) {
-    window.clearInterval(t)
-    remoteWatchTimers.delete(accountId)
-  }
-  const k = remoteKeepaliveTimers.get(accountId)
-  if (k !== undefined) {
-    window.clearInterval(k)
-    remoteKeepaliveTimers.delete(accountId)
-  }
-  remoteWindows.delete(accountId)
-}
-
-// watchRemoteWindow polls the opened Kasm tab; when the user closes it we
-// auto-disconnect so the container is torn down instead of lingering until the
-// Kasm keepalive / 4h hard limit. Closing the tab is the "user left" signal.
-// The Window lives in a non-reactive map (see above); only window.closed is read,
-// which is safe to access cross-origin.
-function watchRemoteWindow(account: UserAccountPoolItem, win: Window | null) {
-  clearRemoteWatch(account.id)
-  if (!win) return
-  remoteWindows.set(account.id, win)
-  const timer = window.setInterval(() => {
-    if (!win.closed) return
-    clearRemoteWatch(account.id)
-    const state = remoteState(account.id)
-    const kid = state.kasmId
-    state.kasmId = null
-    if (kid) {
-      // Best-effort; the slot frees up regardless.
-      accountsAPI.disconnectRemoteSession(account.id, kid).catch(() => {})
-    }
-  }, 2000)
-  remoteWatchTimers.set(account.id, timer)
-
-  // Keepalive: while the tab is open, ping the backend every 30s so the reconciler keeps
-  // the container alive (Kasm's connection_info is empty, so this is the liveness signal
-  // that prevents the session from being reaped mid-use).
-  const keepalive = window.setInterval(() => {
-    if (win.closed) return
-    accountsAPI.keepaliveRemoteSession(account.id).catch(() => {})
-  }, 30000)
-  remoteKeepaliveTimers.set(account.id, keepalive)
-}
+// --- Remote browser session (Desktop2Web hand-off), keyed by account id ------
+// Only the in-flight request is tracked here. The gateway owns everything after the
+// hand-off — runtime startup, session lifetime, idle shutdown and revocation — so there
+// is no queue to poll, no live handle to keep alive and nothing to tear down locally.
+const remoteBusyIds = reactive(new Set<number>())
 
 function isProAccount(account: UserAccountPoolItem): boolean {
   const plan = (account.plan_type || '').toLowerCase()
   return plan === 'pro' || plan === 'chatgptpro'
 }
 
-function isRemoteSeedReady(account: UserAccountPoolItem): boolean {
-  // Top-level remote_seed_ready is exposed to owner AND co-owners (extra is owner-only).
-  return account.remote_seed_ready === true || account.extra?.remote_seed_ready === true
-}
-
-async function setupRemoteLogin(account: UserAccountPoolItem) {
-  const state = remoteState(account.id)
-  if (state.busy) return
-  state.busy = true
-  try {
-    const res = await accountsAPI.setupRemoteSession(account.id)
-    state.kasmId = res.kasm_id ?? null
-    if (res.connect_url) {
-      const win = window.open(res.connect_url, '_blank')
-      watchRemoteWindow(account, win)
-    }
-    appStore.showSuccess(t('accountPool.remote.setupHint'))
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.setupFailed')))
-  } finally {
-    state.busy = false
-  }
-}
-
-function applyRemoteResult(account: UserAccountPoolItem, res: {
-  status: 'ready' | 'queued'
-  connect_url?: string
-  kasm_id?: string
-  position?: number
-}) {
-  const state = remoteState(account.id)
-  if (res.status === 'ready') {
-    clearRemoteTimer(state)
-    state.queued = false
-    state.position = null
-    state.kasmId = res.kasm_id ?? null
-    if (res.connect_url) {
-      const win = window.open(res.connect_url, '_blank')
-      watchRemoteWindow(account, win)
-    } else {
-      appStore.showError(t('accountPool.remote.openFailed'))
-    }
-  } else {
-    state.queued = true
-    state.position = res.position ?? null
-  }
-}
-
-function pollRemoteSession(account: UserAccountPoolItem) {
-  const state = remoteState(account.id)
-  state.timer = window.setTimeout(async () => {
-    if (!state.queued) return
-    try {
-      const res = await accountsAPI.getRemoteSessionStatus(account.id)
-      applyRemoteResult(account, res)
-      if (state.queued) {
-        pollRemoteSession(account)
-      }
-    } catch (err: unknown) {
-      clearRemoteTimer(state)
-      state.queued = false
-      state.position = null
-      appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.openFailed')))
-    }
-  }, 3000)
+// submitRemoteTicket hands the single-use ticket to the gateway as a form POST in a new
+// tab. A form submission rather than a URL keeps the ticket out of browser history, the
+// Referer header and anything that logs request URLs.
+function submitRemoteTicket(redeemUrl: string, ticket: string) {
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = redeemUrl
+  form.target = '_blank'
+  const field = document.createElement('input')
+  field.type = 'hidden'
+  field.name = 'ticket'
+  field.value = ticket
+  form.appendChild(field)
+  document.body.appendChild(form)
+  form.submit()
+  form.remove()
 }
 
 async function connectRemoteSession(account: UserAccountPoolItem) {
-  const state = remoteState(account.id)
-  if (state.busy || state.queued) return
-  state.busy = true
+  if (remoteBusyIds.has(account.id)) return
+  remoteBusyIds.add(account.id)
   try {
-    const res = await accountsAPI.startRemoteSession(account.id)
-    applyRemoteResult(account, res)
-    if (state.queued) {
-      pollRemoteSession(account)
-    }
+    const { ticket, redeem_url: redeemUrl } = await accountsAPI.startRemoteSession(account.id)
+    submitRemoteTicket(redeemUrl, ticket)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.openFailed')))
   } finally {
-    state.busy = false
-  }
-}
-
-function cancelRemoteQueue(account: UserAccountPoolItem) {
-  const state = remoteState(account.id)
-  clearRemoteTimer(state)
-  state.queued = false
-  state.position = null
-}
-
-async function disconnectRemoteSession(account: UserAccountPoolItem) {
-  const state = remoteState(account.id)
-  if (!state.kasmId || state.busy) return
-  state.busy = true
-  try {
-    await accountsAPI.disconnectRemoteSession(account.id, state.kasmId)
-    clearRemoteWatch(account.id)
-    state.kasmId = null
-    appStore.showSuccess(t('accountPool.remote.disconnectSuccess'))
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('accountPool.remote.disconnectFailed')))
-  } finally {
-    state.busy = false
+    remoteBusyIds.delete(account.id)
   }
 }
 
@@ -3622,6 +3431,5 @@ onUnmounted(() => {
   if (dynamicPoolRefreshTimer !== null) {
     window.clearInterval(dynamicPoolRefreshTimer)
   }
-  remoteSessions.forEach((state) => clearRemoteTimer(state))
 })
 </script>
