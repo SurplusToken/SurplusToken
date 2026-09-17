@@ -32,26 +32,22 @@ type UserAccountPoolListFilters struct {
 }
 
 type UserAccountPoolItem struct {
-	ID                      int64          `json:"id"`
-	Name                    string         `json:"name"`
-	Platform                string         `json:"platform"`
-	Type                    string         `json:"type"`
-	PlanType                string         `json:"plan_type,omitempty"`
-	PrivacyMode             string         `json:"privacy_mode,omitempty"`
-	SubscriptionExpiresAt   string         `json:"subscription_expires_at,omitempty"`
-	ProxyID                 *int64         `json:"proxy_id,omitempty"`
-	Proxy                   *Proxy         `json:"proxy,omitempty"`
-	Status                  string         `json:"status"`
-	RateLimitResetAt        *time.Time     `json:"rate_limit_reset_at,omitempty"`
-	OverloadUntil           *time.Time     `json:"overload_until,omitempty"`
-	TempUnschedulableUntil  *time.Time     `json:"temp_unschedulable_until,omitempty"`
-	TempUnschedulableReason string         `json:"temp_unschedulable_reason,omitempty"`
-	Extra                   map[string]any `json:"extra,omitempty"`
-	IsMine                  bool           `json:"is_mine"`
-	// RemoteSeedReady is true when the account owner has completed remote-browser
-	// setup, exposed to the owner AND co-owners (Extra is owner-only) so the remote
-	// "连接" button shows for co-owners too. Requires co-owners hydrated on the account.
-	RemoteSeedReady                    bool                   `json:"remote_seed_ready"`
+	ID                                 int64                  `json:"id"`
+	Name                               string                 `json:"name"`
+	Platform                           string                 `json:"platform"`
+	Type                               string                 `json:"type"`
+	PlanType                           string                 `json:"plan_type,omitempty"`
+	PrivacyMode                        string                 `json:"privacy_mode,omitempty"`
+	SubscriptionExpiresAt              string                 `json:"subscription_expires_at,omitempty"`
+	ProxyID                            *int64                 `json:"proxy_id,omitempty"`
+	Proxy                              *Proxy                 `json:"proxy,omitempty"`
+	Status                             string                 `json:"status"`
+	RateLimitResetAt                   *time.Time             `json:"rate_limit_reset_at,omitempty"`
+	OverloadUntil                      *time.Time             `json:"overload_until,omitempty"`
+	TempUnschedulableUntil             *time.Time             `json:"temp_unschedulable_until,omitempty"`
+	TempUnschedulableReason            string                 `json:"temp_unschedulable_reason,omitempty"`
+	Extra                              map[string]any         `json:"extra,omitempty"`
+	IsMine                             bool                   `json:"is_mine"`
 	IsUserContributed                  bool                   `json:"is_user_contributed"`
 	Concurrency                        int                    `json:"concurrency,omitempty"`
 	Schedulable                        bool                   `json:"schedulable"`
@@ -133,7 +129,6 @@ type CreateUserOAuthAccountRequest struct {
 	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
-
 
 type UserDynamicPoolSource struct {
 	Kind      string `json:"kind"`
@@ -243,20 +238,6 @@ func (s *AccountService) ListUserAccountPool(ctx context.Context, userID int64, 
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("list account pool: %w", err)
-	}
-
-	// Hydrate co-owners (batch, no N+1) so accountToUserPoolItem can recognize co-owners
-	// — needed for RemoteSeedReady (the remote-browser "连接" button) to show for them.
-	if len(accounts) > 0 {
-		ids := make([]int64, len(accounts))
-		for i := range accounts {
-			ids[i] = accounts[i].ID
-		}
-		if coOwners, cErr := s.accountRepo.ListCoOwnersByAccountIDs(ctx, ids); cErr == nil {
-			for i := range accounts {
-				accounts[i].CoOwnerUserIDs = coOwners[accounts[i].ID]
-			}
-		}
 	}
 
 	items := make([]UserAccountPoolItem, 0, len(accounts))
@@ -450,8 +431,8 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if len(req.Credentials) == 0 {
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
-	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)}
-
+	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)
+}
 
 func (s *AccountService) createUserContributedAccount(ctx context.Context, userID int64, req CreateUserOAuthAccountRequest, accountType string) (*UserAccountPoolItem, error) {
 	if userID <= 0 {
@@ -1078,9 +1059,6 @@ func accountToUserPoolItem(account *Account, currentUserID int64) UserAccountPoo
 		CreatedAt:                          account.CreatedAt,
 		UpdatedAt:                          account.UpdatedAt,
 	}
-	// Expose seed-ready to the owner AND co-owners (Extra below is owner-only), so the
-	// remote "连接" button renders for co-owners. Co-owners must be hydrated on account.
-	item.RemoteSeedReady = account.IsSurplusAIOwner(currentUserID) && account.getExtraBool(remoteSeedReadyExtraKey)
 	if v := account.getExtraString("codex_5h_reset_at"); v != "" {
 		item.FiveHourResetsAt = &v
 	}

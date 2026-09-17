@@ -183,12 +183,9 @@ func RegisterUserRoutes(
 			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
 			accounts.DELETE("/:id", h.AccountPool.Delete)
 
-			// 远程连接（远程浏览器 / Kasm）— 仅 Pro 账号 + owner/co-owner。
-			accounts.POST("/pool/:id/remote-session/setup", h.AccountPool.RemoteSessionSetup)
+			// 远程连接（Desktop2Web 远程浏览器）— 仅 Pro 账号 + owner/co-owner。
+			// 单端点：签发一次性 SSO ticket，浏览器 form POST 到网关兑换。
 			accounts.POST("/pool/:id/remote-session", h.AccountPool.RemoteSessionConnect)
-			accounts.GET("/pool/:id/remote-session/status", h.AccountPool.RemoteSessionStatus)
-			accounts.POST("/pool/:id/remote-session/keepalive", h.AccountPool.RemoteSessionKeepalive)
-			accounts.POST("/pool/:id/remote-session/disconnect", h.AccountPool.RemoteSessionDisconnect)
 
 			// 贡献奖励池（账号级)— 仅主 owner 可查看/分发给 owner 集合。
 			accounts.GET("/pool/:id/contribution-pool", h.AccountPool.GetContributionPool)

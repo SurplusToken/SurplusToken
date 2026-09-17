@@ -361,57 +361,21 @@ export async function applyOAuthCredentials(
   return data
 }
 
-// --- Remote browser session (Kasm) -------------------------------------------
+// --- Remote browser session (Desktop2Web hand-off) ---------------------------
 
-export interface RemoteSessionResponse {
-  status: 'ready' | 'queued'
-  connect_url?: string
-  kasm_id?: string
-  position?: number
+// RemoteSessionHandoff is what the browser needs to enter a session. The ticket is
+// single-use and short-lived; the caller form-POSTs it straight to redeem_url, so it
+// is deliberately never placed in a URL we control (history, Referer, logs).
+export interface RemoteSessionHandoff {
+  ticket: string
+  redeem_url: string
 }
 
-// Owner-only: open a remote browser to log into ChatGPT and create the seed.
-export async function setupRemoteSession(id: number): Promise<RemoteSessionResponse> {
-  const { data } = await apiClient.post<RemoteSessionResponse>(
-    `/accounts/pool/${id}/remote-session/setup`,
-  )
-  return data
-}
-
-// Request (or join the queue for) a remote browser session for an account.
-export async function startRemoteSession(id: number): Promise<RemoteSessionResponse> {
-  const { data } = await apiClient.post<RemoteSessionResponse>(
+// Owner or co-owner: provision the caller's access and mint a single-use SSO ticket
+// for this account.
+export async function startRemoteSession(id: number): Promise<RemoteSessionHandoff> {
+  const { data } = await apiClient.post<RemoteSessionHandoff>(
     `/accounts/pool/${id}/remote-session`,
-  )
-  return data
-}
-
-// Poll the status of a queued remote session.
-export async function getRemoteSessionStatus(id: number): Promise<RemoteSessionResponse> {
-  const { data } = await apiClient.get<RemoteSessionResponse>(
-    `/accounts/pool/${id}/remote-session/status`,
-  )
-  return data
-}
-
-// Disconnect / release a running remote session.
-export async function disconnectRemoteSession(
-  id: number,
-  kasmId: string,
-): Promise<Record<string, never>> {
-  const { data } = await apiClient.post<Record<string, never>>(
-    `/accounts/pool/${id}/remote-session/disconnect`,
-    { kasm_id: kasmId },
-  )
-  return data
-}
-
-// keepaliveRemoteSession is pinged every ~30s while the Kasm tab is open so the backend
-// reconciler knows the user is still here (Kasm's own connection_info is empty in this
-// deployment, so this is the reliable "still connected" signal).
-export async function keepaliveRemoteSession(id: number): Promise<Record<string, never>> {
-  const { data } = await apiClient.post<Record<string, never>>(
-    `/accounts/pool/${id}/remote-session/keepalive`,
   )
   return data
 }
@@ -510,11 +474,7 @@ export const accountsAPI = {
   setPrivacy,
   scheduledTests: scheduledTestsAPI,
   applyOAuthCredentials,
-  setupRemoteSession,
   startRemoteSession,
-  getRemoteSessionStatus,
-  keepaliveRemoteSession,
-  disconnectRemoteSession,
 }
 
 export default accountsAPI

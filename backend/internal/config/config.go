@@ -101,7 +101,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
-	Kasm                    KasmConfig                    `mapstructure:"kasm"`
+	Desktop2Web             Desktop2WebConfig             `mapstructure:"desktop2web"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
@@ -118,19 +118,40 @@ type ChatConfig struct {
 	MaxMessageChars    int            `mapstructure:"max_message_chars"`
 }
 
-// KasmConfig holds settings for the Kasm Workspaces "远程连接" (remote browser)
-// feature. Secrets (api_key/api_secret) come from env: KASM_API_KEY / KASM_API_SECRET.
-// The HTTP client for api_base skips TLS verification (Tailscale IP base whose cert
-// CN does not match). public_host is the host the end-user's browser connects to.
-type KasmConfig struct {
-	APIBase    string `mapstructure:"api_base"`    // e.g. https://100.111.145.57 (Tailscale)
-	APIKey     string `mapstructure:"api_key"`     // from env KASM_API_KEY
-	APISecret  string `mapstructure:"api_secret"`  // from env KASM_API_SECRET
-	ImageID    string `mapstructure:"image_id"`    // remote-browser Kasm image id
-	PublicHost string `mapstructure:"public_host"` // e.g. kasm.surplustoken.com
-	// SeedNamespace isolates seed dirs and Kasm users per environment ("prod" /
-	// "staging") so deployments sharing one Kasm don't share login state. Empty = none.
-	SeedNamespace string `mapstructure:"seed_namespace"` // env KASM_SEED_NAMESPACE
+// Desktop2WebConfig holds settings for the "远程连接" (remote browser) feature, which
+// hands the user off to a Desktop2Web gateway through a single-use SSO ticket instead
+// of starting a remote-desktop container and persisting a browser profile.
+//
+// Trust split: the gateway is configured with the ES256 *public* key only, so this
+// deployment is the sole ticket issuer and owns the private key. The gateway cannot
+// mint a session for itself.
+//
+// Secrets come from env: DESKTOP2WEB_ADMIN_PASSWORD and the private key file.
+// Empty base_url disables the feature (NewDesktop2WebClient returns nil).
+type Desktop2WebConfig struct {
+	// BaseURL is the public origin of the Desktop2Web gateway, e.g.
+	// https://d2w.surplustoken.com. Must be an origin without a path.
+	BaseURL string `mapstructure:"base_url"`
+	// Issuer must equal the gateway's DESKTOP2WEB_SSO_ISSUER; it is compared for
+	// exact string equality on every redemption.
+	Issuer string `mapstructure:"issuer"`
+	// KeyID must equal the gateway's DESKTOP2WEB_SSO_KEY_ID. It travels in the
+	// ticket's protected header as `kid` and is likewise compared exactly.
+	KeyID string `mapstructure:"key_id"`
+	// PrivateKeyFile is a PEM-encoded EC P-256 private key (PKCS#8 or SEC1) used to
+	// sign tickets. The gateway holds the matching SPKI public key.
+	PrivateKeyFile string `mapstructure:"private_key_file"`
+	// AdminPassword is the Desktop2Web admin password. The access-provisioning API
+	// has no service credential (no bearer token, API key or mTLS), so the client
+	// logs in with this to obtain the admin session cookie it needs.
+	AdminPassword string `mapstructure:"admin_password"`
+	// Role is the access role granted to connected users: "chat-ui" (default) or
+	// "chat-isolated". The gateway's admin API cannot write "operator".
+	Role string `mapstructure:"role"`
+	// GrantTTLSeconds bounds how long a granted Access stays valid. Each connect
+	// requests grantExp = now + this, and the resulting web session expires at the
+	// earlier of that grant and the ticket's own expiry.
+	GrantTTLSeconds int `mapstructure:"grant_ttl_seconds"`
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -2619,14 +2640,16 @@ func setDefaults() {
 	viper.SetDefault("subscription_maintenance.worker_count", 2)
 	viper.SetDefault("subscription_maintenance.queue_size", 1024)
 
-	// Kasm remote-browser ("远程连接") — secrets via env KASM_API_KEY / KASM_API_SECRET.
-	// Empty api_base disables the feature (NewKasmClient returns nil).
-	viper.SetDefault("kasm.api_base", "")
-	viper.SetDefault("kasm.api_key", "")
-	viper.SetDefault("kasm.api_secret", "")
-	viper.SetDefault("kasm.image_id", "")
-	viper.SetDefault("kasm.public_host", "")
-	viper.SetDefault("kasm.seed_namespace", "")
+	// Desktop2Web remote-browser ("远程连接") — secrets via env
+	// DESKTOP2WEB_ADMIN_PASSWORD and the private key file.
+	// Empty base_url disables the feature (NewDesktop2WebClient returns nil).
+	viper.SetDefault("desktop2web.base_url", "")
+	viper.SetDefault("desktop2web.issuer", "")
+	viper.SetDefault("desktop2web.key_id", "")
+	viper.SetDefault("desktop2web.private_key_file", "")
+	viper.SetDefault("desktop2web.admin_password", "")
+	viper.SetDefault("desktop2web.role", "")
+	viper.SetDefault("desktop2web.grant_ttl_seconds", 0)
 
 	setEnvReachableDefaults()
 }

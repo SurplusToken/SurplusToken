@@ -1267,3 +1267,36 @@ image_storage:
   presign_expiry_hours: 24
   # 当上游返回的是图片 url 时，下载该图片再转存的字节上限（默认 32MB）
   max_download_bytes: 33554432
+
+# =============================================================================
+# Remote Browser Hand-off (远程浏览器交接 / Desktop2Web)
+# =============================================================================
+# “远程连接”不再自建远程桌面容器，而是把浏览器交给 Desktop2Web 网关：本服务为
+# (用户, 账号) 供给一条 Access，并签发一次性 ES256 SSO ticket；前端把 ticket 以
+# form POST 提交到网关的 /auth/sso/redeem，由网关建立会话。
+#
+# 信任划分：网关只配置 ES256 公钥，私钥仅在本服务，因此只有本服务能签发 ticket。
+# base_url 留空即整体关闭该功能（接口返回 503 REMOTE_SESSION_NOT_CONFIGURED）。
+#
+# 账号映射：默认用 accounts.credentials.email 按 “@” -> “-at-” 约定推导网关的
+# accountSlotId；如需覆盖，在该账号的 extra 中设置 desktop2web_slot_id。
+# 网关供给 Access 时不校验 slot 是否存在，因此发送前会先用 GET /accounts 预校验。
+desktop2web:
+  # Desktop2Web 网关的公开 origin（不带路径），例如 https://d2w.example.com。
+  # 同时用于 admin 登录与写操作的 Origin 头，必须与该网关的
+  # DESKTOP2WEB_PUBLIC_ORIGIN 完全一致。
+  base_url: ""
+  # 必须等于网关的 DESKTOP2WEB_SSO_ISSUER
+  issuer: ""
+  # 必须等于网关的 DESKTOP2WEB_SSO_KEY_ID（ticket 头部 kid）
+  key_id: ""
+  # PEM 编码的 EC P-256 私钥（PKCS#8 或 SEC1）；网关侧持有对应 SPKI 公钥
+  private_key_file: ""
+  # 网关管理员密码。供给 Access 的接口没有服务凭证，只能使用管理员会话。
+  # 建议通过环境变量 DESKTOP2WEB_ADMIN_PASSWORD 注入，不要写进配置文件。
+  admin_password: ""
+  # 授予用户的 Access 角色：chat-ui（默认）或 chat-isolated
+  role: ""
+  # Access 授权有效期（秒），默认 43200（12 小时）；
+  # 浏览器会话取其与 ticket 自身有效期中的较早者
+  grant_ttl_seconds: 0

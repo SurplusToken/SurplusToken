@@ -1401,7 +1401,6 @@ export interface UserAccountPoolItem {
     privacy_mode?: string
   } & Record<string, unknown>
   is_mine: boolean
-  remote_seed_ready?: boolean
   is_user_contributed: boolean
   concurrency?: number
   schedulable: boolean

@@ -394,18 +394,17 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-// ProvideKasmClient builds the Kasm client from config. Returns nil (feature
-// disabled) when kasm.api_base is empty.
-func ProvideKasmClient(cfg *config.Config) *KasmClient {
-	return NewKasmClient(cfg)
+// ProvideDesktop2WebClient builds the Desktop2Web hand-off client from config.
+// Returns nil (feature disabled) when desktop2web.base_url is empty.
+func ProvideDesktop2WebClient(cfg *config.Config) *Desktop2WebClient {
+	return NewDesktop2WebClient(cfg)
 }
 
-// ProvideRemoteSessionService creates and starts the remote-browser ("远程连接")
-// service, including its ~30s reconciler goroutine.
-func ProvideRemoteSessionService(repo RemoteSessionRepository, accountSvc *AccountService, kasm *KasmClient) *RemoteSessionService {
-	svc := NewRemoteSessionService(repo, accountSvc, kasm, 30*time.Second)
-	svc.Start()
-	return svc
+// ProvideRemoteSessionService creates the remote-browser ("远程连接") service. It owns
+// no goroutine: the Desktop2Web gateway tracks session lifetime, so there is nothing
+// local to reconcile.
+func ProvideRemoteSessionService(accountSvc *AccountService, client *Desktop2WebClient) *RemoteSessionService {
+	return NewRemoteSessionService(accountSvc, client)
 }
 
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.
@@ -986,7 +985,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountExpiryService,
 	ProvideOpenAICodexVersionSyncService,
 	ProvideProxyExpiryService,
-	ProvideKasmClient,
+	ProvideDesktop2WebClient,
 	ProvideRemoteSessionService,
 	NewAccountContributionService,
 	ProvideSubscriptionExpiryService,
