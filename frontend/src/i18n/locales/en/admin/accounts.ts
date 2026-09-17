@@ -622,6 +622,9 @@ export default {
         longContextBilling: 'API long-context pricing',
         longContextBillingDesc:
           'Disabled by default. Enable only when this account\'s upstream charges OpenAI API long-context rates above the model threshold.',
+        testStoreFalse: 'Force store:false on test requests',
+        testStoreFalseDesc:
+          'Send store:false in OpenAI Responses account-test probes. Enable for relay upstreams (e.g. CC Host) that reject test requests without store. OAuth accounts always send it.',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',

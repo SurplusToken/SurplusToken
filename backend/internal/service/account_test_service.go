@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -846,7 +847,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth || accountForcesTestStoreFalse(account) || accountForcesTestStoreFalse(credentialAccount))
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2724,8 +2725,12 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 	}
 }
 
-// createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+// createOpenAITestPayload creates a test payload for OpenAI Responses API.
+// noStore must be true for OAuth accounts (ChatGPT internal API requires
+// store:false) and for API-key accounts whose Extra sets
+// openai_test_store_false — some relay upstreams (e.g. CC Host) reject test
+// requests that omit store.
+func createOpenAITestPayload(modelID string, noStore bool) map[string]any {
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2742,8 +2747,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 		"stream": true,
 	}
 
-	// OAuth accounts using ChatGPT internal API require store: false
-	if isOAuth {
+	if noStore {
 		payload["store"] = false
 	}
 
@@ -2751,6 +2755,25 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 	payload["instructions"] = openai.DefaultInstructions
 
 	return payload
+}
+
+// accountForcesTestStoreFalse reports whether an account opts into sending
+// store:false on OpenAI Responses account-test probes. Set
+// Extra["openai_test_store_false"]=true for API-key accounts whose upstream
+// rejects test requests without store.
+func accountForcesTestStoreFalse(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	switch v := account.Extra["openai_test_store_false"].(type) {
+	case bool:
+		return v
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		return err == nil && parsed
+	default:
+		return false
+	}
 }
 
 func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
