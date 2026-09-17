@@ -62,6 +62,8 @@ export default {
       declaredOf: '{declared} / {limit} USD reserved',
       launchLine: '{ratio}% launch line',
       remainingJoinable: 'Joinable quota',
+      avgPrice: 'Avg. price',
+      avgPriceUnit: '/ person',
       carMonthlyFee: 'Car monthly fee',
       carMonthlyFeeSeat: 'seat',
       carMonthlyFeePool: 'usage',

@@ -767,7 +767,7 @@
         </div>
 
         <div v-if="createForm.platform === 'gemini'" class="space-y-3">
-          <label class="input-label">{{ t('admin.accounts.gemini.oauthType') }}</label>
+          <label class="input-label">{{ t('admin.accounts.oauth.gemini.oauthTypeLabel') }}</label>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               v-for="option in geminiOAuthOptions"

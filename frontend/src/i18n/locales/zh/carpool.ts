@@ -62,6 +62,8 @@ export default {
       declaredOf: '已预约 {declared} / {limit} USD',
       launchLine: '{ratio}% 发车线',
       remainingJoinable: '剩余可预约',
+      avgPrice: '人均价格',
+      avgPriceUnit: '/ 人',
       carMonthlyFee: '整车月费',
       carMonthlyFeeSeat: '席位',
       carMonthlyFeePool: '用量',
