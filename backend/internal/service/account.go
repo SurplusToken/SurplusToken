@@ -1744,9 +1744,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultZhipuPayGBaseURL
 	case a.IsDeepseek():
 		return DefaultDeepseekBaseURL
-	case PlatformMiniMax:
+	case a.IsMiniMax():
 		return DefaultMiniMaxBaseURL
-	case PlatformOpenCodeGo:
+	case a.IsOpenCodeGo():
 		return a.openCodeDefaultChatBaseURL()
 	default:
 		return "https://api.openai.com"
