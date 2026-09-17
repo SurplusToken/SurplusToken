@@ -11,35 +11,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
-func normalizeGroupModelsListConfig(cfg GroupModelsListConfig) GroupModelsListConfig {
-	out := GroupModelsListConfig{Enabled: cfg.Enabled}
-	if len(cfg.Models) == 0 {
-		return out
-	}
-
-	seen := make(map[string]struct{}, len(cfg.Models))
-	out.Models = make([]string, 0, len(cfg.Models))
-	for _, model := range cfg.Models {
-		model = strings.TrimSpace(model)
-		if model == "" {
-			continue
-		}
-		if _, ok := seen[model]; ok {
-			continue
-		}
-		seen[model] = struct{}{}
-		out.Models = append(out.Models, model)
-	}
-	if len(out.Models) == 0 {
-		out.Models = nil
-	}
-	return out
-}
-
-func (g *Group) CustomModelsListEnabled() bool {
-	return g != nil && g.ModelsListConfig.Enabled && len(g.ModelsListConfig.Models) > 0
-}
-
 // GetAdvertisedModelsForGroup resolves the concrete model IDs that /v1/models
 // would advertise for a group: schedulable account mappings first, then the
 // optional group allow-list, and finally the platform defaults.
@@ -62,7 +33,7 @@ func resolveAdvertisedModelsForGroup(group *Group, available []string, sharingFi
 	}
 
 	defaults := defaultAdvertisedModelIDsForPlatform(group.Platform)
-	if group.CustomModelsListEnabled() {
+	if group.ModelAllowlistEnabled() {
 		source := available
 		customDefaults := defaults
 		if group.Platform == PlatformAnthropic {
@@ -71,7 +42,10 @@ func resolveAdvertisedModelsForGroup(group *Group, available []string, sharingFi
 				source = mergeAdvertisedModelIDs(source, customDefaults)
 			}
 		}
-		return filterAdvertisedModels(source, customDefaults, group.ModelsListConfig.Models)
+		if len(source) == 0 {
+			source = customDefaults
+		}
+		return group.ModelAllowlist.FilterForListing(source)
 	}
 	if len(available) > 0 {
 		return cloneStringSlice(available)
@@ -105,50 +79,6 @@ func defaultAdvertisedModelIDsForPlatform(platform string) []string {
 		}
 		return ids
 	}
-}
-
-func filterAdvertisedModels(available, defaults, selected []string) []string {
-	if len(selected) == 0 {
-		return cloneStringSlice(available)
-	}
-	source := available
-	if len(source) == 0 {
-		source = defaults
-	}
-	if len(source) == 0 {
-		return nil
-	}
-
-	allowed := make([]string, 0, len(source))
-	for _, model := range source {
-		if model = strings.TrimSpace(model); model != "" {
-			allowed = append(allowed, model)
-		}
-	}
-
-	seen := make(map[string]struct{}, len(selected))
-	filtered := make([]string, 0, len(selected))
-	for _, model := range selected {
-		model = strings.TrimSpace(model)
-		if model == "" || !advertisedModelsAllow(allowed, model) {
-			continue
-		}
-		if _, ok := seen[model]; ok {
-			continue
-		}
-		seen[model] = struct{}{}
-		filtered = append(filtered, model)
-	}
-	return filtered
-}
-
-func advertisedModelsAllow(patterns []string, model string) bool {
-	for _, pattern := range patterns {
-		if pattern == model || (strings.HasSuffix(pattern, "*") && strings.HasPrefix(model, strings.TrimSuffix(pattern, "*"))) {
-			return true
-		}
-	}
-	return false
 }
 
 func mergeAdvertisedModelIDs(primary, secondary []string) []string {

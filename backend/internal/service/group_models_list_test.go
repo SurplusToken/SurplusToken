@@ -26,7 +26,7 @@ func TestResolveAdvertisedModelsForGroup_PrefersAccountMappings(t *testing.T) {
 func TestResolveAdvertisedModelsForGroup_AppliesCustomAllowList(t *testing.T) {
 	group := &Group{
 		Platform: PlatformOpenAI,
-		ModelsListConfig: GroupModelsListConfig{
+		ModelAllowlist: GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-5", "not-available"},
 		},
