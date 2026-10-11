@@ -44,8 +44,8 @@ type carpoolUpstreamWindowRepository struct {
 // NewCarpoolUpstreamWindowRepository 创建上游周窗口查询器。
 func NewCarpoolUpstreamWindowRepository(db *sql.DB) service.CarpoolUpstreamWindowSource {
 	return &carpoolUpstreamWindowRepository{
-		db:       db,
-		cache:    make(map[int64]carpoolUpstreamWindowEntry),
+		db:             db,
+		cache:          make(map[int64]carpoolUpstreamWindowEntry),
 		capacity:       make(map[int64]carpoolCapacityEntry),
 		reservedTotals: make(map[int64]float64),
 	}

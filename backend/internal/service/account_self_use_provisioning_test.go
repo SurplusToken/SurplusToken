@@ -242,7 +242,7 @@ func TestFindUserSelfUseGroupID_FiltersByPlatform(t *testing.T) {
 	require.Equal(t, int64(901), groupID)
 }
 
-func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiPlatforms(t *testing.T) {
+func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiAPIKeySkipsLegacyKimiOAuth(t *testing.T) {
 	ownerID := int64(7)
 	otherOwnerID := int64(8)
 	accountRepo := &accountPoolRepoStub{accounts: []Account{
@@ -262,12 +262,12 @@ func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiPlatforms(t *testing.T) {
 	count, err := svc.BackfillSelfUseForUser(context.Background(), ownerID)
 
 	require.NoError(t, err)
-	require.Equal(t, 3, count)
+	require.Equal(t, 2, count)
 	require.Len(t, groupRepo.createdAll, 2)
 	require.Equal(t, PlatformOpenAI, groupRepo.createdAll[0].Platform)
 	require.Equal(t, PlatformKimi, groupRepo.createdAll[1].Platform)
 	require.Equal(t, []int64{42}, groupRepo.bound[groupRepo.createdAll[0].ID])
-	require.Equal(t, []int64{43, 44}, groupRepo.bound[groupRepo.createdAll[1].ID])
+	require.Equal(t, []int64{44}, groupRepo.bound[groupRepo.createdAll[1].ID])
 }
 
 func TestTeardownSelfUseAccess_EmptyGroupRevokesEverything(t *testing.T) {

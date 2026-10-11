@@ -74,11 +74,35 @@ function makeOllamaUsage(accountId: number, overrides: Partial<NonNullable<Accou
   }
 }
 
-// CN 平台 Ollama Cloud 用例共用的子组件 stub：按 data-test 断言渲染与否
+function makeOpenCodeGoUsage(accountId: number, overrides: Partial<NonNullable<Account['opencode_go_usage']>> = {}) {
+  return {
+    account_id: accountId,
+    eligible: true,
+    auto_refresh_enabled: true,
+    snapshot: {
+      status: 'ok' as const,
+      fetched_at: '2026-07-22T12:00:00Z',
+      last_attempt_at: '2026-07-22T12:00:00Z',
+      next_refresh_at: '2026-07-22T13:00:00Z',
+      data: {
+        rolling: { percent: 5.6, resets_at: '2026-07-23T03:00:00Z' },
+        weekly: { percent: 14.2, resets_at: '2026-07-29T00:00:00Z' },
+        monthly: { percent: 33.3, resets_at: '2026-08-01T00:00:00Z' }
+      }
+    },
+    ...overrides,
+  }
+}
+
+// CN 平台 Ollama Cloud / OpenCode Go 用例共用的子组件 stub：按 data-test 断言渲染与否
 const cnUsageCellStubs = {
   OllamaCloudUsageCell: {
     props: ['account'],
     template: '<div data-test="embedded-ollama">ollama</div>'
+  },
+  OpenCodeGoUsageCell: {
+    props: ['account'],
+    template: '<div data-test="opencode-go-cell" />'
   },
   CNProviderQuotaCell: {
     template: '<div data-test="cn-quota-cell" />'
@@ -240,6 +264,149 @@ describe('AccountUsageCell', () => {
     expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(false)
   })
 
+  it.each(['opencode_go', 'kimi', 'zhipu', 'deepseek', 'minimax'] as const)(
+    '%s 平台 OpenCode Go eligible 时只渲染 OpenCode 用量单元格并跳过 CN 子单元格',
+    async (platform) => {
+      const wrapper = mount(AccountUsageCell, {
+        props: {
+          account: makeAccount({
+            id: 9100,
+            platform,
+            type: 'apikey',
+            credentials: { account_mode: platform === 'opencode_go' ? 'go' : 'coding' },
+            opencode_go_usage: makeOpenCodeGoUsage(9100)
+          })
+        },
+        global: {
+          stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+        }
+      })
+
+      await flushPromises()
+
+      // 同一账号只渲染一次 OpenCode 用量单元格
+      expect(wrapper.findAll('[data-test="opencode-go-cell"]')).toHaveLength(1)
+      expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(false)
+      expect(wrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(false)
+      expect(getUsage).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    { name: 'opencode_go（go 模式）', platform: 'opencode_go' as const, mode: 'go' },
+    { name: 'kimi（coding 模式）', platform: 'kimi' as const, mode: 'coding' }
+  ])('OpenCode Go 不合格时（$name）仍渲染 CN 子单元格', async ({ platform, mode }) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9101,
+          platform,
+          type: 'apikey',
+          credentials: { account_mode: mode },
+          opencode_go_usage: makeOpenCodeGoUsage(9101, { eligible: false })
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="opencode-go-cell"]')).toHaveLength(0)
+  })
+
+  it('openai apikey 挂载 OpenCode Go 时在非 CN 分支渲染一次且不渲染占位符', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9102,
+          platform: 'openai',
+          type: 'apikey',
+          opencode_go_usage: makeOpenCodeGoUsage(9102)
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test="opencode-go-cell"]')).toHaveLength(1)
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    // 用量单元格已渲染时不再叠加 `-` 占位符
+    expect(wrapper.text()).not.toContain('-')
+  })
+
+  it('Command Code 账号渲染额度与积分余额单元格', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9103,
+          platform: 'command_code',
+          type: 'apikey',
+          credentials: { api_key: 'user_test_key', account_mode: 'payg' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('-')
+  })
+
+  it('自定义中转的 Command Code 账号没有可查的用量接口，显示占位符', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9105,
+          platform: 'command_code',
+          type: 'apikey',
+          credentials: { api_key: 'user_test_key', account_mode: 'payg', base_url: 'https://relay.example.com/v1' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(true)
+  })
+
+  it('Cline 账号渲染 ClinePass 窗口与积分余额单元格', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9104,
+          platform: 'cline',
+          type: 'apikey',
+          credentials: { api_key: 'sk-cline' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    // 子单元格可见时不显示 `-` 占位符（按量账号与订阅账号用同一套单元格）。
+    expect(wrapper.text()).not.toContain('-')
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {
@@ -379,7 +546,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|77|300')
   })
 
-  it('Kimi OAuth 展示 5h/7d 额度条并只提供主动查询', async () => {
+  it('旧 Kimi OAuth 不再展示 OpenAI OAuth 额度与查询入口', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 25,
@@ -418,13 +585,11 @@ describe('AccountUsageCell', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledWith(2020)
-    expect(wrapper.text()).toContain('5h|25|2026-03-08T12:00:00Z')
-    expect(wrapper.text()).toContain('7d|60|2026-03-13T12:00:00Z')
+    expect(wrapper.text()).not.toContain('5h|25|2026-03-08T12:00:00Z')
+    expect(wrapper.text()).not.toContain('7d|60|2026-03-13T12:00:00Z')
     expect(wrapper.findComponent({ name: 'OpenAIQuotaResetCell' }).exists()).toBe(false)
 
-    await wrapper.get('[data-testid="kimi-usage-refresh"]').trigger('click')
-    await flushPromises()
-    expect(getUsage).toHaveBeenLastCalledWith(2020, 'active', true)
+    expect(wrapper.find('[data-testid="kimi-usage-refresh"]').exists()).toBe(false)
   })
 
   it('OpenAI OAuth 有 codex 快照时仍然使用 /usage API 数据渲染', async () => {

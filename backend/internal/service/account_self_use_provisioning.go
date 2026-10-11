@@ -281,7 +281,7 @@ func (s *AccountService) BackfillSelfUseForUser(ctx context.Context, ownerUserID
 		}
 		for i := range accounts {
 			acc := accounts[i]
-			if acc.OwnerUserID == nil || *acc.OwnerUserID != ownerUserID || !acc.IsSurplusAISchedulableType() {
+			if acc.OwnerUserID == nil || *acc.OwnerUserID != ownerUserID || !acc.IsSurplusAISchedulableType() || (acc.Platform == PlatformKimi && acc.Type != AccountTypeAPIKey) {
 				continue
 			}
 			if err := s.ensureSelfUseAccess(ctx, ownerUserID, &acc); err != nil {

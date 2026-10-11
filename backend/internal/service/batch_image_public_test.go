@@ -500,17 +500,17 @@ func TestBatchImagePublicService_ExcludesContributedAccounts(t *testing.T) {
 		zeroOwner := int64(0)
 		contributed := testBatchImageAccount(999, AccountTypeOAuth)
 		contributed.OwnerUserID = &ownerID
-		contributed.Priority = 9999
+		contributed.Priority = -9999
 		zeroOwnerAccount := testBatchImageAccount(998, AccountTypeOAuth)
 		zeroOwnerAccount.OwnerUserID = &zeroOwner
-		zeroOwnerAccount.Priority = 9998
+		zeroOwnerAccount.Priority = -9998
 		accountRepo.accounts = append(accountRepo.accounts, contributed, zeroOwnerAccount)
 
 		got, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
 		require.NoError(t, err)
 		job := repo.jobs[got.ID]
 		require.NotNil(t, job.AccountID)
-		require.Equal(t, int64(202), *job.AccountID)
+		require.Equal(t, int64(101), *job.AccountID)
 	})
 
 	t.Run("submit fails when only contributed accounts are schedulable", func(t *testing.T) {

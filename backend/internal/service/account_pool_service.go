@@ -134,7 +134,6 @@ type CreateUserOAuthAccountRequest struct {
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
-
 type UserDynamicPoolSource struct {
 	Kind      string `json:"kind"`
 	Total     int    `json:"total"`
@@ -450,8 +449,8 @@ func (s *AccountService) CreateUserOAuthAccount(ctx context.Context, userID int6
 	if len(req.Credentials) == 0 {
 		return nil, infraerrors.BadRequest("ACCOUNT_CREDENTIALS_REQUIRED", "OAuth credentials are required")
 	}
-	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)}
-
+	return s.createUserContributedAccount(ctx, userID, req, AccountTypeOAuth)
+}
 
 func (s *AccountService) createUserContributedAccount(ctx context.Context, userID int64, req CreateUserOAuthAccountRequest, accountType string) (*UserAccountPoolItem, error) {
 	if userID <= 0 {
@@ -564,13 +563,6 @@ func buildUserOAuthAccountExtra(platform string, rawExtra map[string]any) map[st
 	if platform == PlatformOpenAI {
 		if value, ok := rawExtra["codex_cli_only"].(bool); ok && value {
 			extra["codex_cli_only"] = true
-		}
-	}
-	if platform == PlatformKimi {
-		extra["openai_compatible_provider"] = "kimi"
-		extra["openai_responses_mode"] = "force_chat_completions"
-		if value, ok := safeUserOAuthExtraString(rawExtra["kimi_api_protocol"]); ok {
-			extra["kimi_api_protocol"] = value
 		}
 	}
 	return extra
@@ -1273,7 +1265,7 @@ func (s *AccountService) validateUserAccountProxy(ctx context.Context, proxyID *
 
 func isUserOAuthPlatformAllowed(platform string) bool {
 	switch platform {
-	case PlatformOpenAI, PlatformKimi:
+	case PlatformOpenAI:
 		return true
 	default:
 		return false

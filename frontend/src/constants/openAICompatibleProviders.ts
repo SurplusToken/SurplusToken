@@ -1,7 +1,3 @@
-import type { OpenAIEndpointCapability, OpenAIResponsesMode } from '@/types'
-
-export type OpenAICompatibleProvider = 'openai' | 'kimi' | 'zhipu'
-
 export const KIMI_CODE_MODELS = [
   'k3',
   'kimi-for-coding',
@@ -33,46 +29,3 @@ export const ZHIPU_CODING_MODELS = [
   'glm-4.7-flash',
   'glm-4.5-air'
 ] as const
-
-interface OpenAICompatibleProviderPreset {
-  label: string
-  baseUrl: string
-  oauthBaseUrl?: string
-  apiKeyPlaceholder: string
-  modelCatalogPlatform: string
-  oauthModelCatalogPlatform?: string
-  responsesMode: OpenAIResponsesMode
-  endpointCapabilities: OpenAIEndpointCapability[]
-}
-
-export const OPENAI_COMPATIBLE_PROVIDER_PRESETS: Record<
-  OpenAICompatibleProvider,
-  OpenAICompatibleProviderPreset
-> = {
-  openai: {
-    label: 'OpenAI',
-    baseUrl: 'https://api.openai.com',
-    apiKeyPlaceholder: 'sk-proj-...',
-    modelCatalogPlatform: 'openai',
-    responsesMode: 'auto',
-    endpointCapabilities: ['chat_completions', 'embeddings']
-  },
-  kimi: {
-    label: 'Kimi',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    oauthBaseUrl: 'https://api.kimi.com/coding/v1',
-    apiKeyPlaceholder: 'sk-...',
-    modelCatalogPlatform: 'kimi-api',
-    oauthModelCatalogPlatform: 'kimi-code',
-    responsesMode: 'force_chat_completions',
-    endpointCapabilities: ['chat_completions']
-  },
-  zhipu: {
-    label: '智谱 GLM',
-    baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-    apiKeyPlaceholder: 'API Key',
-    modelCatalogPlatform: 'zhipu',
-    responsesMode: 'force_chat_completions',
-    endpointCapabilities: ['chat_completions']
-  }
-}

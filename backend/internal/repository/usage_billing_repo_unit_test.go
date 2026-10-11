@@ -24,6 +24,8 @@ const (
 	liveContributionAccountSQL  = `(?s)SELECT id\s+FROM accounts\s+WHERE id = \$1 AND deleted_at IS NULL\s+FOR KEY SHARE`
 	insertContributionLedgerSQL = `(?s)INSERT INTO account_contribution_pool_ledger \(\s*account_id,\s*direction,\s*amount,\s*usage_billing_request_id,\s*api_key_id,\s*consumer_user_id,\s*sharing_rate_multiplier,\s*reward_rate,\s*actual_cost\s*\)\s*VALUES \(\$1, 'accrue', \$2, \$3, \$4, \$5, \$6, \$7, \$8\)`
 	upsertContributionPoolSQL   = `(?s)INSERT INTO account_contribution_pools \(account_id, pool_amount, updated_at\)\s+VALUES \(\$1, \$2, NOW\(\)\)\s+ON CONFLICT \(account_id\) DO UPDATE`
+	apiKeyQuotaIncrementSQL     = `(?s)UPDATE api_keys\s+SET quota_used = quota_used \+ \$1,.*WHERE id = \$2 AND deleted_at IS NULL\s+RETURNING`
+	apiKeyRateLimitIncrementSQL = `(?s)UPDATE api_keys SET\s+usage_5h = .*WHERE id = \$2 AND deleted_at IS NULL`
 )
 
 func TestDeductUsageBillingBalance_UsesSufficientBalanceGuard(t *testing.T) {
@@ -107,7 +109,7 @@ func TestApplyUsageBillingEffects_FlagsBalanceOverdraft(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestApplyUsageBillingEffects_AccruesLedgerAndPoolAfterFullBalanceCollection(t *testing.T) {
+func TestApplyUsageBillingEffects_DeletedAPIKeyStillBillsBalance(t *testing.T) {
 	ctx := context.Background()
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -118,105 +120,52 @@ func TestApplyUsageBillingEffects_AccruesLedgerAndPoolAfterFullBalanceCollection
 	require.NoError(t, err)
 	mock.ExpectQuery(conditionalBalanceDeductSQL).
 		WithArgs(10.0, int64(42)).
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
-	mock.ExpectQuery(liveContributionAccountSQL).
-		WithArgs(int64(99)).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
-	mock.ExpectExec(insertContributionLedgerSQL).
-		WithArgs(int64(99), 8.0, "req-reward", int64(7), int64(42), 2.0, 80.0, 10.0).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(upsertContributionPoolSQL).
-		WithArgs(int64(99), 8.0).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	result := &service.UsageBillingApplyResult{Applied: true}
-	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
-		RequestID:                         "req-reward",
-		APIKeyID:                          7,
-		UserID:                            42,
-		BalanceCost:                       10,
-		ContributionPoolAccountID:         99,
-		ContributionPoolAmount:            8,
-		ContributionRewardRatePercent:     80,
-		ContributionSharingRateMultiplier: 2,
-	}, result)
-	require.NoError(t, err)
-	require.False(t, result.BalanceOverdrafted)
-	require.NoError(t, tx.Commit())
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestApplyUsageBillingEffects_LedgerFailureAbortsPoolAccrual(t *testing.T) {
-	ctx := context.Background()
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
-
-	mock.ExpectBegin()
-	tx, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	mock.ExpectQuery(conditionalBalanceDeductSQL).
-		WithArgs(10.0, int64(42)).
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
-	mock.ExpectQuery(liveContributionAccountSQL).
-		WithArgs(int64(99)).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
-	ledgerErr := errors.New("ledger insert failed")
-	mock.ExpectExec(insertContributionLedgerSQL).
-		WithArgs(int64(99), 8.0, "req-reward-failure", int64(7), int64(42), 2.0, 80.0, 10.0).
-		WillReturnError(ledgerErr)
-	mock.ExpectRollback()
-
-	result := &service.UsageBillingApplyResult{Applied: true}
-	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
-		RequestID:                         "req-reward-failure",
-		APIKeyID:                          7,
-		UserID:                            42,
-		BalanceCost:                       10,
-		ContributionPoolAccountID:         99,
-		ContributionPoolAmount:            8,
-		ContributionRewardRatePercent:     80,
-		ContributionSharingRateMultiplier: 2,
-	}, result)
-	require.ErrorIs(t, err, ledgerErr)
-	require.NoError(t, tx.Rollback())
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestApplyUsageBillingEffects_DeletedAccountSkipsRewardButCommitsCharge(t *testing.T) {
-	ctx := context.Background()
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
-
-	mock.ExpectBegin()
-	tx, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	mock.ExpectQuery(conditionalBalanceDeductSQL).
-		WithArgs(10.0, int64(42)).
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
-	mock.ExpectQuery(liveContributionAccountSQL).
-		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(90.0))
+	mock.ExpectQuery(apiKeyQuotaIncrementSQL).
+		WithArgs(10.0, int64(7), service.StatusAPIKeyActive, service.StatusAPIKeyQuotaExhausted).
 		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(apiKeyRateLimitIncrementSQL).
+		WithArgs(10.0, int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	result := &service.UsageBillingApplyResult{Applied: true}
 	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
-		RequestID:                         "req-deleted-account",
-		APIKeyID:                          7,
-		UserID:                            42,
-		BalanceCost:                       10,
-		ContributionEligible:              true,
-		ContributionPoolAccountID:         99,
-		ContributionPoolAmount:            8,
-		ContributionRewardRatePercent:     80,
-		ContributionSharingRateMultiplier: 2,
+		UserID:              42,
+		APIKeyID:            7,
+		BalanceCost:         10,
+		APIKeyQuotaCost:     10,
+		APIKeyRateLimitCost: 10,
 	}, result)
 	require.NoError(t, err)
 	require.NotNil(t, result.NewBalance)
-	require.Equal(t, 15.0, *result.NewBalance)
+	require.InDelta(t, 90.0, *result.NewBalance, 0.000001)
+	require.False(t, result.APIKeyQuotaExhausted)
 	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyUsageBillingEffects_APIKeyCounterErrorStillFails(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectExec(apiKeyRateLimitIncrementSQL).
+		WithArgs(10.0, int64(7)).
+		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
+
+	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
+		UserID:              42,
+		APIKeyID:            7,
+		APIKeyRateLimitCost: 10,
+	}, &service.UsageBillingApplyResult{Applied: true})
+	require.ErrorIs(t, err, sql.ErrConnDone)
+	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -377,6 +326,119 @@ func TestReleaseUsageBillingBatchImageBalance_SkipsWhenHoldNeverReserved(t *test
 	require.NoError(t, err)
 	require.Nil(t, result.NewBalance)
 	require.Nil(t, result.FrozenBalance)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyUsageBillingEffects_AccruesLedgerAndPoolAfterFullBalanceCollection(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(10.0, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
+	mock.ExpectQuery(liveContributionAccountSQL).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
+	mock.ExpectExec(insertContributionLedgerSQL).
+		WithArgs(int64(99), 8.0, "req-reward", int64(7), int64(42), 2.0, 80.0, 10.0).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertContributionPoolSQL).
+		WithArgs(int64(99), 8.0).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result := &service.UsageBillingApplyResult{Applied: true}
+	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
+		RequestID:                         "req-reward",
+		APIKeyID:                          7,
+		UserID:                            42,
+		BalanceCost:                       10,
+		ContributionPoolAccountID:         99,
+		ContributionPoolAmount:            8,
+		ContributionRewardRatePercent:     80,
+		ContributionSharingRateMultiplier: 2,
+	}, result)
+	require.NoError(t, err)
+	require.False(t, result.BalanceOverdrafted)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyUsageBillingEffects_LedgerFailureAbortsPoolAccrual(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(10.0, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
+	mock.ExpectQuery(liveContributionAccountSQL).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(99))
+	ledgerErr := errors.New("ledger insert failed")
+	mock.ExpectExec(insertContributionLedgerSQL).
+		WithArgs(int64(99), 8.0, "req-reward-failure", int64(7), int64(42), 2.0, 80.0, 10.0).
+		WillReturnError(ledgerErr)
+	mock.ExpectRollback()
+
+	result := &service.UsageBillingApplyResult{Applied: true}
+	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
+		RequestID:                         "req-reward-failure",
+		APIKeyID:                          7,
+		UserID:                            42,
+		BalanceCost:                       10,
+		ContributionPoolAccountID:         99,
+		ContributionPoolAmount:            8,
+		ContributionRewardRatePercent:     80,
+		ContributionSharingRateMultiplier: 2,
+	}, result)
+	require.ErrorIs(t, err, ledgerErr)
+	require.NoError(t, tx.Rollback())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyUsageBillingEffects_DeletedAccountSkipsRewardButCommitsCharge(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(10.0, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(15.0))
+	mock.ExpectQuery(liveContributionAccountSQL).
+		WithArgs(int64(99)).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectCommit()
+
+	result := &service.UsageBillingApplyResult{Applied: true}
+	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
+		RequestID:                         "req-deleted-account",
+		APIKeyID:                          7,
+		UserID:                            42,
+		BalanceCost:                       10,
+		ContributionEligible:              true,
+		ContributionPoolAccountID:         99,
+		ContributionPoolAmount:            8,
+		ContributionRewardRatePercent:     80,
+		ContributionSharingRateMultiplier: 2,
+	}, result)
+	require.NoError(t, err)
+	require.NotNil(t, result.NewBalance)
+	require.Equal(t, 15.0, *result.NewBalance)
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }

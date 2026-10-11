@@ -52,7 +52,7 @@ func TestBuildSupportedModelsForDisplay_ExpandsWildcardsAndDeduplicates(t *testi
 			OutputCostPerToken: 2e-6,
 		}
 	}
-	svc := NewChannelService(nil, nil, nil, &PricingService{pricingData: pricingData})
+	svc := NewChannelService(nil, nil, nil, &PricingService{pricingData: pricingData}, nil)
 	models := svc.BuildSupportedModelsForDisplay(PlatformOpenAI, []string{"gpt-5*", "gpt-5", "GPT-5"})
 
 	require.NotEmpty(t, models)

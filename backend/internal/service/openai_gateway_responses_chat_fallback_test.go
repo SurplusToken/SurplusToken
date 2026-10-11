@@ -90,7 +90,6 @@ func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testin
 	require.Nil(t, result.ReasoningEffort)
 }
 
-
 func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

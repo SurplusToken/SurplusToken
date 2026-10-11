@@ -99,23 +99,6 @@ type createUserOAuthAccountPayload struct {
 	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
 }
 
-type userContributionAccountOptions struct {
-	Name                               string             `json:"name"`
-	ModelMapping                       *map[string]string `json:"model_mapping"`
-	ProxyID                            *int64             `json:"proxy_id"`
-	Concurrency                        *int               `json:"concurrency"`
-	Schedulable                        *bool              `json:"schedulable"`
-	GroupIDs                           []int64            `json:"group_ids"`
-	ExpiresAt                          *int64             `json:"expires_at"`
-	AutoPauseOnExpired                 *bool              `json:"auto_pause_on_expired"`
-	ContributionFiveHourReservePercent *float64           `json:"contribution_5h_reserve_percent"`
-	ContributionWeeklyReservePercent   *float64           `json:"contribution_weekly_reserve_percent"`
-	ContributionShareMode              *string            `json:"contribution_share_mode"`
-	ContributionWeeklyShareBudget      *float64           `json:"contribution_weekly_share_budget"`
-	ContributionProbeFailurePolicy     *string            `json:"contribution_probe_failure_policy"`
-}
-
-
 type setUserAccountSchedulablePayload struct {
 	Schedulable *bool `json:"schedulable"`
 }
@@ -399,7 +382,6 @@ func (h *AccountPoolHandler) UpdateDynamicPoolSharingRateRange(c *gin.Context) {
 	}
 	response.Success(c, dynamicPoolSharingRateRangeResponse{Min: accepted.Min, Max: accepted.Max})
 }
-
 
 func (h *AccountPoolHandler) CreateOAuth(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)

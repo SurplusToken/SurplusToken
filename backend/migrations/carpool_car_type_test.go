@@ -50,7 +50,7 @@ func TestCarpoolCarTypeMigration(t *testing.T) {
 	neverLaunchedIdx := strings.Index(sql, "WHEN launched_at IS NULL THEN 2")
 	reservedIdx := strings.Index(sql, "s.weekly_reserved_usd IS NOT NULL")
 	elseIdx := strings.Index(sql, "ELSE 1")
-	if !(customIdx >= 0 && customIdx < neverLaunchedIdx && neverLaunchedIdx < reservedIdx && reservedIdx < elseIdx) {
+	if customIdx < 0 || customIdx >= neverLaunchedIdx || neverLaunchedIdx >= reservedIdx || reservedIdx >= elseIdx {
 		t.Fatal("car_type backfill branches must be ordered: custom → never-launched → has-reserve → else")
 	}
 }

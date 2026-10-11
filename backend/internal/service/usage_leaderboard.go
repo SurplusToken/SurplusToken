@@ -129,7 +129,7 @@ func (s *UsageService) GetUsageLeaderboardTrend(ctx context.Context, period stri
 	granularity := leaderboardTrendGranularity(normalizedPeriod)
 	end := timezone.Now()
 
-	points, err := s.usageRepo.GetUserUsageTrend(ctx, since, end, granularity, usageLeaderboardTrendLimit)
+	points, err := s.usageRepo.GetUserUsageTrend(ctx, since, end, granularity, usageLeaderboardTrendLimit, "tokens")
 	if err != nil {
 		return nil, fmt.Errorf("get usage leaderboard trend: %w", err)
 	}

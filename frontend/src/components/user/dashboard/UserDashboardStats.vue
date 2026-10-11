@@ -290,6 +290,7 @@
 </template>
 
 <script setup lang="ts">
+import { listPlatformIds } from '@/constants/platformCatalog'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -324,6 +325,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   zhipu: 'Zhipu GLM',
   deepseek: 'DeepSeek',
   minimax: 'MiniMax',
+  typesafe: 'TypeSafe / Jev',
 }
 
 const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p
@@ -350,7 +352,7 @@ const platformCards = computed<FusedPlatformCard[]>(() => {
     if (hasAnyLimit(q)) platforms.add(platform)
   }
 
-  const PLATFORM_ORDER = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu']
+  const PLATFORM_ORDER = listPlatformIds()
   const cards: FusedPlatformCard[] = []
 
   for (const p of platforms) {

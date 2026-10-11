@@ -254,8 +254,6 @@ func TestAccountServiceCreateUserOAuthAccountRejectsNonOpenAIPlatform(t *testing
 	require.Nil(t, repo.created)
 }
 
-
-
 func TestAccountServiceListUserDynamicPoolSummaries(t *testing.T) {
 	ownerID := int64(42)
 	otherID := int64(9)
@@ -824,4 +822,39 @@ func TestFilterSurplusAISchedulableAccounts_OwnerBypassesContributionProtection(
 	kept := filterSurplusAISchedulableAccounts(WithRequestingUserID(context.Background(), ownerID), accounts)
 	require.Len(t, kept, 1)
 	require.Equal(t, int64(1), kept[0].ID)
+}
+
+func TestCreateUserOAuthAccount_RejectsRemovedKimiOAuth(t *testing.T) {
+	svc := &AccountService{}
+	account, err := svc.CreateUserOAuthAccount(context.Background(), 7, CreateUserOAuthAccountRequest{
+		Name: "legacy Kimi", Platform: PlatformKimi, Type: AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "legacy-token"},
+	})
+	require.Nil(t, account)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported OAuth account platform")
+}
+
+func TestBuildUserOAuthAccountExtra_DropsLegacyKimiOAuthFields(t *testing.T) {
+	extra := buildUserOAuthAccountExtra(PlatformKimi, map[string]any{
+		"email": "owner@example.com", "kimi_api_protocol": "anthropic",
+		"openai_compatible_provider": "kimi", "openai_responses_mode": "force_chat_completions",
+	})
+	require.Equal(t, map[string]any{"email": "owner@example.com"}, extra)
+}
+
+func TestKimiAccountCreationRejectsLegacyOAuth(t *testing.T) {
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		t.Run(accountType, func(t *testing.T) {
+			repo := &accountPoolRepoStub{}
+			svc := &AccountService{accountRepo: repo}
+			_, err := svc.Create(context.Background(), CreateAccountRequest{Platform: PlatformKimi, Type: accountType})
+			require.ErrorContains(t, err, "kimi accounts only support apikey")
+			require.Nil(t, repo.created)
+			_, err = buildAccountForCreate(&CreateAccountInput{Platform: PlatformKimi, Type: accountType}, map[string]any{})
+			require.ErrorContains(t, err, "kimi accounts only support apikey")
+		})
+	}
+	_, err := buildAccountForCreate(&CreateAccountInput{Platform: PlatformKimi, Type: AccountTypeAPIKey}, map[string]any{})
+	require.NoError(t, err)
 }

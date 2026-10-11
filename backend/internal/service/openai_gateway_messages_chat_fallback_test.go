@@ -91,6 +91,13 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 			mapped:     "gpt-5.6-luna",
 			wantEffort: "medium",
 		},
+		{
+			name:       "disabled thinking overrides max",
+			model:      "gpt-5.6-luna",
+			mapped:     "gpt-5.6-luna",
+			effortJSON: `,"output_config":{"effort":"max"},"thinking":{"type":"disabled"}`,
+			wantEffort: "none",
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,7 +173,6 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.Equal(t, "priority", result.UpstreamResponseServiceTier)
 	require.False(t, result.Stream)
 }
-
 
 // Covers the fully-new streaming composition: text block is still open when
 // [DONE] arrives, so finalization must close it (content_block_stop) before
