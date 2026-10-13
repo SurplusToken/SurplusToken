@@ -426,7 +426,7 @@ func ProvideCprClient(cfg *config.Config) *CprClient {
 }
 
 // ProvideCarpoolUpstreamQuotaService 构造拼车周额度查询服务。cpr client 为 nil
-//（功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
+// （功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
 func ProvideCarpoolUpstreamQuotaService(repo CarpoolRepository, cpr *CprClient, cache CarpoolUpstreamQuotaCache, cfg *config.Config) *CarpoolUpstreamQuotaService {
 	return NewCarpoolUpstreamQuotaService(repo, cpr, cache, cfg)
 }

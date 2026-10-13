@@ -40,7 +40,7 @@ type CarpoolUpstreamQuotaCache interface {
 }
 
 // CarpoolUpstreamQuotaCacheEntry 是写进 Redis 的周额度快照
-//（key carpool:upstream_quota:<carpoolID>）。只缓存上游载荷，
+// （key carpool:upstream_quota:<carpoolID>）。只缓存上游载荷，
 // cached 标记等响应期字段在组装响应时现填。
 type CarpoolUpstreamQuotaCacheEntry struct {
 	CprAccountID string               `json:"cpr_account_id"`
@@ -85,7 +85,7 @@ type UpstreamQuotaRefresh struct {
 
 // CarpoolUpstreamQuotaService 查询拼车绑定的上游 cpr 账号周额度：
 // 服务端代理 cpr admin API，Redis 快照缓存（默认 5 分钟），POST refresh 强制刷新
-//（默认 60 秒冷却）。可见性口径与 GetRoster 完全一致（成员/车主/admin，
+// （默认 60 秒冷却）。可见性口径与 GetRoster 完全一致（成员/车主/admin，
 // 未上车者仅 public 且招募中可读）。
 type CarpoolUpstreamQuotaService struct {
 	repo            CarpoolUpstreamQuotaRepository
@@ -198,7 +198,7 @@ func (s *CarpoolUpstreamQuotaService) checkVisibility(ctx context.Context, carpo
 }
 
 // canViewCarpoolUpstreamQuota 复刻 CarpoolService.canViewGroupQRCode 的放行规则
-//（去掉邀请 token 分支——该分支只服务二维码入口，这里恒为空串等价于 false）。
+// （去掉邀请 token 分支——该分支只服务二维码入口，这里恒为空串等价于 false）。
 func canViewCarpoolUpstreamQuota(item *Carpool, actorUserID int64, isAdmin bool) bool {
 	if item == nil {
 		return false
@@ -237,7 +237,7 @@ func (s *CarpoolUpstreamQuotaService) fetchAndCache(ctx context.Context, carpool
 }
 
 // buildWeeklyForecast 从 quota-forecast 里挑 period=="weekly" 那一项。没有 weekly 项
-//（cpr 异常或只产出 monthly）返回 nil——configured:true 但 weekly:null，前端按无数据显示。
+// （cpr 异常或只产出 monthly）返回 nil——configured:true 但 weekly:null，前端按无数据显示。
 func buildWeeklyForecast(data *CprQuotaForecastData) *UpstreamQuotaWeekly {
 	if data == nil {
 		return nil

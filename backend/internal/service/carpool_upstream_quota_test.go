@@ -82,7 +82,7 @@ func newUpstreamQuotaFixture(t *testing.T, stub *upstreamQuotaRepoStub) *upstrea
 	cfg.Cpr.RefreshCooldownSeconds = 60
 
 	return &upstreamQuotaFixture{
-		svc:           service.NewCarpoolUpstreamQuotaService(stub, service.NewCprClient(cfg),
+		svc: service.NewCarpoolUpstreamQuotaService(stub, service.NewCprClient(cfg),
 			repository.NewCarpoolUpstreamQuotaCache(rdb), cfg),
 		forecastCalls: &forecastCalls,
 		refreshCalls:  &refreshCalls,

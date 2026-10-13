@@ -143,9 +143,9 @@ type KasmConfig struct {
 // (NewCprClient returns nil and the endpoints answer 503 NOT_CONFIGURED).
 type CprConfig struct {
 	AdminBaseURL string `mapstructure:"admin_base_url"` // e.g. http://cpr:8321
-	AdminKey     string `mapstructure:"admin_key"`    // from env CPR_ADMIN_KEY (x-api-key header)
+	AdminKey     string `mapstructure:"admin_key"`      // from env CPR_ADMIN_KEY (x-api-key header)
 	// CacheTTLSeconds 是服务端 Redis 缓存（carpool:upstream_quota:<id>）的 TTL。
-	CacheTTLSeconds        int `mapstructure:"cache_ttl_seconds"`
+	CacheTTLSeconds int `mapstructure:"cache_ttl_seconds"`
 	// RefreshCooldownSeconds 是 POST upstream-quota/refresh 的每车冷却窗口
 	//（carpool:upstream_quota:refresh:<id>，SET NX EX）。
 	RefreshCooldownSeconds int `mapstructure:"refresh_cooldown_seconds"`

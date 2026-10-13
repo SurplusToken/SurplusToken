@@ -1420,7 +1420,7 @@ func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64
 
 // GetCprAccountID 解析本车绑定的上游 cpr 账号 id。映射存在 accounts.extra JSONB：
 // carpools.primary_account_id → accounts.id，账号 id 取 extra->>'cpr_account_id'
-//（与 codex_7d_* 快照键同一位置）。主账号未绑定或 extra 未配置该键时返回 ("", nil)。
+// （与 codex_7d_* 快照键同一位置）。主账号未绑定或 extra 未配置该键时返回 ("", nil)。
 func (r *carpoolRepository) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
 	var accountID sql.NullString
 	err := r.db.QueryRowContext(ctx, `
