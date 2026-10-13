@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"net/http"
-
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -104,46 +102,8 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
-		// 服务端持久化 Chat。completion 路由先由 JWT 识别用户，再将用户选择且
-		// 确认归属的 API Key 注入现有网关中间件链，复用计费、限流和平台分流。
-		chat := authenticated.Group("/chat")
-		{
-			chat.GET("/conversations", h.Chat.ListConversations)
-			chat.POST("/conversations", h.Chat.CreateConversation)
-			chat.PATCH("/conversations/:id", h.Chat.UpdateConversation)
-			chat.DELETE("/conversations/:id", h.Chat.DeleteConversation)
-			chat.GET("/conversations/:id/messages", h.Chat.ListMessages)
-
-			bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
-			clientRequestID := middleware.ClientRequestID()
-			opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
-			endpointNorm := handler.InboundEndpointMiddleware()
-			requireGroup := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
-			chat.POST("/conversations/:id/completions",
-				bodyLimit,
-				clientRequestID,
-				opsErrorLogger,
-				h.Chat.PrepareCompletion,
-				h.Chat.CaptureCompletion,
-				endpointNorm,
-				gin.HandlerFunc(apiKeyAuth),
-				requireGroup,
-				func(c *gin.Context) {
-					switch getGroupPlatform(c) {
-					case service.PlatformOpenAI, service.PlatformGrok:
-						h.OpenAIGateway.Responses(c)
-					case service.PlatformKimi:
-						h.OpenAIGateway.Messages(c)
-					case service.PlatformZhipu:
-						h.OpenAIGateway.Messages(c)
-					case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity:
-						h.Gateway.Messages(c)
-					default:
-						c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "chat_error", "message": "Unsupported chat platform"}})
-					}
-				},
-			)
-		}
+		// 聊天功能已全站下线（产品决定，2026-10）：/chat 路由组不再注册，
+		// ChatHandler/ChatService/ChatRepository 源文件保留以便回滚。
 
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
@@ -158,8 +118,10 @@ func RegisterUserRoutes(
 			channels.GET("/available", h.AvailableChannel.List)
 		}
 
-		// 用户 OAuth 账号池
+		// 用户 OAuth 账号池。产品决定账号池不再对普通用户开放（管理员保留），
+		// 整组挂在 AdminOnly 之后：非管理员一律 403，管理端 /admin/accounts 不受影响。
 		accounts := authenticated.Group("/accounts")
+		accounts.Use(middleware.AdminOnly())
 		{
 			accounts.GET("/pool", h.AccountPool.ListPool)
 			accounts.GET("/pool/dynamic-groups", h.AccountPool.ListDynamicPools)
@@ -201,7 +163,9 @@ func RegisterUserRoutes(
 			accounts.POST("/pool/:id/openai-quota/reset", h.AccountPool.ResetOwnerOpenAIQuota)
 		}
 
+		// 定时测试计划属账号池能力，同样仅管理员可用。
 		scheduledTests := authenticated.Group("/scheduled-test-plans")
+		scheduledTests.Use(middleware.AdminOnly())
 		{
 			scheduledTests.POST("", h.AccountPool.CreateScheduledTestPlan)
 			scheduledTests.PUT("/:id", h.AccountPool.UpdateScheduledTestPlan)

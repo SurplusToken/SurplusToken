@@ -204,17 +204,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/chat',
-    name: 'Chat',
-    component: () => import('@/views/chat/ChatView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Chat',
-      titleKey: 'chat.title'
-    }
-  },
-  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),
@@ -224,18 +213,6 @@ const routes: RouteRecordRaw[] = [
       title: 'API Keys',
       titleKey: 'keys.title',
       descriptionKey: 'keys.description'
-    }
-  },
-  {
-    path: '/accounts/pool',
-    name: 'AccountPool',
-    component: () => import('@/views/user/AccountPoolView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Account Pool',
-      titleKey: 'accountPool.title',
-      descriptionKey: 'accountPool.description'
     }
   },
   {

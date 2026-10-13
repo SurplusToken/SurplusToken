@@ -164,10 +164,8 @@ export default {
   // Navigation
   nav: {
     dashboard: '仪表盘',
-    chat: '对话',
     announcements: '公告',
     apiKeys: 'API 密钥',
-    accountPool: '账号池',
     carpool: '拼车',
     carpoolAdmin: '拼车管理',
     batchImage: '批量生图',

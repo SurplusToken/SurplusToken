@@ -175,28 +175,6 @@ export interface AffiliateTransferResponse {
   balance: number
 }
 
-export interface UserContributionSummary {
-  user_id: number
-  contribution_quota: number
-  contribution_frozen_quota: number
-  contribution_history_quota: number
-  contribution_pending_withdrawal_quota: number
-  contribution_withdrawn_quota: number
-  contribution_transferred_quota: number
-  contribution_monthly_withdrawal_count: number
-  contribution_monthly_withdrawal_limit: number
-  created_at: string
-  updated_at: string
-}
-
-export interface ContributionTransferResponse {
-  transferred_quota: number
-  balance: number
-  contribution_quota: number
-  contribution_frozen_quota: number
-  contribution_history_quota: number
-}
-
 export type ContributionWithdrawalStatus = 'pending' | 'paid' | 'rejected' | 'cancelled'
 export type ContributionWithdrawalPaymentMethod = 'alipay' | 'wechat' | 'bank' | 'other'
 
@@ -221,15 +199,6 @@ export interface ContributionWithdrawal {
   cancelled_at?: string | null
   created_at: string
   updated_at: string
-}
-
-export interface CreateContributionWithdrawalRequest {
-  amount: number
-  payment_method: ContributionWithdrawalPaymentMethod
-  payment_account: string
-  payee_name: string
-  request_note?: string
-  payment_qr_code: string
 }
 
 export interface SendVerifyCodeRequest {
@@ -1434,64 +1403,6 @@ export interface AccountSchedulerGroupScore {
   sticky_score?: number
   sticky_score_infinity?: boolean
   sticky_weighted_enabled: boolean
-}
-
-export interface UserAccountPoolItem {
-  id: number
-  name: string
-  platform: AccountPlatform
-  type: 'oauth' | 'apikey'
-  plan_type?: string | null
-  privacy_mode?: string | null
-  subscription_expires_at?: string | null
-  proxy_id?: number | null
-  proxy?: Proxy | null
-  status: 'active' | 'inactive' | 'error'
-  rate_limit_reset_at?: string | null
-  overload_until?: string | null
-  temp_unschedulable_until?: string | null
-  temp_unschedulable_reason?: string | null
-  extra?: {
-    model_rate_limits?: Record<string, { rate_limited_at?: string; rate_limit_reset_at: string }>
-    antigravity_quota_scopes?: Record<string, unknown>
-    privacy_mode?: string
-  } & Record<string, unknown>
-  is_mine: boolean
-  remote_seed_ready?: boolean
-  is_user_contributed: boolean
-  concurrency?: number
-  schedulable: boolean
-  effective_schedulable: boolean
-  group_ids?: number[]
-  groups?: Array<Pick<Group, 'id' | 'name' | 'platform' | 'dynamic_sharing_pool'>>
-  expires_at?: string | null
-  auto_pause_on_expired: boolean
-  model_mapping?: Record<string, string> | null
-  codex_cli_only: boolean
-  contribution_5h_reserve_percent: number
-  contribution_weekly_reserve_percent: number
-  contribution_probe_failure_policy: 'continue' | 'pause' | 'local'
-  sharing_rate_multiplier: number
-  sharing_rate_updated_at?: string | null
-  contribution_5h_usage_percent?: number | null
-  contribution_weekly_usage_percent?: number | null
-  five_hour_resets_at?: string | null
-  weekly_resets_at?: string | null
-  contribution_share_mode: 'percent' | 'budget'
-  contribution_weekly_share_budget: number
-  others_weekly_spend?: number | null
-  contribution_protection_blocked: boolean
-  contribution_protection_reason?: string | null
-  window_cost_limit: number
-  window_cost_sticky_reserve: number
-  current_window_cost?: number | null
-  quota_weekly_limit: number
-  quota_weekly_used: number
-  quota_weekly_remaining: number
-  quota_weekly_min_remaining: number
-  weekly_remaining_below_policy: boolean
-  created_at: string
-  updated_at: string
 }
 
 // Account Usage types
