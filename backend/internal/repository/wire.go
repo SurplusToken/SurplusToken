@@ -106,8 +106,8 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
-	NewUserPlatformQuotaRepository,       // T14: user × platform quota
-	NewUserPlatformQuotaServiceAdapter,   // T14: adapter → service.UserPlatformQuotaRepository
+	NewUserPlatformQuotaRepository,     // T14: user × platform quota
+	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
 	NewCarpoolRepository,
 	NewCarpoolCommonsCache,             // 拼车组级公共池计数器（Redis + DB 重建）
 	NewCarpoolUpstreamWindowRepository, // 拼车组绑定账号的上游周窗口
