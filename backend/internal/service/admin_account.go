@@ -378,6 +378,17 @@ func (s *adminServiceImpl) SetAccountPrimaryOwner(ctx context.Context, accountID
 // SetAccountSharingRate 让管理员为其管理的账号设置共享报价倍率（动态分组市场价）。
 // 账号必须已挂主 owner（从而是“用户贡献”账号、可进入动态分组）且为可调度类型。
 // 管理员写入绕过 owner 改价冷却，但仍受 [floor, cap] 策略约束。
+
+// userAccountSharingRateUpdater is the narrow write path for the shared-account-rate
+// marketplace: a single conditional UPDATE that atomically checks owner/type/cooldown
+// and persists the new price, avoiding a read-then-write race between concurrent price
+// changes. Deliberately kept out of AccountRepository.Update (which would overwrite this
+// atomic write with a stale in-memory snapshot). Returns (false, nil) when the condition
+// doesn't match (cooldown not elapsed, wrong owner, wrong type, or deleted).
+type userAccountSharingRateUpdater interface {
+	UpdateUserAccountSharingRate(ctx context.Context, accountID, ownerUserID int64, rate float64, changedAt, cooldownCutoff time.Time) (bool, error)
+}
+
 func (s *adminServiceImpl) SetAccountSharingRate(ctx context.Context, accountID int64, rate float64) error {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {

@@ -155,6 +155,7 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     avgPriceCny: 90,
     pricingModel: 'quota',
     ruleNote: '',
+    upstream: null,
     ...overrides,
   }
 }
@@ -1163,6 +1164,130 @@ describe('CarpoolView', () => {
     expect(wrapper.text()).not.toContain('carpool.fields.quotaProgress')
     expect(wrapper.text()).not.toContain('carpool.fields.carMonthlyFee')
     expect(wrapper.text()).not.toContain('carpool.fields.remainingJoinable')
+  })
+
+  // type 1（无保底老车）是 quota 模型但属于老车：额度池预约进度与卡片价格标
+  // 对它的迁移默认值没有意义，和 type 0 一样隐藏；type 2/3 保持现状。
+  it('hides the quota bar and weekly price badge on a legacy type-1 car', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 1,
+      status: 'active',
+      memberRole: 'member',
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    const card = wrapper.get('article')
+
+    expect(card.text()).not.toContain('carpool.fields.quotaProgress')
+    expect(card.text()).not.toContain('$2,400')
+    // 也不是自定义规则车：不渲染规则说明块
+    expect(wrapper.find('[data-testid="carpool-custom-rule"]').exists()).toBe(false)
+  })
+
+  // 卡片时间行：上游账号有到期信息时优先展示到期与剩余天数。
+  it('shows the upstream account expiry on the card time row', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      upstream: { configured: true, usedPercent: 7, resetAt: '2026-10-13T10:00:00Z', expiresAt: '2027-10-15T00:00:00Z' },
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.cardExpires')
+    // 远未到 7 天内：不标「即将到期」
+    expect(timeRow.text()).not.toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 剩余 ≤7 天时标橙提醒「即将到期」。
+  it('flags the card time row when the account expires within 7 days', async () => {
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString()
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      upstream: { configured: true, usedPercent: 7, resetAt: null, expiresAt: soon },
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.cardExpires')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 无到期信息（未配置映射/拉取失败）时时间行退回发车日期兜底。
+  it('falls back to the scheduled start date on the card time row', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, upstream: { configured: false, usedPercent: null, resetAt: null, expiresAt: null } })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).not.toContain('carpool.upstreamQuota.cardExpires')
+    // zh 本地化输出「2026年8月1日」（scheduledStartAt = 2026-08-01）
+    expect(timeRow.text()).toContain('8月1日')
+  })
+
+  // 详情弹窗的周额度卡片：账号到期行 + 自动续费后缀 + ≤7 天橙字提醒。
+  it('shows the account expiry row inside the upstream quota section', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    const soon = new Date(Date.now() + 2 * 86400000).toISOString()
+    upstreamQuotaMock.mockResolvedValue({
+      configured: true,
+      carpoolId: 10,
+      cprAccountId: 'acct_1',
+      generatedAt: soon,
+      cached: false,
+      weekly: {
+        available: true, unavailableReason: null, lowSample: false,
+        usedPercent: 7, usedPercentDisplay: '7.0%', observedAt: soon,
+        resetAt: soon, tokensDisplay: '116.6M', usdDisplay: '$163.06',
+        estimatedTokens: 1536625298, estimatedTokensDisplay: '1.5B',
+        estimatedUsd: 2282.92, estimatedUsdDisplay: '$2282.92',
+      },
+      resetCredits: null,
+      accountExpiry: { expiresAt: soon, willRenew: true },
+      refreshCooldownSeconds: 60,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-upstream-quota"]')
+    expect(section.text()).toContain('carpool.upstreamQuota.accountExpires')
+    expect(section.text()).toContain('carpool.upstreamQuota.renewsAutomatically')
+    expect(section.text()).toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // willRenew 未观测到（null）时不显示「自动续费」后缀；到期很远时不提醒。
+  it('omits the renewal suffix when willRenew is unknown', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    upstreamQuotaMock.mockResolvedValue({
+      configured: true,
+      carpoolId: 10,
+      cprAccountId: 'acct_1',
+      generatedAt: '2026-10-12T08:30:00Z',
+      cached: false,
+      weekly: null,
+      resetCredits: null,
+      accountExpiry: { expiresAt: '2027-06-01T00:00:00Z', willRenew: null },
+      refreshCooldownSeconds: 60,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-upstream-quota"]')
+    expect(section.text()).toContain('carpool.upstreamQuota.accountExpires')
+    expect(section.text()).not.toContain('carpool.upstreamQuota.renewsAutomatically')
+    expect(section.text()).not.toContain('carpool.upstreamQuota.expiringSoon')
   })
 
   // 自定义规则车不接新成员：升级前遗留的招募中老车永远达不到发车区间，

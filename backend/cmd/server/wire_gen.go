@@ -221,7 +221,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	carpoolHandler := handler.NewCarpoolHandler(carpoolService)
 	cprClient := service.ProvideCprClient(configConfig)
 	carpoolUpstreamQuotaCache := repository.NewCarpoolUpstreamQuotaCache(redisClient)
-	carpoolUpstreamQuotaService := service.ProvideCarpoolUpstreamQuotaService(carpoolRepository, cprClient, carpoolUpstreamQuotaCache, configConfig)
+	carpoolUpstreamQuotaService := service.ProvideCarpoolUpstreamQuotaService(carpoolService, carpoolRepository, cprClient, carpoolUpstreamQuotaCache, configConfig)
 	carpoolUpstreamQuotaHandler := handler.NewCarpoolUpstreamQuotaHandler(carpoolUpstreamQuotaService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)

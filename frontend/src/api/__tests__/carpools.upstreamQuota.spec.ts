@@ -33,6 +33,8 @@ function sampleResponse(): UpstreamQuotaResponse {
         estimated_usd: 2282.92,
         estimated_usd_display: '$2282.92',
       },
+      reset_credits: { available_count: 3, next_expires_at: '2026-10-15T10:00:00Z' },
+      account_expiry: { expires_at: '2026-10-20T00:00:00Z', will_renew: true },
       refresh: { cooldown_seconds: 60 },
     },
   }
@@ -66,8 +68,34 @@ describe('carpool upstream quota api', () => {
         estimatedUsd: 2282.92,
         estimatedUsdDisplay: '$2282.92',
       },
+      resetCredits: { availableCount: 3, nextExpiresAt: '2026-10-15T10:00:00Z' },
+      accountExpiry: { expiresAt: '2026-10-20T00:00:00Z', willRenew: true },
       refreshCooldownSeconds: 60,
     })
+  })
+
+  it('maps a null account_expiry block when the upstream call failed or no subscription is on file', () => {
+    const response = sampleResponse()
+    response.upstream_quota.account_expiry = null
+    const mapped = mapUpstreamQuota(response)
+    expect(mapped.accountExpiry).toBeNull()
+    expect(mapped.weekly?.usedPercent).toBe(7)
+  })
+
+  it('maps an account_expiry block with an unknown renewal state', () => {
+    const response = sampleResponse()
+    if (!response.upstream_quota.account_expiry) throw new Error('fixture should have account_expiry')
+    response.upstream_quota.account_expiry.will_renew = null
+    const mapped = mapUpstreamQuota(response)
+    expect(mapped.accountExpiry).toEqual({ expiresAt: '2026-10-20T00:00:00Z', willRenew: null })
+  })
+
+  it('maps a null reset_credits block when the upstream call failed', () => {
+    const response = sampleResponse()
+    response.upstream_quota.reset_credits = null
+    const mapped = mapUpstreamQuota(response)
+    expect(mapped.resetCredits).toBeNull()
+    expect(mapped.weekly?.usedPercent).toBe(7)
   })
 
   it('maps a null weekly block when cpr has no usage data yet', () => {

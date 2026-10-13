@@ -191,7 +191,6 @@ export default {
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
     promoCodes: 'Promo Codes',
-    contributionWithdrawals: 'Contribution Withdrawals',
     settings: 'Settings',
     myAccount: 'My Account',
     lightMode: 'Light Mode',

@@ -175,32 +175,6 @@ export interface AffiliateTransferResponse {
   balance: number
 }
 
-export type ContributionWithdrawalStatus = 'pending' | 'paid' | 'rejected' | 'cancelled'
-export type ContributionWithdrawalPaymentMethod = 'alipay' | 'wechat' | 'bank' | 'other'
-
-export interface ContributionWithdrawal {
-  id: number
-  user_id: number
-  user_email?: string
-  username?: string
-  amount: number
-  status: ContributionWithdrawalStatus
-  payment_method: ContributionWithdrawalPaymentMethod
-  payment_account: string
-  payee_name: string
-  request_note: string
-  review_note: string
-  payment_reference: string
-  has_payment_qr_code: boolean
-  reviewed_by?: number | null
-  requested_at: string
-  reviewed_at?: string | null
-  paid_at?: string | null
-  cancelled_at?: string | null
-  created_at: string
-  updated_at: string
-}
-
 export interface SendVerifyCodeRequest {
   email: string
   turnstile_token?: string

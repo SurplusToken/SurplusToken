@@ -33,9 +33,25 @@ const upstreamQuotaForecastBody = `{"code":200,"message":"OK","data":{
 		 "estimatedUsd":2282.92,"estimatedUsdDisplay":"2282.92"}
 	]}}`
 
+// 三张券：两张 available（10-15 / 10-13 到期）+ 一张已用。最近的 available 到期是 10-13。
+const upstreamQuotaResetCreditsBody = `{"code":200,"message":"OK","data":{
+	"availableCount":2,
+	"credits":[
+		{"id":"c1","status":"available","title":"Full reset","expiresAt":"2026-10-15T10:00:00Z","expiresAtDisplay":"10-15 10:00","resetType":"codex_rate_limits"},
+		{"id":"c2","status":"available","title":"Full reset","expiresAt":"2026-10-13T10:00:00Z","expiresAtDisplay":"10-13 10:00","resetType":"codex_rate_limits"},
+		{"id":"c3","status":"used","title":"Full reset","expiresAt":"2026-10-10T10:00:00Z","expiresAtDisplay":"10-10 10:00","resetType":"codex_rate_limits"}
+	]}}`
+
+// subscription 观测：10-15 到期、自动续费。profile 部分客户端不应消费。
+const upstreamQuotaPersonalInfoBody = `{"code":200,"message":"OK","data":{
+	"subscription":{"startsAt":"2026-09-12T00:00:00Z","expiresAt":"2026-10-15T00:00:00Z",
+		"willRenew":true,"billingPeriod":"monthly","billingCurrency":"USD",
+		"observedAt":"2026-10-12T08:00:00Z"}}}`
+
 type upstreamQuotaRepoStub struct {
-	carpool      *service.Carpool
-	cprAccountID string
+	carpool       *service.Carpool
+	cprAccountID  string
+	cprAccountIDs map[int64]string
 }
 
 func (s *upstreamQuotaRepoStub) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
@@ -46,17 +62,59 @@ func (s *upstreamQuotaRepoStub) GetCprAccountID(ctx context.Context, carpoolID i
 	return s.cprAccountID, nil
 }
 
+func (s *upstreamQuotaRepoStub) ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error) {
+	return s.cprAccountIDs, nil
+}
+
 type upstreamQuotaFixture struct {
-	svc           *service.CarpoolUpstreamQuotaService
-	forecastCalls *atomic.Int32
-	refreshCalls  *atomic.Int32
-	mini          *miniredis.Miniredis
+	svc               *service.CarpoolUpstreamQuotaService
+	forecastCalls     *atomic.Int32
+	refreshCalls      *atomic.Int32
+	resetCreditsCalls *atomic.Int32
+	subscriptionCalls *atomic.Int32
+	mini              *miniredis.Miniredis
 }
 
 // newUpstreamQuotaFixture 搭一套完整服务：miniredis 缓存 + httptest 假 cpr + stub repo。
 func newUpstreamQuotaFixture(t *testing.T, stub *upstreamQuotaRepoStub) *upstreamQuotaFixture {
 	t.Helper()
-	var forecastCalls, refreshCalls atomic.Int32
+	return newUpstreamQuotaFixtureWithHandlers(t, stub, upstreamQuotaHandlers{})
+}
+
+// newUpstreamQuotaFixtureWithResetCredits 允许个别用例替换 reset-credits 的响应
+// （如模拟上游故障），其余端点行为与默认 fixture 一致。
+func newUpstreamQuotaFixtureWithResetCredits(t *testing.T, stub *upstreamQuotaRepoStub, resetCreditsHandler http.HandlerFunc) *upstreamQuotaFixture {
+	t.Helper()
+	return newUpstreamQuotaFixtureWithHandlers(t, stub, upstreamQuotaHandlers{resetCredits: resetCreditsHandler})
+}
+
+// newUpstreamQuotaFixtureWithPersonalInfo 允许个别用例替换 personal-info 的响应。
+func newUpstreamQuotaFixtureWithPersonalInfo(t *testing.T, stub *upstreamQuotaRepoStub, personalInfoHandler http.HandlerFunc) *upstreamQuotaFixture {
+	t.Helper()
+	return newUpstreamQuotaFixtureWithHandlers(t, stub, upstreamQuotaHandlers{personalInfo: personalInfoHandler})
+}
+
+// upstreamQuotaHandlers 覆盖个别 cpr 端点的响应；nil 的端点用默认 body。
+type upstreamQuotaHandlers struct {
+	resetCredits http.HandlerFunc
+	personalInfo http.HandlerFunc
+}
+
+func newUpstreamQuotaFixtureWithHandlers(t *testing.T, stub *upstreamQuotaRepoStub, handlers upstreamQuotaHandlers) *upstreamQuotaFixture {
+	t.Helper()
+	resetCreditsHandler := handlers.resetCredits
+	if resetCreditsHandler == nil {
+		resetCreditsHandler = func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(upstreamQuotaResetCreditsBody))
+		}
+	}
+	personalInfoHandler := handlers.personalInfo
+	if personalInfoHandler == nil {
+		personalInfoHandler = func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(upstreamQuotaPersonalInfoBody))
+		}
+	}
+	var forecastCalls, refreshCalls, resetCreditsCalls, subscriptionCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/admin/accounts/quota-forecast":
@@ -65,6 +123,12 @@ func newUpstreamQuotaFixture(t *testing.T, stub *upstreamQuotaRepoStub) *upstrea
 		case "/api/admin/accounts/quota/refresh":
 			refreshCalls.Add(1)
 			_, _ = w.Write([]byte(`{"code":200,"message":"OK","data":{"ok":true}}`))
+		case "/api/admin/accounts/reset-credits":
+			resetCreditsCalls.Add(1)
+			resetCreditsHandler(w, r)
+		case "/api/admin/accounts/personal-info":
+			subscriptionCalls.Add(1)
+			personalInfoHandler(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -84,9 +148,11 @@ func newUpstreamQuotaFixture(t *testing.T, stub *upstreamQuotaRepoStub) *upstrea
 	return &upstreamQuotaFixture{
 		svc: service.NewCarpoolUpstreamQuotaService(stub, service.NewCprClient(cfg),
 			repository.NewCarpoolUpstreamQuotaCache(rdb), cfg),
-		forecastCalls: &forecastCalls,
-		refreshCalls:  &refreshCalls,
-		mini:          mr,
+		forecastCalls:     &forecastCalls,
+		refreshCalls:      &refreshCalls,
+		resetCreditsCalls: &resetCreditsCalls,
+		subscriptionCalls: &subscriptionCalls,
+		mini:              mr,
 	}
 }
 
@@ -181,7 +247,7 @@ func TestCarpoolUpstreamQuota_VisibilityFollowsRosterGate(t *testing.T) {
 	require.True(t, got.Configured, "owner keeps read access after launch/end")
 }
 
-// cpr 未配置（admin_base_url 空）：503 NOT_CONFIGURED，与 Kasm 禁用同一惯例。
+// cpr 未配置（admin_base_url 空）：503 NOT_CONFIGURED（禁用功能惯例：503 而非 404）。
 func TestCarpoolUpstreamQuota_NotConfigured503(t *testing.T) {
 	svc := service.NewCarpoolUpstreamQuotaService(
 		&upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"}, nil, nil, nil)
@@ -228,4 +294,190 @@ func TestCarpoolUpstreamQuota_RefreshBackfillsCacheForGet(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, got.Cached)
 	require.EqualValues(t, 1, f.forecastCalls.Load())
+}
+
+// reset credits 与 forecast 进同一个快照：首查回填 reset_credits，
+// 二读命中缓存时字段原样返回且不再打 reset-credits。
+func TestCarpoolUpstreamQuota_GetCachesResetCreditsWithSnapshot(t *testing.T) {
+	f := newUpstreamQuotaFixture(t, &upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"})
+	ctx := context.Background()
+
+	first, err := f.svc.Get(ctx, 7, 11, false)
+	require.NoError(t, err)
+	require.NotNil(t, first.ResetCredits)
+	require.Equal(t, 2, first.ResetCredits.AvailableCount)
+	require.NotNil(t, first.ResetCredits.NextExpiresAt)
+	require.Equal(t, "2026-10-13T10:00:00Z", *first.ResetCredits.NextExpiresAt,
+		"next expires must be the nearest available credit, ignoring used ones")
+	require.EqualValues(t, 1, f.resetCreditsCalls.Load())
+
+	second, err := f.svc.Get(ctx, 7, 11, false)
+	require.NoError(t, err)
+	require.True(t, second.Cached)
+	require.NotNil(t, second.ResetCredits, "cached snapshot must carry reset credits")
+	require.Equal(t, 2, second.ResetCredits.AvailableCount)
+	require.Equal(t, "2026-10-13T10:00:00Z", *second.ResetCredits.NextExpiresAt)
+	require.EqualValues(t, 1, f.resetCreditsCalls.Load(), "cached read must not query reset-credits again")
+}
+
+// reset-credits 接口故障是降级路径：主数据照常 200，reset_credits 为 null，
+// 且下一次（缓存 TTL 内）读到的是同一份 null 快照。
+func TestCarpoolUpstreamQuota_ResetCreditsFailureKeepsWeekly(t *testing.T) {
+	f := newUpstreamQuotaFixtureWithResetCredits(t,
+		&upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"},
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"code":500,"message":"reset credits boom"}`))
+		})
+
+	got, err := f.svc.Get(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.True(t, got.Configured)
+	require.Nil(t, got.ResetCredits)
+	require.NotNil(t, got.Weekly)
+	require.True(t, got.Weekly.Available, "weekly forecast must survive a reset-credits outage")
+	require.EqualValues(t, 1, f.forecastCalls.Load())
+	require.EqualValues(t, 1, f.resetCreditsCalls.Load())
+
+	cached, err := f.svc.Get(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.True(t, cached.Cached)
+	require.Nil(t, cached.ResetCredits)
+}
+
+// subscription 与 forecast/reset-credits 进同一个快照：首查回填 account_expiry，
+// 二读命中缓存时字段原样返回且不再打 personal-info。
+func TestCarpoolUpstreamQuota_GetCachesAccountExpiryWithSnapshot(t *testing.T) {
+	f := newUpstreamQuotaFixture(t, &upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"})
+	ctx := context.Background()
+
+	first, err := f.svc.Get(ctx, 7, 11, false)
+	require.NoError(t, err)
+	require.NotNil(t, first.AccountExpiry)
+	require.Equal(t, "2026-10-15T00:00:00Z", first.AccountExpiry.ExpiresAt)
+	require.NotNil(t, first.AccountExpiry.WillRenew)
+	require.True(t, *first.AccountExpiry.WillRenew)
+	require.EqualValues(t, 1, f.subscriptionCalls.Load())
+
+	second, err := f.svc.Get(ctx, 7, 11, false)
+	require.NoError(t, err)
+	require.True(t, second.Cached)
+	require.NotNil(t, second.AccountExpiry, "cached snapshot must carry account expiry")
+	require.Equal(t, "2026-10-15T00:00:00Z", second.AccountExpiry.ExpiresAt)
+	require.EqualValues(t, 1, f.subscriptionCalls.Load(), "cached read must not query personal-info again")
+}
+
+// personal-info 故障是降级路径：主数据照常 200，account_expiry 为 null。
+func TestCarpoolUpstreamQuota_SubscriptionFailureKeepsWeekly(t *testing.T) {
+	f := newUpstreamQuotaFixtureWithPersonalInfo(t,
+		&upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"},
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"code":500,"message":"personal info boom"}`))
+		})
+
+	got, err := f.svc.Get(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.True(t, got.Configured)
+	require.Nil(t, got.AccountExpiry)
+	require.NotNil(t, got.Weekly)
+	require.True(t, got.Weekly.Available, "weekly forecast must survive a personal-info outage")
+	require.EqualValues(t, 1, f.forecastCalls.Load())
+	require.EqualValues(t, 1, f.subscriptionCalls.Load())
+}
+
+// data.subscription 为 null（账号无订阅观测）不是错误：account_expiry 置 null 且不记 WARN 路径。
+func TestCarpoolUpstreamQuota_NullSubscriptionLeavesAccountExpiryEmpty(t *testing.T) {
+	f := newUpstreamQuotaFixtureWithPersonalInfo(t,
+		&upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"},
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"code":200,"message":"OK","data":{"subscription":null}}`))
+		})
+
+	got, err := f.svc.Get(context.Background(), 7, 11, false)
+	require.NoError(t, err)
+	require.Nil(t, got.AccountExpiry)
+	require.NotNil(t, got.Weekly)
+}
+
+// 列表摘要：缓存命中的车直接用快照（不再打 cpr），摘要带出周用量与账号到期。
+func TestCarpoolUpstreamQuota_ListSummariesCacheHit(t *testing.T) {
+	stub := &upstreamQuotaRepoStub{
+		carpool:       memberCarpool(7),
+		cprAccountID:  "acct_1",
+		cprAccountIDs: map[int64]string{7: "acct_1"},
+	}
+	f := newUpstreamQuotaFixture(t, stub)
+	ctx := context.Background()
+
+	// 先由详情接口回填缓存，模拟「用户刚看过详情」的热路径。
+	_, err := f.svc.Get(ctx, 7, 11, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, f.forecastCalls.Load())
+	require.EqualValues(t, 1, f.subscriptionCalls.Load())
+
+	summaries, err := f.svc.ListSummaries(ctx, []int64{7})
+	require.NoError(t, err)
+	summary := summaries[7]
+	require.NotNil(t, summary)
+	require.True(t, summary.Configured)
+	require.NotNil(t, summary.UsedPercent)
+	require.Equal(t, 7.0, *summary.UsedPercent)
+	require.NotNil(t, summary.ResetAt)
+	require.Equal(t, "2026-10-13T10:00:00Z", *summary.ResetAt)
+	require.NotNil(t, summary.ExpiresAt)
+	require.Equal(t, "2026-10-15T00:00:00Z", *summary.ExpiresAt)
+	require.EqualValues(t, 1, f.forecastCalls.Load(), "cache hit must not query cpr again")
+	require.EqualValues(t, 1, f.subscriptionCalls.Load(), "cache hit must not query personal-info again")
+}
+
+// 列表摘要：未配置 cpr 账号映射的车返回 configured:false、其余字段 null，不打 cpr。
+func TestCarpoolUpstreamQuota_ListSummariesUnconfiguredCar(t *testing.T) {
+	stub := &upstreamQuotaRepoStub{
+		carpool:       memberCarpool(7),
+		cprAccountIDs: map[int64]string{}, // 7 号车不在映射里
+	}
+	f := newUpstreamQuotaFixture(t, stub)
+
+	summaries, err := f.svc.ListSummaries(context.Background(), []int64{7})
+	require.NoError(t, err)
+	summary := summaries[7]
+	require.NotNil(t, summary)
+	require.False(t, summary.Configured)
+	require.Nil(t, summary.UsedPercent)
+	require.Nil(t, summary.ResetAt)
+	require.Nil(t, summary.ExpiresAt)
+	require.Zero(t, f.forecastCalls.Load(), "unconfigured car must not query cpr")
+	require.Zero(t, f.subscriptionCalls.Load())
+}
+
+// 列表摘要：缓存 miss 的车串行直查 cpr 并回填缓存（下一辆车/下一次列表读到同一份快照）。
+func TestCarpoolUpstreamQuota_ListSummariesMissFetchesAndBackfills(t *testing.T) {
+	stub := &upstreamQuotaRepoStub{
+		carpool:       memberCarpool(8),
+		cprAccountID:  "acct_1",
+		cprAccountIDs: map[int64]string{8: "acct_1"},
+	}
+	f := newUpstreamQuotaFixture(t, stub)
+	ctx := context.Background()
+
+	first, err := f.svc.ListSummaries(ctx, []int64{8})
+	require.NoError(t, err)
+	require.True(t, first[8].Configured)
+	require.NotNil(t, first[8].UsedPercent)
+	require.NotNil(t, first[8].ExpiresAt)
+	require.EqualValues(t, 1, f.forecastCalls.Load())
+	require.EqualValues(t, 1, f.subscriptionCalls.Load())
+
+	second, err := f.svc.ListSummaries(ctx, []int64{8})
+	require.NoError(t, err)
+	require.True(t, second[8].Configured)
+	require.EqualValues(t, 1, f.forecastCalls.Load(), "backfilled snapshot must serve the second list read")
+}
+
+// 列表摘要：cpr 功能整体未配置（admin_base_url 空）时返回空 map，列表按全部未配置处理。
+func TestCarpoolUpstreamQuota_ListSummariesFeatureDisabled(t *testing.T) {
+	svc := service.NewCarpoolUpstreamQuotaService(
+		&upstreamQuotaRepoStub{carpool: memberCarpool(7), cprAccountID: "acct_1"}, nil, nil, nil)
+	summaries, err := svc.ListSummaries(context.Background(), []int64{7})
+	require.NoError(t, err)
+	require.Empty(t, summaries)
 }

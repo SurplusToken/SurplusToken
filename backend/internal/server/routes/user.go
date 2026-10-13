@@ -45,12 +45,8 @@ func RegisterUserRoutes(
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)
 			user.POST("/aff/transfer", h.User.TransferAffiliateQuota)
-			user.GET("/contribution", h.User.GetContribution)
-			user.POST("/contribution/transfer", h.User.TransferContributionQuota)
-			user.GET("/contribution/withdrawals", h.User.ListContributionWithdrawals)
-			user.GET("/contribution/withdrawals/:id/qr-code", h.User.GetContributionWithdrawalQRCode)
-			user.POST("/contribution/withdrawals", h.User.CreateContributionWithdrawal)
-			user.POST("/contribution/withdrawals/:id/cancel", h.User.CancelContributionWithdrawal)
+			// 用户贡献账号体系已下线（产品决定，2026-10）：贡献余额/提现端点不再注册，
+			// ContributionService/Handler 源文件已删除。历史对账数据保留在 user_contributions 等表中。
 			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)
 			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)
@@ -118,60 +114,10 @@ func RegisterUserRoutes(
 			channels.GET("/available", h.AvailableChannel.List)
 		}
 
-		// 用户 OAuth 账号池。产品决定账号池不再对普通用户开放（管理员保留），
-		// 整组挂在 AdminOnly 之后：非管理员一律 403，管理端 /admin/accounts 不受影响。
-		accounts := authenticated.Group("/accounts")
-		accounts.Use(middleware.AdminOnly())
-		{
-			accounts.GET("/pool", h.AccountPool.ListPool)
-			accounts.GET("/pool/dynamic-groups", h.AccountPool.ListDynamicPools)
-			accounts.PUT("/pool/dynamic-groups/:group_id/sharing-rate-range", h.AccountPool.UpdateDynamicPoolSharingRateRange)
-			accounts.GET("/proxies", h.AccountPool.ListProxies)
-			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
-			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
-			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
-			accounts.POST("/oauth/refresh-token", h.AccountPool.RefreshOpenAIToken)
-			accounts.POST("/oauth/import/codex-session", h.AccountPool.ImportCodexSession)
-			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
-			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
-			accounts.POST("/:id/test", h.AccountPool.Test)
-			accounts.POST("/:id/refresh", h.AccountPool.Refresh)
-			accounts.POST("/:id/recover-state", h.AccountPool.RecoverState)
-			accounts.POST("/:id/set-privacy", h.AccountPool.SetPrivacy)
-			accounts.POST("/:id/apply-oauth-credentials", h.AccountPool.ApplyOAuthCredentials)
-			accounts.GET("/:id/scheduled-test-plans", h.AccountPool.ListScheduledTestPlans)
-			accounts.GET("/:id/stats", h.AccountPool.GetStats)
-			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
-			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
-			accounts.DELETE("/:id", h.AccountPool.Delete)
-
-			// 远程连接（远程浏览器 / Kasm）— 仅 Pro 账号 + owner/co-owner。
-			accounts.POST("/pool/:id/remote-session/setup", h.AccountPool.RemoteSessionSetup)
-			accounts.POST("/pool/:id/remote-session", h.AccountPool.RemoteSessionConnect)
-			accounts.GET("/pool/:id/remote-session/status", h.AccountPool.RemoteSessionStatus)
-			accounts.POST("/pool/:id/remote-session/keepalive", h.AccountPool.RemoteSessionKeepalive)
-			accounts.POST("/pool/:id/remote-session/disconnect", h.AccountPool.RemoteSessionDisconnect)
-
-			// 贡献奖励池（账号级)— 仅主 owner 可查看/分发给 owner 集合。
-			accounts.GET("/pool/:id/contribution-pool", h.AccountPool.GetContributionPool)
-			accounts.POST("/pool/:id/contribution-pool/distribute", h.AccountPool.DistributeContributionPool)
-
-			// OAuth 额度自助（仅 owner，OpenAI OAuth 生效）：
-			//   查询上游 5h/7d 限流窗口、查看/消费限流重置额度（对齐管理端 7d 下的三按钮）。
-			accounts.GET("/pool/:id/usage", h.AccountPool.GetOwnerAccountUsage)
-			accounts.GET("/pool/:id/openai-quota", h.AccountPool.QueryOwnerOpenAIQuota)
-			accounts.POST("/pool/:id/openai-quota/reset", h.AccountPool.ResetOwnerOpenAIQuota)
-		}
-
-		// 定时测试计划属账号池能力，同样仅管理员可用。
-		scheduledTests := authenticated.Group("/scheduled-test-plans")
-		scheduledTests.Use(middleware.AdminOnly())
-		{
-			scheduledTests.POST("", h.AccountPool.CreateScheduledTestPlan)
-			scheduledTests.PUT("/:id", h.AccountPool.UpdateScheduledTestPlan)
-			scheduledTests.DELETE("/:id", h.AccountPool.DeleteScheduledTestPlan)
-			scheduledTests.GET("/:id/results", h.AccountPool.ListScheduledTestResults)
-		}
+		// 用户侧 OAuth 账号池已整体下线（产品决定，2026-10）：/accounts 与
+		// /scheduled-test-plans 路由组不再注册，任何调用一律 404。
+		// AccountPoolHandler/AccountPoolService 源文件已删除；管理端 /admin/accounts
+		// 与 /admin/scheduled-test-plans 不受影响。
 
 		// 使用记录（聚合统计属重查询，叠加更严格的按用户限流）
 		usage := authenticated.Group("/usage")

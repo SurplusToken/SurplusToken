@@ -1451,6 +1451,53 @@ LIMIT 1`, carpoolID).Scan(&accountID)
 	return strings.TrimSpace(accountID.String), nil
 }
 
+// ListCprAccountIDs 是 GetCprAccountID 的批量版：一条 SQL 解析一组车（主账号映射 +
+// 无主账号时的组内回退，口径与 GetCprAccountID 完全一致——主账号存在但未映射时
+// 不回退）。返回 map[carpoolID]cprAccountID；map 里缺失或值为 "" 的 id 表示未配置。
+func (r *carpoolRepository) ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(carpoolIDs))
+	if len(carpoolIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+SELECT c.id,
+       COALESCE(
+           NULLIF(btrim(pa.extra->>'cpr_account_id'), ''),
+           NULLIF(btrim(fb.cpr_account_id), '')
+       ) AS cpr_account_id
+FROM carpools c
+LEFT JOIN accounts pa ON pa.id = c.primary_account_id
+LEFT JOIN LATERAL (
+    SELECT a.extra->>'cpr_account_id' AS cpr_account_id
+    FROM account_groups ag
+    JOIN accounts a ON a.id = ag.account_id
+    WHERE ag.group_id = c.group_id
+      AND a.extra->>'cpr_account_id' IS NOT NULL
+      AND btrim(a.extra->>'cpr_account_id') <> ''
+    ORDER BY ag.priority DESC, a.id ASC
+    LIMIT 1
+) fb ON c.primary_account_id IS NULL
+WHERE c.id = ANY($1)`, pq.Array(carpoolIDs))
+	if err != nil {
+		return nil, fmt.Errorf("list carpool cpr account ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var carpoolID int64
+		var accountID sql.NullString
+		if err := rows.Scan(&carpoolID, &accountID); err != nil {
+			return nil, fmt.Errorf("scan carpool cpr account id: %w", err)
+		}
+		if accountID.Valid {
+			out[carpoolID] = strings.TrimSpace(accountID.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate carpool cpr account ids: %w", err)
+	}
+	return out, nil
+}
+
 // GetGroupQRCode 读取车辆的微信群二维码字节与内容类型。
 func (r *carpoolRepository) GetGroupQRCode(ctx context.Context, carpoolID int64) ([]byte, string, error) {
 	var data []byte

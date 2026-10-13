@@ -48,7 +48,6 @@ func ProvideAdminHandlers(
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
-	contributionWithdrawalHandler *admin.ContributionWithdrawalHandler,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	claudeResetCredits *service.ClaudeResetCreditService,
@@ -94,7 +93,6 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
-		ContributionWithdrawal: contributionWithdrawalHandler,
 	}
 }
 
@@ -191,7 +189,6 @@ func ProvideHandlers(
 	chatHandler *ChatHandler,
 	channelMonitorUserHandler *ChannelMonitorUserHandler,
 	channelMonitorV2Handler *ChannelMonitorV2Handler,
-	accountPoolHandler *AccountPoolHandler,
 	carpoolHandler *CarpoolHandler,
 	carpoolUpstreamQuotaHandler *CarpoolUpstreamQuotaHandler,
 	adminHandlers *AdminHandlers,
@@ -221,7 +218,6 @@ func ProvideHandlers(
 		Chat:             chatHandler,
 		ChannelMonitor:   channelMonitorUserHandler,
 		ChannelMonitorV2: channelMonitorV2Handler,
-		AccountPool:      accountPoolHandler,
 		Carpool:          carpoolHandler,
 		UpstreamQuota:    carpoolUpstreamQuotaHandler,
 		Admin:            adminHandlers,
@@ -252,7 +248,6 @@ var ProviderSet = wire.NewSet(
 	NewChatHandler,
 	NewChannelMonitorUserHandler,
 	NewChannelMonitorV2Handler,
-	NewAccountPoolHandler,
 	NewCarpoolHandler,
 	NewCarpoolUpstreamQuotaHandler,
 	ProvideGatewayHandler,
@@ -303,7 +298,6 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
-	admin.NewContributionWithdrawalHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

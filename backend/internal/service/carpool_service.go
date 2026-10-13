@@ -171,6 +171,10 @@ type Carpool struct {
 	RemainingJoinableUSD float64 `json:"remaining_joinable_usd"`
 	PlusEquivalents      float64 `json:"plus_equivalents"`
 	AvgPriceCNY          float64 `json:"avg_price_cny"`
+
+	// Upstream 是列表接口（GET /carpools）随车返回的上游摘要，仅 List 填充；
+	// 其余响应不携带（omitempty）。configured=false 表示未配置 cpr 账号映射。
+	Upstream *CarpoolUpstreamSummary `json:"upstream,omitempty"`
 }
 
 // FillDerivedMetrics 由额度池参数与总申报推导展示指标：
@@ -493,6 +497,9 @@ type CarpoolRepository interface {
 	// GetCprAccountID 解析本车 primary_account 的 extra->>'cpr_account_id'（上游
 	// cpr 账号映射）。未绑定主账号或未配置该键返回 ("", nil)。
 	GetCprAccountID(ctx context.Context, carpoolID int64) (string, error)
+	// ListCprAccountIDs 批量解析一组车的 cpr 账号映射（GetCprAccountID 的列表版，
+	// 一条 SQL）。map 里缺失的 id 表示未配置。
+	ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error)
 	GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error)
 	Create(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, inviteHash, inviteHint string) (*CarpoolMutationResult, error)
 	CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error
@@ -538,6 +545,11 @@ type CarpoolService struct {
 	emailSender         CarpoolEmailSender
 	userDirectory       CarpoolUserDirectory
 
+	// upstream 提供列表接口的上游摘要 enrichment（缓存命中为主路径，miss 直查 cpr）。
+	// wire 组装时经 ProvideCarpoolUpstreamQuotaService 注入；nil（测试/未接线）时
+	// 列表每车返回 configured:false 的占位摘要。
+	upstream *CarpoolUpstreamQuotaService
+
 	// cycles 提供分周期计费台账（可选注入）。未注入时结算退回按月整体算地板。
 	cycles CarpoolBillingCycleRecorder
 
@@ -565,6 +577,15 @@ func (s *CarpoolService) SetBillingCycleRecorder(rec CarpoolBillingCycleRecorder
 		return
 	}
 	s.cycles = rec
+}
+
+// SetUpstreamQuotaService 注入周额度查询服务（wire 组装时调用），
+// 列表接口据此给每车补上游摘要。
+func (s *CarpoolService) SetUpstreamQuotaService(svc *CarpoolUpstreamQuotaService) {
+	if s == nil {
+		return
+	}
+	s.upstream = svc
 }
 
 // loadMemberCycles 取回本车在结算区间内的分周期台账，按成员分组。
@@ -597,7 +618,44 @@ func (s *CarpoolService) List(ctx context.Context, userID int64) ([]Carpool, err
 	for i := range items {
 		fillCarpoolPresentation(&items[i])
 	}
+	s.fillUpstreamSummaries(ctx, items)
 	return items, nil
+}
+
+// fillUpstreamSummaries 给列表每车补上游摘要（best-effort：解析或拉取失败都不阻塞
+// 列表，只记 WARN，该车按 configured:false 返回）。upstream 未注入（功能禁用）时
+// 每车直接返回 configured:false 占位。
+func (s *CarpoolService) fillUpstreamSummaries(ctx context.Context, items []Carpool) {
+	if len(items) == 0 {
+		return
+	}
+	fallback := func() {
+		for i := range items {
+			items[i].Upstream = &CarpoolUpstreamSummary{Configured: false}
+		}
+	}
+	if s.upstream == nil {
+		fallback()
+		return
+	}
+	ids := make([]int64, len(items))
+	for i := range items {
+		ids[i] = items[i].ID
+	}
+	summaries, err := s.upstream.ListSummaries(ctx, ids)
+	if err != nil {
+		slog.Warn("carpool list upstream summaries failed; returning configured:false placeholders",
+			"error", err)
+		fallback()
+		return
+	}
+	for i := range items {
+		summary, ok := summaries[items[i].ID]
+		if !ok || summary == nil {
+			summary = &CarpoolUpstreamSummary{Configured: false}
+		}
+		items[i].Upstream = summary
+	}
 }
 
 func (s *CarpoolService) ResolveInvite(ctx context.Context, userID int64, token string) (*Carpool, error) {

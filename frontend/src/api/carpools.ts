@@ -52,6 +52,25 @@ interface CarpoolResponse {
   remaining_joinable_usd: number
   plus_equivalents: number
   avg_price_cny: number
+  // 列表接口随车返回的上游摘要（仅 GET /carpools 填充，其余响应不携带）。
+  upstream?: CarpoolUpstreamSummaryResponse
+}
+
+// 列表接口的上游摘要载荷（snake_case，mapper 转成 CarpoolUpstreamSummary）。
+interface CarpoolUpstreamSummaryResponse {
+  configured: boolean
+  used_percent: number | null
+  reset_at: string | null
+  expires_at: string | null
+}
+
+// 列表接口随车返回的上游摘要。configured=false 表示未配置 cpr 账号映射
+// （或功能未启用），此时其余字段均为 null。
+export interface CarpoolUpstreamSummary {
+  configured: boolean
+  usedPercent: number | null
+  resetAt: string | null
+  expiresAt: string | null
 }
 
 export interface Carpool {
@@ -94,6 +113,7 @@ export interface Carpool {
   remainingJoinableUsd: number
   plusEquivalents: number
   avgPriceCny: number
+  upstream: CarpoolUpstreamSummary | null
 }
 
 export interface CreateCarpoolRequest {
@@ -284,6 +304,14 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     remainingJoinableUsd: item.remaining_joinable_usd,
     plusEquivalents: item.plus_equivalents,
     avgPriceCny: item.avg_price_cny,
+    upstream: item.upstream
+      ? {
+          configured: item.upstream.configured,
+          usedPercent: item.upstream.used_percent,
+          resetAt: item.upstream.reset_at,
+          expiresAt: item.upstream.expires_at,
+        }
+      : null,
   }
 }
 
@@ -592,8 +620,9 @@ export async function setJoinLocked(id: number, locked: boolean): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
-// 上游周额度：cpr 账号维度的周窗口用量/估值。configured=false 表示此车未配置
-// cpr 账号映射；weekly=null 或 available=false 表示 cpr 暂无比重数据。
+// 上游周额度：cpr 账号维度的周窗口用量/估值 + 重置次数。configured=false 表示此车未配置
+// cpr 账号映射；weekly=null 或 available=false 表示 cpr 暂无比重数据；
+// resetCredits=null 表示 reset-credits 拉取失败（best-effort），不代表没有重置额度。
 // 功能整体未启用时后端直接返回错误码，由调用方按「不展示区块」处理。
 // ---------------------------------------------------------------------------
 
@@ -613,6 +642,18 @@ export interface UpstreamQuotaWeekly {
   estimatedUsdDisplay: string
 }
 
+export interface UpstreamQuotaResetCredits {
+  availableCount: number
+  nextExpiresAt: string | null
+}
+
+// 上游账号订阅到期信息（cpr personal-info 的 subscription 块）。
+// willRenew=null 表示 cpr 未观测到续费状态；整块为 null 表示拉取失败或无订阅观测。
+export interface UpstreamQuotaAccountExpiry {
+  expiresAt: string
+  willRenew: boolean | null
+}
+
 export interface UpstreamQuota {
   configured: boolean
   carpoolId: number
@@ -620,6 +661,10 @@ export interface UpstreamQuota {
   generatedAt: string
   cached: boolean
   weekly: UpstreamQuotaWeekly | null
+  // null 表示拉取失败（best-effort），不代表没有重置额度
+  resetCredits: UpstreamQuotaResetCredits | null
+  // null 表示拉取失败或账号无订阅观测
+  accountExpiry: UpstreamQuotaAccountExpiry | null
   refreshCooldownSeconds: number
 }
 
@@ -647,6 +692,8 @@ export interface UpstreamQuotaResponse {
     generated_at: string
     cached: boolean
     weekly: UpstreamQuotaWeeklyResponse | null
+    reset_credits: { available_count: number; next_expires_at: string | null } | null
+    account_expiry: { expires_at: string; will_renew: boolean | null } | null
     refresh: { cooldown_seconds: number }
   }
 }
@@ -674,6 +721,18 @@ export function mapUpstreamQuota(data: UpstreamQuotaResponse): UpstreamQuota {
           estimatedTokensDisplay: payload.weekly.estimated_tokens_display,
           estimatedUsd: payload.weekly.estimated_usd,
           estimatedUsdDisplay: payload.weekly.estimated_usd_display,
+        }
+      : null,
+    resetCredits: payload.reset_credits
+      ? {
+          availableCount: payload.reset_credits.available_count,
+          nextExpiresAt: payload.reset_credits.next_expires_at,
+        }
+      : null,
+    accountExpiry: payload.account_expiry
+      ? {
+          expiresAt: payload.account_expiry.expires_at,
+          willRenew: payload.account_expiry.will_renew,
         }
       : null,
     refreshCooldownSeconds: payload.refresh?.cooldown_seconds ?? 0,

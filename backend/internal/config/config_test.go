@@ -105,7 +105,7 @@ func TestLoadCprDefaults(t *testing.T) {
 	require.Empty(t, cfg.Cpr.AdminBaseURL)
 	require.Empty(t, cfg.Cpr.AdminKey)
 	require.Equal(t, 300, cfg.Cpr.CacheTTLSeconds)
-	require.Equal(t, 60, cfg.Cpr.RefreshCooldownSeconds)
+	require.Equal(t, 600, cfg.Cpr.RefreshCooldownSeconds)
 }
 
 func TestLoadCprFromEnvironment(t *testing.T) {

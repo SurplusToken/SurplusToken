@@ -159,19 +159,44 @@
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
               <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义。
-                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2,400。 -->
+                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2,400。
+                   type 1（无保底老车）同样隐藏：价格标只服务现行 quota 车（type 2/3）。 -->
               <span
-                v-if="isQuotaCar(carpool)"
+                v-if="showsReservationProgress(carpool)"
                 class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
               >
                 {{ t('carpool.fields.weeklyLimitBadgePrefix') }} · {{ formatUsd(carpool.weeklyLimitUsd) }} USD/{{ t('carpool.fields.weeklyLimitBadgeUnit') }}
               </span>
               <span
-                v-else
+                v-else-if="!isQuotaCar(carpool)"
                 class="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
               >
                 {{ t('carpool.customRule.badge') }}
               </span>
+            </div>
+
+            <!--
+              时间行：上游账号到期优先展示（≤7 天标橙「即将到期」），无到期信息时
+              退回发车日期兜底，保证每张卡片都有时间锚点。
+            -->
+            <div class="mt-3 flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-300" data-testid="carpool-card-time">
+              <Icon name="clock" size="xs" />
+              <template v-if="carpool.upstream?.expiresAt">
+                <span
+                  :class="upstreamExpiringSoon(carpool.upstream.expiresAt)
+                    ? 'font-medium text-amber-600 dark:text-amber-400'
+                    : ''"
+                >
+                  {{ t('carpool.upstreamQuota.cardExpires', {
+                    date: formatMonthDay(carpool.upstream.expiresAt),
+                    days: daysUntilExpiry(carpool.upstream.expiresAt),
+                  }) }}
+                </span>
+                <span v-if="upstreamExpiringSoon(carpool.upstream.expiresAt)" class="badge badge-warning">
+                  {{ t('carpool.upstreamQuota.expiringSoon') }}
+                </span>
+              </template>
+              <span v-else>{{ formatDate(carpool.scheduledStartAt || carpool.createdAt.slice(0, 10)) }}</span>
             </div>
 
             <!--
@@ -189,7 +214,10 @@
               <p v-else class="mt-1">{{ t('carpool.customRule.noNote') }}</p>
             </div>
 
-            <div v-else class="mt-4">
+            <div
+              v-else-if="showsReservationProgress(carpool)"
+              class="mt-4"
+            >
               <div class="mb-2 flex items-center justify-between text-xs">
                 <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.quotaProgress') }}</span>
                 <span class="text-gray-500 dark:text-dark-300">
@@ -807,7 +835,7 @@
           </div>
           <span :class="['badge', statusBadgeClass(selectedCarpool)]">{{ statusLabel(selectedCarpool) }}</span>
         </div>
-        <div>
+        <div v-if="showsReservationProgress(selectedCarpool)">
           <div class="mb-2 flex justify-between text-sm text-gray-600 dark:text-dark-200">
             <span>{{ t('carpool.fields.quotaProgress') }}</span>
             <span class="font-medium">
@@ -967,8 +995,31 @@
                     </span>
                   </dd>
                 </div>
+                <div v-if="upstreamQuota.resetCredits" class="col-span-2">
+                  <p class="text-xs leading-5 text-gray-700 dark:text-dark-100">
+                    {{ t('carpool.upstreamQuota.resetCredits', { count: upstreamQuota.resetCredits.availableCount }) }}
+                    <span v-if="upstreamQuota.resetCredits.nextExpiresAt" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.upstreamQuota.resetCreditsExpires', { date: formatDateTime(upstreamQuota.resetCredits.nextExpiresAt) }) }}
+                    </span>
+                  </p>
+                </div>
               </dl>
             </template>
+            <p
+              v-if="upstreamQuota.accountExpiry"
+              class="mt-2 text-xs leading-5"
+              :class="upstreamExpiringSoon(upstreamQuota.accountExpiry.expiresAt)
+                ? 'font-medium text-amber-600 dark:text-amber-400'
+                : 'text-gray-700 dark:text-dark-100'"
+            >
+              {{ t('carpool.upstreamQuota.accountExpires', { date: formatDateTime(upstreamQuota.accountExpiry.expiresAt) }) }}
+              <span v-if="upstreamQuota.accountExpiry.willRenew === true" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                {{ t('carpool.upstreamQuota.renewsAutomatically') }}
+              </span>
+              <span v-if="upstreamExpiringSoon(upstreamQuota.accountExpiry.expiresAt)" class="ml-1 text-[10px] font-normal">
+                {{ t('carpool.upstreamQuota.expiringSoon') }}
+              </span>
+            </p>
             <p class="mt-2 text-[10px] text-gray-400 dark:text-dark-400">{{ upstreamQuotaUpdatedAgo }}</p>
           </template>
         </div>
@@ -1692,6 +1743,24 @@ function isQuotaCar(carpool: Pick<Carpool, 'pricingModel'>): boolean {
   return !carpool.pricingModel || carpool.pricingModel === 'quota'
 }
 
+// showsReservationProgress：只有现行额度预约制车（type 2/3）渲染「额度池预约进度」
+// 与卡片价格标。type 0（自定义规则）与 type 1（无保底老车）的 weekly_limit_usd 是
+// 历史遗留值，进度条与「$X/周」对它们没有参考意义，一律隐藏。
+function showsReservationProgress(carpool: Pick<Carpool, 'pricingModel' | 'carType'>): boolean {
+  return isQuotaCar(carpool) && carpool.carType !== 0 && carpool.carType !== 1
+}
+
+// 距上游账号到期的天数（向上取整、最低 0）：卡片时间行与详情到期提醒共用。
+function daysUntilExpiry(expiresAt: string): number {
+  const ms = new Date(expiresAt).getTime() - Date.now()
+  return Math.max(0, Math.ceil(ms / 86400000))
+}
+
+// 7 天内到期标橙提醒（纯展示阈值，与后端无关）。
+function upstreamExpiringSoon(expiresAt: string): boolean {
+  return daysUntilExpiry(expiresAt) <= 7
+}
+
 function canJoin(carpool: Carpool): boolean {
   // 自定义规则车不接新成员（后端同样拒绝）：它们不走申报制，而升级前遗留的
   // 招募中老车 Σ申报 恒为 0、永远达不到发车区间，再放人进去就是往开不走的
@@ -1807,6 +1876,14 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
     month: 'short', day: 'numeric', year: 'numeric'
   }).format(new Date(`${value}T12:00:00`))
+}
+
+// 「M月D日」短格式：卡片时间行的到期日（zh 输出「10月15日」，en 输出「October 15」）。
+function formatMonthDay(value: string): string {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'long', day: 'numeric'
+  }).format(new Date(value))
 }
 
 function formatDateTime(value: string): string {

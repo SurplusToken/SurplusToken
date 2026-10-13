@@ -404,20 +404,6 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-// ProvideKasmClient builds the Kasm client from config. Returns nil (feature
-// disabled) when kasm.api_base is empty.
-func ProvideKasmClient(cfg *config.Config) *KasmClient {
-	return NewKasmClient(cfg)
-}
-
-// ProvideRemoteSessionService creates and starts the remote-browser ("远程连接")
-// service, including its ~30s reconciler goroutine.
-func ProvideRemoteSessionService(repo RemoteSessionRepository, accountSvc *AccountService, kasm *KasmClient) *RemoteSessionService {
-	svc := NewRemoteSessionService(repo, accountSvc, kasm, 30*time.Second)
-	svc.Start()
-	return svc
-}
-
 // ProvideCprClient builds the codex-proxy-rs admin client from config. Returns
 // nil (feature disabled) when cpr.admin_base_url is empty; the upstream-quota
 // endpoints then answer 503 CARPOOL_UPSTREAM_QUOTA_NOT_CONFIGURED.
@@ -427,8 +413,11 @@ func ProvideCprClient(cfg *config.Config) *CprClient {
 
 // ProvideCarpoolUpstreamQuotaService 构造拼车周额度查询服务。cpr client 为 nil
 // （功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
-func ProvideCarpoolUpstreamQuotaService(repo CarpoolRepository, cpr *CprClient, cache CarpoolUpstreamQuotaCache, cfg *config.Config) *CarpoolUpstreamQuotaService {
-	return NewCarpoolUpstreamQuotaService(repo, cpr, cache, cfg)
+// 构造后回注 CarpoolService（列表接口的车级上游摘要走同一个服务/缓存）。
+func ProvideCarpoolUpstreamQuotaService(carpoolService *CarpoolService, repo CarpoolRepository, cpr *CprClient, cache CarpoolUpstreamQuotaCache, cfg *config.Config) *CarpoolUpstreamQuotaService {
+	svc := NewCarpoolUpstreamQuotaService(repo, cpr, cache, cfg)
+	carpoolService.SetUpstreamQuotaService(svc)
+	return svc
 }
 
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.
@@ -909,21 +898,15 @@ func ProvideAPIKeyService(
 	return svc
 }
 
-// ProvideAccountService wires AccountService with optional proxy lookup for user-owned
-// accounts and the shared-account-rate marketplace policy (admin-configurable dynamic
-// floor/cap + owner cooldown), read from SettingService.
-func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, settingService *SettingService, subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) *AccountService {
+// ProvideAccountService wires AccountService with the proxy repository used to
+// resolve account upstream proxies, plus the contributor self-use provisioning
+// deps. Proxy CRUD for admins runs through AdminService + ProxyRepository
+// (see admin_proxy.go); the user-facing ProxyService wrapper was removed with
+// the user account pool.
+func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) *AccountService {
 	svc := NewAccountService(accountRepo, groupRepo)
 	svc.SetProxyRepository(proxyRepo)
-	svc.SetSharingRatePolicy(settingService)
 	svc.SetSelfUseProvisioningDeps(subscriptionSvc, apiKeyService)
-	return svc
-}
-
-// ProvideProxyService wires ProxyService with the shared proxy prober.
-func ProvideProxyService(proxyRepo ProxyRepository, proxyProber ProxyExitInfoProber) *ProxyService {
-	svc := NewProxyService(proxyRepo)
-	svc.SetProxyProber(proxyProber)
 	return svc
 }
 
@@ -944,7 +927,6 @@ var ProviderSet = wire.NewSet(
 	NewGroupService,
 	NewCompositeRouteResolver,
 	ProvideAccountService,
-	ProvideProxyService,
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,
@@ -1029,11 +1011,8 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAICodexVersionSyncService,
 	ProvideClaudeCodeVersionSyncService,
 	ProvideProxyExpiryService,
-	ProvideKasmClient,
-	ProvideRemoteSessionService,
 	ProvideCprClient,
 	ProvideCarpoolUpstreamQuotaService,
-	NewAccountContributionService,
 	ProvideSubscriptionExpiryService,
 	ProvideCarpoolSettlementScheduler,
 	ProvideTimingWheelService,
@@ -1061,7 +1040,6 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaService,
 	NewContentModerationService,
 	NewAffiliateService,
-	NewContributionService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,

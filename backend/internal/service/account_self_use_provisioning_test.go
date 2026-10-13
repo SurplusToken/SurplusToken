@@ -127,6 +127,24 @@ func (f *selfUseGroupRepoFake) Delete(_ context.Context, id int64) error {
 	return nil
 }
 
+// selfUseAccountRepoFake stubs the account repo surface BackfillSelfUseForUser
+// needs: listing accounts per platform. Embeds the shared accountRepoStub for
+// the rest of the AccountRepository interface.
+type selfUseAccountRepoFake struct {
+	accountRepoStub
+	accounts []Account
+}
+
+func (f *selfUseAccountRepoFake) ListByPlatform(_ context.Context, platform string) ([]Account, error) {
+	out := make([]Account, 0, len(f.accounts))
+	for _, account := range f.accounts {
+		if account.Platform == platform {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
 // ---- tests ---------------------------------------------------------------
 
 func TestEnsureSelfUseAccess_FirstContribution(t *testing.T) {
@@ -245,7 +263,7 @@ func TestFindUserSelfUseGroupID_FiltersByPlatform(t *testing.T) {
 func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiAPIKeySkipsLegacyKimiOAuth(t *testing.T) {
 	ownerID := int64(7)
 	otherOwnerID := int64(8)
-	accountRepo := &accountPoolRepoStub{accounts: []Account{
+	accountRepo := &selfUseAccountRepoFake{accounts: []Account{
 		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
 		{ID: 43, Platform: PlatformKimi, Type: AccountTypeOAuth, OwnerUserID: &ownerID},
 		{ID: 44, Platform: PlatformKimi, Type: AccountTypeAPIKey, OwnerUserID: &ownerID},

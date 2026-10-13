@@ -49,6 +49,46 @@ type CprQuotaForecast struct {
 	EstimatedUSDDisplay    string                  `json:"estimatedUsdDisplay"`
 }
 
+// CprResetCreditsData is the `data` field of GET /api/admin/accounts/reset-credits.
+type CprResetCreditsData struct {
+	AvailableCount int              `json:"availableCount"`
+	Credits        []CprResetCredit `json:"credits"`
+}
+
+// CprResetCredit is one reset credit entry. Only status=="available" entries count
+// towards the remaining resets; ExpiresAt is RFC3339.
+type CprResetCredit struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
+	ExpiresAt string `json:"expiresAt"`
+	ResetType string `json:"resetType"`
+}
+
+// CprPersonalInfoData is the `data` field of GET /api/admin/accounts/personal-info.
+// Only the subscription block is consumed; the rest of the profile is ignored.
+type CprPersonalInfoData struct {
+	Subscription *CprSubscription `json:"subscription"`
+}
+
+// CprSubscription is the account's subscription observation from cpr
+// (RFC3339 timestamps). WillRenew is a pointer because "no subscription on file"
+// (null subscription) and "renewal state unknown" must stay distinguishable.
+type CprSubscription struct {
+	StartsAt        string `json:"startsAt"`
+	ExpiresAt       string `json:"expiresAt"`
+	WillRenew       *bool  `json:"willRenew"`
+	BillingPeriod   string `json:"billingPeriod"`
+	BillingCurrency string `json:"billingCurrency"`
+	ObservedAt      string `json:"observedAt"`
+}
+
+// CprAccountSubscription 是拼车展示需要的 subscription 摘要。
+type CprAccountSubscription struct {
+	ExpiresAt string
+	WillRenew *bool
+}
+
 // CprQuotaForecastSource is the observation a forecast extrapolates from.
 type CprQuotaForecastSource struct {
 	Label              string   `json:"label"`
@@ -154,6 +194,52 @@ func (c *CprClient) QuotaForecast(ctx context.Context, accountID string) (*CprQu
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ResetCredits fetches the account's rate-limit reset credits. This is a
+// best-effort companion of QuotaForecast: callers should degrade to a null
+// field instead of failing the whole request when this errors.
+func (c *CprClient) ResetCredits(ctx context.Context, accountID string) (*CprResetCreditsData, error) {
+	if c == nil {
+		return nil, fmt.Errorf("cpr client not configured")
+	}
+	path := "/api/admin/accounts/reset-credits?accountId=" + url.QueryEscape(accountID)
+	var out CprResetCreditsData
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PersonalInfo fetches the account's personal-info payload (GET /api/admin/accounts/personal-info).
+// Only the subscription block is consumed by callers; the profile part is ignored.
+func (c *CprClient) PersonalInfo(ctx context.Context, accountID string) (*CprPersonalInfoData, error) {
+	if c == nil {
+		return nil, fmt.Errorf("cpr client not configured")
+	}
+	path := "/api/admin/accounts/personal-info?accountId=" + url.QueryEscape(accountID)
+	var out CprPersonalInfoData
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Subscription 拉 personal-info 并取出 subscription 块。账号没有订阅观测
+// （data.subscription 为 null）时返回 (nil, nil)，不算错误——调用方据此把
+// account_expiry 置空，而不是当作拉取失败。
+func (c *CprClient) Subscription(ctx context.Context, accountID string) (*CprAccountSubscription, error) {
+	data, err := c.PersonalInfo(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil || data.Subscription == nil {
+		return nil, nil
+	}
+	return &CprAccountSubscription{
+		ExpiresAt: data.Subscription.ExpiresAt,
+		WillRenew: data.Subscription.WillRenew,
+	}, nil
 }
 
 // RefreshQuota asks cpr to re-observe the account's upstream quota. The response

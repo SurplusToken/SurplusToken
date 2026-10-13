@@ -32,8 +32,4 @@ var (
 	// ErrUserDeleteBlockedAccountOwnership prevents deleting the only principal
 	// capable of managing a contributed account and its held reward pool.
 	ErrUserDeleteBlockedAccountOwnership = infraerrors.Conflict("USER_DELETE_BLOCKED_ACCOUNT_OWNERSHIP", "cannot delete a user who still owns contributed accounts; distribute any held reward and delete those accounts first")
-
-	// ErrContributionPoolDistributionModeInvalid is returned when the distribute
-	// API is called with a mode outside the strict enum ('even' | 'custom').
-	ErrContributionPoolDistributionModeInvalid = infraerrors.BadRequest("CONTRIBUTION_POOL_DISTRIBUTION_MODE_INVALID", "mode must be 'even' or 'custom'")
 )

@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +21,6 @@ type UserHandler struct {
 	emailService          *service.EmailService
 	emailCache            service.EmailCache
 	affiliateService      *service.AffiliateService
-	contributionService   *service.ContributionService
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository
 }
 
@@ -34,7 +31,6 @@ func NewUserHandler(
 	emailService *service.EmailService,
 	emailCache service.EmailCache,
 	affiliateService *service.AffiliateService,
-	contributionService *service.ContributionService,
 	userPlatformQuotaRepo service.UserPlatformQuotaRepository,
 ) *UserHandler {
 	return &UserHandler{
@@ -43,7 +39,6 @@ func NewUserHandler(
 		emailService:          emailService,
 		emailCache:            emailCache,
 		affiliateService:      affiliateService,
-		contributionService:   contributionService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
 }
@@ -296,169 +291,6 @@ func (h *UserHandler) TransferAffiliateQuota(c *gin.Context) {
 		"transferred_quota": transferred,
 		"balance":           balance,
 	})
-}
-
-// GetContribution returns the current user's contribution balance.
-// GET /api/v1/user/contribution
-func (h *UserHandler) GetContribution(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-
-	summary, err := h.contributionService.GetSummary(c.Request.Context(), subject.UserID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, summary)
-}
-
-// TransferContributionQuota transfers all available contribution quota into current balance.
-// POST /api/v1/user/contribution/transfer
-func (h *UserHandler) TransferContributionQuota(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-
-	result, err := h.contributionService.TransferContributionQuota(c.Request.Context(), subject.UserID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
-}
-
-type createContributionWithdrawalPayload struct {
-	Amount         float64 `json:"amount"`
-	PaymentMethod  string  `json:"payment_method"`
-	PaymentAccount string  `json:"payment_account"`
-	PayeeName      string  `json:"payee_name"`
-	RequestNote    string  `json:"request_note"`
-	PaymentQRCode  string  `json:"payment_qr_code"`
-}
-
-// CreateContributionWithdrawal reserves contribution quota and creates a manual payout request.
-// POST /api/v1/user/contribution/withdrawals
-func (h *UserHandler) CreateContributionWithdrawal(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-	var payload createContributionWithdrawalPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	result, err := h.contributionService.CreateWithdrawal(c.Request.Context(), subject.UserID, service.CreateContributionWithdrawalRequest{
-		Amount:         payload.Amount,
-		PaymentMethod:  payload.PaymentMethod,
-		PaymentAccount: payload.PaymentAccount,
-		PayeeName:      payload.PayeeName,
-		RequestNote:    payload.RequestNote,
-		PaymentQRCode:  payload.PaymentQRCode,
-		IdempotencyKey: c.GetHeader("Idempotency-Key"),
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if result != nil && result.NewlyCreated {
-		baseCtx := context.WithoutCancel(c.Request.Context())
-		go func(withdrawal *service.ContributionWithdrawal) {
-			ctx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
-			defer cancel()
-			h.contributionService.NotifyWithdrawalCreated(ctx, withdrawal)
-		}(result)
-	}
-	response.Success(c, result)
-}
-
-// GetContributionWithdrawalQRCode returns the current user's QR code image.
-func (h *UserHandler) GetContributionWithdrawalQRCode(c *gin.Context) {
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	withdrawalID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || withdrawalID <= 0 {
-		response.BadRequest(c, "Invalid withdrawal ID")
-		return
-	}
-	data, contentType, err := h.contributionService.GetWithdrawalQRCode(c.Request.Context(), subject.UserID, withdrawalID, false)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	c.Header("Cache-Control", "private, no-store")
-	c.Data(http.StatusOK, contentType, data)
-}
-
-// ListContributionWithdrawals lists the current user's payout requests.
-// GET /api/v1/user/contribution/withdrawals
-func (h *UserHandler) ListContributionWithdrawals(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-	page, pageSize := response.ParsePagination(c)
-	items, total, err := h.contributionService.ListWithdrawals(c.Request.Context(), subject.UserID, page, pageSize)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Paginated(c, items, total, page, pageSize)
-}
-
-// CancelContributionWithdrawal cancels a pending request and refunds its reserved quota.
-// POST /api/v1/user/contribution/withdrawals/:id/cancel
-func (h *UserHandler) CancelContributionWithdrawal(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-	withdrawalID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || withdrawalID <= 0 {
-		response.BadRequest(c, "Invalid withdrawal ID")
-		return
-	}
-	if h.contributionService == nil {
-		response.InternalError(c, "contribution service is not configured")
-		return
-	}
-	result, err := h.contributionService.CancelWithdrawal(c.Request.Context(), subject.UserID, withdrawalID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
 }
 
 type StartIdentityBindingRequest struct {
