@@ -1419,8 +1419,9 @@ func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64
 }
 
 // GetCprAccountID 解析本车绑定的上游 cpr 账号 id。映射存在 accounts.extra JSONB：
-// carpools.primary_account_id → accounts.id，账号 id 取 extra->>'cpr_account_id'
-// （与 codex_7d_* 快照键同一位置）。主账号未绑定或 extra 未配置该键时返回 ("", nil)。
+// 优先 carpools.primary_account_id → accounts.id；主账号未绑定时回退到本车 group
+// 内 priority 最高且配置了 cpr_account_id 的账号（与 GroupUpstreamWeeklyWindow
+// 选号口径一致，生产车大多只绑 group）。均无 → ("", nil)。
 func (r *carpoolRepository) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
 	var accountID sql.NullString
 	err := r.db.QueryRowContext(ctx, `
@@ -1428,6 +1429,19 @@ SELECT a.extra->>'cpr_account_id'
 FROM carpools c
 JOIN accounts a ON a.id = c.primary_account_id
 WHERE c.id = $1`, carpoolID).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// 主账号未绑定：回退到组内 priority 最高的已映射账号。
+		err = r.db.QueryRowContext(ctx, `
+SELECT a.extra->>'cpr_account_id'
+FROM carpools c
+JOIN account_groups ag ON ag.group_id = c.group_id
+JOIN accounts a ON a.id = ag.account_id
+WHERE c.id = $1 AND c.primary_account_id IS NULL
+  AND a.extra->>'cpr_account_id' IS NOT NULL
+  AND btrim(a.extra->>'cpr_account_id') <> ''
+ORDER BY ag.priority DESC, a.id ASC
+LIMIT 1`, carpoolID).Scan(&accountID)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
