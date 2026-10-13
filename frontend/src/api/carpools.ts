@@ -591,6 +591,106 @@ export async function setJoinLocked(id: number, locked: boolean): Promise<void> 
   await apiClient.patch(`/carpools/${id}/join-lock`, { locked })
 }
 
+// ---------------------------------------------------------------------------
+// 上游周额度：cpr 账号维度的周窗口用量/估值。configured=false 表示此车未配置
+// cpr 账号映射；weekly=null 或 available=false 表示 cpr 暂无比重数据。
+// 功能整体未启用时后端直接返回错误码，由调用方按「不展示区块」处理。
+// ---------------------------------------------------------------------------
+
+export interface UpstreamQuotaWeekly {
+  available: boolean
+  unavailableReason: string | null
+  lowSample: boolean
+  usedPercent: number
+  usedPercentDisplay: string
+  observedAt: string
+  resetAt: string
+  tokensDisplay: string
+  usdDisplay: string
+  estimatedTokens: number
+  estimatedTokensDisplay: string
+  estimatedUsd: number
+  estimatedUsdDisplay: string
+}
+
+export interface UpstreamQuota {
+  configured: boolean
+  carpoolId: number
+  cprAccountId: string
+  generatedAt: string
+  cached: boolean
+  weekly: UpstreamQuotaWeekly | null
+  refreshCooldownSeconds: number
+}
+
+interface UpstreamQuotaWeeklyResponse {
+  available: boolean
+  unavailable_reason: string | null
+  low_sample: boolean
+  used_percent: number
+  used_percent_display: string
+  observed_at: string
+  reset_at: string
+  tokens_display: string
+  usd_display: string
+  estimated_tokens: number
+  estimated_tokens_display: string
+  estimated_usd: number
+  estimated_usd_display: string
+}
+
+export interface UpstreamQuotaResponse {
+  upstream_quota: {
+    configured: boolean
+    carpool_id: number
+    cpr_account_id: string
+    generated_at: string
+    cached: boolean
+    weekly: UpstreamQuotaWeeklyResponse | null
+    refresh: { cooldown_seconds: number }
+  }
+}
+
+export function mapUpstreamQuota(data: UpstreamQuotaResponse): UpstreamQuota {
+  const payload = data.upstream_quota
+  return {
+    configured: payload.configured,
+    carpoolId: payload.carpool_id,
+    cprAccountId: payload.cpr_account_id,
+    generatedAt: payload.generated_at,
+    cached: payload.cached,
+    weekly: payload.weekly
+      ? {
+          available: payload.weekly.available,
+          unavailableReason: payload.weekly.unavailable_reason,
+          lowSample: payload.weekly.low_sample,
+          usedPercent: payload.weekly.used_percent,
+          usedPercentDisplay: payload.weekly.used_percent_display,
+          observedAt: payload.weekly.observed_at,
+          resetAt: payload.weekly.reset_at,
+          tokensDisplay: payload.weekly.tokens_display,
+          usdDisplay: payload.weekly.usd_display,
+          estimatedTokens: payload.weekly.estimated_tokens,
+          estimatedTokensDisplay: payload.weekly.estimated_tokens_display,
+          estimatedUsd: payload.weekly.estimated_usd,
+          estimatedUsdDisplay: payload.weekly.estimated_usd_display,
+        }
+      : null,
+    refreshCooldownSeconds: payload.refresh?.cooldown_seconds ?? 0,
+  }
+}
+
+export async function upstreamQuota(id: number): Promise<UpstreamQuota> {
+  const { data } = await apiClient.get<UpstreamQuotaResponse>(`/carpools/${id}/upstream-quota`)
+  return mapUpstreamQuota(data)
+}
+
+// 手动刷新：绕过服务端缓存重新探测上游额度，后端按 cooldown_seconds 限流。
+export async function refreshUpstreamQuota(id: number): Promise<UpstreamQuota> {
+  const { data } = await apiClient.post<UpstreamQuotaResponse>(`/carpools/${id}/upstream-quota/refresh`)
+  return mapUpstreamQuota(data)
+}
+
 export default {
   list,
   create,
@@ -619,4 +719,6 @@ export default {
   unsettle,
   cancel,
   setJoinLocked,
+  upstreamQuota,
+  refreshUpstreamQuota,
 }

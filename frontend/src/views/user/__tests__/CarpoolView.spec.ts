@@ -27,6 +27,8 @@ const {
   settleMock,
   unsettleMock,
   updateMemberQuotaMock,
+  upstreamQuotaMock,
+  refreshUpstreamQuotaMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -51,6 +53,8 @@ const {
   settleMock: vi.fn(),
   unsettleMock: vi.fn(),
   updateMemberQuotaMock: vi.fn(),
+  upstreamQuotaMock: vi.fn(),
+  refreshUpstreamQuotaMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -78,6 +82,8 @@ vi.mock('@/api/carpools', () => ({
     updateMemberQuota: updateMemberQuotaMock,
     cancel: vi.fn(),
     setJoinLocked: vi.fn(),
+    upstreamQuota: upstreamQuotaMock,
+    refreshUpstreamQuota: refreshUpstreamQuotaMock,
   },
 }))
 
@@ -224,6 +230,11 @@ describe('CarpoolView', () => {
     settleMock.mockReset()
     unsettleMock.mockReset()
     updateMemberQuotaMock.mockReset()
+    // 默认未配置 cpr 账号映射：详情弹窗里的「上游周额度」区块保持隐藏
+    upstreamQuotaMock.mockReset()
+    upstreamQuotaMock.mockResolvedValue({ configured: false })
+    refreshUpstreamQuotaMock.mockReset()
+    refreshUpstreamQuotaMock.mockResolvedValue({ configured: false })
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL

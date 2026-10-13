@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -1415,6 +1416,25 @@ WHERE carpool_id = $1 AND user_id = $2`, carpoolID, newOwnerUserID); err != nil 
 
 func (r *carpoolRepository) GetByID(ctx context.Context, carpoolID, userID int64) (*service.Carpool, error) {
 	return getCarpoolByID(ctx, r.db, carpoolID, userID)
+}
+
+// GetCprAccountID 解析本车绑定的上游 cpr 账号 id。映射存在 accounts.extra JSONB：
+// carpools.primary_account_id → accounts.id，账号 id 取 extra->>'cpr_account_id'
+//（与 codex_7d_* 快照键同一位置）。主账号未绑定或 extra 未配置该键时返回 ("", nil)。
+func (r *carpoolRepository) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
+	var accountID sql.NullString
+	err := r.db.QueryRowContext(ctx, `
+SELECT a.extra->>'cpr_account_id'
+FROM carpools c
+JOIN accounts a ON a.id = c.primary_account_id
+WHERE c.id = $1`, carpoolID).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get carpool cpr account id: %w", err)
+	}
+	return strings.TrimSpace(accountID.String), nil
 }
 
 // GetGroupQRCode 读取车辆的微信群二维码字节与内容类型。

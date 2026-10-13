@@ -104,6 +104,7 @@ type Config struct {
 	Update                        UpdateConfig                  `mapstructure:"update"`
 	Idempotency                   IdempotencyConfig             `mapstructure:"idempotency"`
 	Kasm                          KasmConfig                    `mapstructure:"kasm"`
+	Cpr                           CprConfig                     `mapstructure:"cpr"`
 	BatchImage                    BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage                  ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                       PluginConfig                  `mapstructure:"plugins"`
@@ -134,6 +135,20 @@ type KasmConfig struct {
 	// SeedNamespace isolates seed dirs and Kasm users per environment ("prod" /
 	// "staging") so deployments sharing one Kasm don't share login state. Empty = none.
 	SeedNamespace string `mapstructure:"seed_namespace"` // env KASM_SEED_NAMESPACE
+}
+
+// CprConfig holds settings for the codex-proxy-rs (cpr) admin API, which backs
+// the carpool upstream-quota feature ("拼车周额度"). Secrets (admin_key) come from
+// env: CPR_ADMIN_KEY. Empty admin_base_url disables the whole feature
+// (NewCprClient returns nil and the endpoints answer 503 NOT_CONFIGURED).
+type CprConfig struct {
+	AdminBaseURL string `mapstructure:"admin_base_url"` // e.g. http://cpr:8321
+	AdminKey     string `mapstructure:"admin_key"`    // from env CPR_ADMIN_KEY (x-api-key header)
+	// CacheTTLSeconds 是服务端 Redis 缓存（carpool:upstream_quota:<id>）的 TTL。
+	CacheTTLSeconds        int `mapstructure:"cache_ttl_seconds"`
+	// RefreshCooldownSeconds 是 POST upstream-quota/refresh 的每车冷却窗口
+	//（carpool:upstream_quota:refresh:<id>，SET NX EX）。
+	RefreshCooldownSeconds int `mapstructure:"refresh_cooldown_seconds"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -2677,6 +2692,13 @@ func setDefaults() {
 	viper.SetDefault("kasm.image_id", "")
 	viper.SetDefault("kasm.public_host", "")
 	viper.SetDefault("kasm.seed_namespace", "")
+
+	// cpr (codex-proxy-rs) admin API — secret via env CPR_ADMIN_KEY.
+	// Empty admin_base_url disables the carpool upstream-quota feature.
+	viper.SetDefault("cpr.admin_base_url", "")
+	viper.SetDefault("cpr.admin_key", "")
+	viper.SetDefault("cpr.cache_ttl_seconds", 300)
+	viper.SetDefault("cpr.refresh_cooldown_seconds", 60)
 
 	setEnvReachableDefaults()
 }

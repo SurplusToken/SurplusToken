@@ -248,6 +248,21 @@ export default {
       title: '拼车详情',
       runtime: '开车状态'
     },
+    // 上游周额度：详情弹窗里的 cpr 账号周窗口用量。未配置 cpr 映射或功能
+    // 未启用时整个区块不渲染；cpr 暂无比重数据时展示不可用说明。
+    upstreamQuota: {
+      title: '上游周额度',
+      loading: '正在加载上游额度…',
+      usedTokens: '本周已用 Tokens',
+      usedUsd: '本周已用估值',
+      estimatedWeekly: '预计整周用量',
+      lowSample: '样本不足，仅供参考',
+      unavailable: '上游额度数据暂不可用',
+      updatedAgo: '更新于 {time}',
+      refreshFailed: '刷新上游额度失败，请稍后再试',
+      refreshTooFrequent: '刷新太频繁了，请稍后再试',
+      retry: '重试'
+    },
     settlement: {
       title: '月度结算单',
       period: '结算周期',

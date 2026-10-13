@@ -271,6 +271,9 @@ func RegisterUserRoutes(
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
 			carpools.PUT("/:id/qr-code", middleware.RequestBodyLimit(carpoolCreateMaxBodyBytes), h.Carpool.ReplaceGroupQRCode)
 			carpools.GET("/:id/roster", h.Carpool.Roster)
+			// 上游 cpr 账号周额度（服务端代理 + Redis 缓存；refresh 有服务端冷却）。
+			carpools.GET("/:id/upstream-quota", h.UpstreamQuota.Get)
+			carpools.POST("/:id/upstream-quota/refresh", h.UpstreamQuota.Refresh)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)

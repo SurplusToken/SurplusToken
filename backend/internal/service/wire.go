@@ -418,6 +418,19 @@ func ProvideRemoteSessionService(repo RemoteSessionRepository, accountSvc *Accou
 	return svc
 }
 
+// ProvideCprClient builds the codex-proxy-rs admin client from config. Returns
+// nil (feature disabled) when cpr.admin_base_url is empty; the upstream-quota
+// endpoints then answer 503 CARPOOL_UPSTREAM_QUOTA_NOT_CONFIGURED.
+func ProvideCprClient(cfg *config.Config) *CprClient {
+	return NewCprClient(cfg)
+}
+
+// ProvideCarpoolUpstreamQuotaService 构造拼车周额度查询服务。cpr client 为 nil
+//（功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
+func ProvideCarpoolUpstreamQuotaService(repo CarpoolRepository, cpr *CprClient, cache CarpoolUpstreamQuotaCache, cfg *config.Config) *CarpoolUpstreamQuotaService {
+	return NewCarpoolUpstreamQuotaService(repo, cpr, cache, cfg)
+}
+
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.
 // 出站 Codex 身份的版本号靠它跟随官方发布，无需为了跟版本而发新版本；面板可关闭。
 func ProvideOpenAICodexVersionSyncService(
@@ -1018,6 +1031,8 @@ var ProviderSet = wire.NewSet(
 	ProvideProxyExpiryService,
 	ProvideKasmClient,
 	ProvideRemoteSessionService,
+	ProvideCprClient,
+	ProvideCarpoolUpstreamQuotaService,
 	NewAccountContributionService,
 	ProvideSubscriptionExpiryService,
 	ProvideCarpoolSettlementScheduler,

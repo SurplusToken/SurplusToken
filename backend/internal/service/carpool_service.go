@@ -490,6 +490,9 @@ type CarpoolRepository interface {
 	UpdateCarpool(ctx context.Context, carpoolID, actorUserID int64, input UpdateCarpoolInput) (*CarpoolMutationResult, error)
 	TransferOwner(ctx context.Context, carpoolID, newOwnerUserID, actorUserID int64) (*CarpoolMutationResult, error)
 	GetByID(ctx context.Context, carpoolID, userID int64) (*Carpool, error)
+	// GetCprAccountID 解析本车 primary_account 的 extra->>'cpr_account_id'（上游
+	// cpr 账号映射）。未绑定主账号或未配置该键返回 ("", nil)。
+	GetCprAccountID(ctx context.Context, carpoolID int64) (string, error)
 	GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error)
 	Create(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, inviteHash, inviteHint string) (*CarpoolMutationResult, error)
 	CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error

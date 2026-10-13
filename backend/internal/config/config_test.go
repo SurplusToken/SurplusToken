@@ -97,6 +97,32 @@ func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	require.Equal(t, "app-user", cfg.Redis.Username)
 }
 
+func TestLoadCprDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	// 空 admin_base_url = 整个拼车周额度功能禁用（接口答 503）。
+	require.Empty(t, cfg.Cpr.AdminBaseURL)
+	require.Empty(t, cfg.Cpr.AdminKey)
+	require.Equal(t, 300, cfg.Cpr.CacheTTLSeconds)
+	require.Equal(t, 60, cfg.Cpr.RefreshCooldownSeconds)
+}
+
+func TestLoadCprFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("CPR_ADMIN_BASE_URL", "http://cpr:8321")
+	t.Setenv("CPR_ADMIN_KEY", "cpr-secret")
+	t.Setenv("CPR_CACHE_TTL_SECONDS", "120")
+	t.Setenv("CPR_REFRESH_COOLDOWN_SECONDS", "30")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "http://cpr:8321", cfg.Cpr.AdminBaseURL)
+	require.Equal(t, "cpr-secret", cfg.Cpr.AdminKey)
+	require.Equal(t, 120, cfg.Cpr.CacheTTLSeconds)
+	require.Equal(t, 30, cfg.Cpr.RefreshCooldownSeconds)
+}
+
 func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

@@ -71,6 +71,9 @@ func (s *carpoolHandlerRepoStub) GetByID(ctx context.Context, carpoolID, userID 
 	}
 	return s.carpool, nil
 }
+func (s *carpoolHandlerRepoStub) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
+	panic("unexpected call")
+}
 func (s *carpoolHandlerRepoStub) GetByInvite(ctx context.Context, userID int64, tokenHash string) (*service.Carpool, error) {
 	if s.invited == nil {
 		return nil, service.ErrCarpoolInviteInvalid

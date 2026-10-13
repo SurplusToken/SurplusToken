@@ -248,6 +248,23 @@ export default {
       title: 'Carpool details',
       runtime: 'Launch status'
     },
+    // Upstream weekly quota: the cpr account's weekly-window usage inside the
+    // detail dialog. The whole section stays hidden when the car has no cpr
+    // account mapping or the feature is disabled; when cpr has no usage data
+    // yet, an unavailability notice is shown instead.
+    upstreamQuota: {
+      title: 'Upstream weekly quota',
+      loading: 'Loading upstream quota…',
+      usedTokens: 'Tokens used this week',
+      usedUsd: 'Spend this week (est.)',
+      estimatedWeekly: 'Projected full-week usage',
+      lowSample: 'Small sample; for reference only',
+      unavailable: 'Upstream quota data is temporarily unavailable',
+      updatedAgo: 'Updated {time}',
+      refreshFailed: 'Failed to refresh the upstream quota. Please try again later.',
+      refreshTooFrequent: 'Refreshing too often. Please try again in a moment.',
+      retry: 'Retry'
+    },
     settlement: {
       title: 'Monthly settlement',
       period: 'Billing period',

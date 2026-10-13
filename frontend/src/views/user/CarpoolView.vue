@@ -876,6 +876,102 @@
             <input ref="replaceQrInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="handleReplaceQrFile" />
           </div>
         </div>
+
+        <!--
+          上游周额度（cpr 账号维度）。未配置 cpr 映射 / 功能未启用时后端会返回
+          错误码或 configured=false，这两种情况都不渲染本区块；打开弹窗时的
+          加载失败静默隐藏，只有用户手动刷新失败才弹错误提示。
+        -->
+        <div
+          v-if="showUpstreamQuotaSection"
+          data-testid="carpool-upstream-quota"
+          class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.upstreamQuota.title') }}</div>
+            <button
+              type="button"
+              class="btn btn-secondary h-7 px-2 py-1 text-xs"
+              :disabled="upstreamQuotaLoading"
+              :title="t('common.refresh')"
+              @click="refreshUpstreamQuota"
+            >
+              <Icon name="refresh" size="xs" :class="{ 'animate-spin': upstreamQuotaLoading }" />
+              <span>{{ t('common.refresh') }}</span>
+            </button>
+          </div>
+
+          <!-- 加载骨架屏（仿 CarpoolUsagePanel）：只在还没有数据可展示时出现，
+               有数据时的手动刷新保留原内容、只禁用按钮。 -->
+          <div
+            v-if="upstreamQuotaLoading && !upstreamQuota"
+            class="mt-3 animate-pulse space-y-2"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <span class="sr-only">{{ t('carpool.upstreamQuota.loading') }}</span>
+            <div class="h-4 w-28 rounded bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-2 rounded-full bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-3 w-40 rounded bg-gray-200 dark:bg-dark-600"></div>
+          </div>
+
+          <!-- 手动刷新失败：错误块 + 重试 -->
+          <div
+            v-else-if="upstreamQuotaError"
+            class="mt-3 flex flex-col items-start gap-2"
+            role="alert"
+          >
+            <p class="break-words text-sm font-medium text-red-600 dark:text-red-400">
+              {{ upstreamQuotaError }}
+            </p>
+            <button
+              type="button"
+              class="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              :disabled="upstreamQuotaLoading"
+              @click="refreshUpstreamQuota"
+            >
+              {{ t('carpool.upstreamQuota.retry') }}
+            </button>
+          </div>
+
+          <template v-else-if="upstreamQuota">
+            <!-- cpr 暂无比重数据：展示不可用说明（优先用后端给的 reason） -->
+            <p v-if="!upstreamQuotaWeekly" class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-300">
+              {{ upstreamQuotaUnavailableText }}
+            </p>
+            <template v-else>
+              <div class="mt-2">
+                <UsageProgressBar
+                  :label="t('carpool.upstreamQuota.title')"
+                  :utilization="upstreamQuotaWeekly.usedPercent"
+                  :resets-at="upstreamQuotaWeekly.resetAt"
+                  color="emerald"
+                  label-width="auto"
+                />
+              </div>
+              <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.usedTokens') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">{{ upstreamQuotaWeekly.tokensDisplay }}</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.usedUsd') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">{{ upstreamQuotaWeekly.usdDisplay }}</dd>
+                </div>
+                <div class="col-span-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.estimatedWeekly') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">
+                    {{ upstreamQuotaWeekly.estimatedUsdDisplay }}
+                    <span v-if="upstreamQuotaWeekly.lowSample" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.upstreamQuota.lowSample') }}
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+            </template>
+            <p class="mt-2 text-[10px] text-gray-400 dark:text-dark-400">{{ upstreamQuotaUpdatedAgo }}</p>
+          </template>
+        </div>
       </div>
     </BaseDialog>
 
@@ -1034,6 +1130,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import carpoolAPI, {
   type Carpool,
   type CarpoolSettlement,
@@ -1042,10 +1139,13 @@ import carpoolAPI, {
   type DeclarationRecommendation,
   type CarpoolRosterMember,
   type PendingLaunchCarpool,
+  type UpstreamQuota,
+  type UpstreamQuotaWeekly,
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { formatRelativeTime } from '@/utils/format'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
 const FORCE_LAUNCH_MIN_RATIO = 0.8
@@ -1157,6 +1257,37 @@ const overduePendingCount = computed(() => pendingLaunches.value.filter((item) =
 let recommendationSeq = 0
 // 花名册同样要丢弃过期响应：连点两辆车会把 A 车的成员显示在 B 车的弹窗里。
 let rosterSeq = 0
+
+// —— 上游周额度（详情弹窗内的 cpr 账号周窗口用量）——
+const upstreamQuota = ref<UpstreamQuota | null>(null)
+const upstreamQuotaLoading = ref(false)
+const upstreamQuotaError = ref('')
+// 连点两辆车的「详情」时同样要丢弃过期响应，否则 A 车的额度会闪进 B 车的弹窗。
+let upstreamQuotaSeq = 0
+
+// 区块渲染条件：加载中、已有数据、或手动刷新失败（错误块 + 重试）。
+// 打开弹窗的 GET 失败会静默清空数据，区块随之消失（功能未启用时不打扰用户）。
+const showUpstreamQuotaSection = computed(() => (
+  upstreamQuotaLoading.value || upstreamQuota.value !== null || upstreamQuotaError.value !== ''
+))
+
+// weekly=null 或 available=false 都表示 cpr 暂无比重数据。
+const upstreamQuotaWeekly = computed<UpstreamQuotaWeekly | null>(() => {
+  const weekly = upstreamQuota.value?.weekly
+  return weekly && weekly.available ? weekly : null
+})
+
+const upstreamQuotaUnavailableText = computed(() => (
+  upstreamQuota.value?.weekly?.unavailableReason || t('carpool.upstreamQuota.unavailable')
+))
+
+// 「更新于 x 分钟前」：优先用实际上游观测时间，缺失时退回本次快照的生成时间。
+const upstreamQuotaUpdatedAgo = computed(() => {
+  const quota = upstreamQuota.value
+  if (!quota) return ''
+  const source = quota.weekly?.observedAt || quota.generatedAt
+  return t('carpool.upstreamQuota.updatedAgo', { time: formatRelativeTime(source) })
+})
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -1781,6 +1912,51 @@ async function openInvite(carpool: Carpool, token = ''): Promise<void> {
 function openDetails(carpool: Carpool): void {
   selectedCarpool.value = carpool
   detailDialogOpen.value = true
+  loadUpstreamQuota(carpool.id)
+}
+
+// 打开详情弹窗时自动拉一次上游周额度。失败静默隐藏区块（功能未启用/未配置
+// 时后端会返回错误码，不算异常）；只有用户手动点过刷新才弹错误提示。
+async function loadUpstreamQuota(carpoolId: number): Promise<void> {
+  const seq = ++upstreamQuotaSeq
+  upstreamQuotaLoading.value = true
+  upstreamQuotaError.value = ''
+  try {
+    const quota = await carpoolAPI.upstreamQuota(carpoolId)
+    if (seq !== upstreamQuotaSeq) return
+    // configured=false 表示此车未配置 cpr 账号映射：整个区块不渲染，不算错误。
+    upstreamQuota.value = quota.configured ? quota : null
+  } catch {
+    if (seq !== upstreamQuotaSeq) return
+    upstreamQuota.value = null
+  } finally {
+    if (seq === upstreamQuotaSeq) upstreamQuotaLoading.value = false
+  }
+}
+
+// 手动刷新：调 POST refresh 并整体替换数据。失败保留区块、展示错误块，
+// 并给出友好提示（429 限流单独文案）。
+async function refreshUpstreamQuota(): Promise<void> {
+  const carpool = selectedCarpool.value
+  if (!carpool || upstreamQuotaLoading.value) return
+  const seq = ++upstreamQuotaSeq
+  upstreamQuotaLoading.value = true
+  upstreamQuotaError.value = ''
+  try {
+    const quota = await carpoolAPI.refreshUpstreamQuota(carpool.id)
+    if (seq !== upstreamQuotaSeq) return
+    upstreamQuota.value = quota.configured ? quota : null
+  } catch (error) {
+    if (seq !== upstreamQuotaSeq) return
+    const status = (error as { status?: number } | null)?.status
+    const message = status === 429
+      ? t('carpool.upstreamQuota.refreshTooFrequent')
+      : carpoolError(error, 'carpool.upstreamQuota.refreshFailed')
+    upstreamQuotaError.value = message
+    appStore.showError(message)
+  } finally {
+    if (seq === upstreamQuotaSeq) upstreamQuotaLoading.value = false
+  }
 }
 
 function inviteURL(_carpool: Carpool): string {
