@@ -394,10 +394,6 @@ const formatBalance = (b: number) =>
 
 const formatNumber = (n: number) => n.toLocaleString()
 const formatCost = (c: number) => c.toFixed(4)
-const formatMoney = (value: number) => {
-  if (!Number.isFinite(value)) return '$0'
-  return `$${value.toFixed(value >= 10 ? 2 : 4).replace(/\.?0+$/, '')}`
-}
 const formatTokens = (t: number) => {
   if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`
   if (t >= 1000) return `${(t / 1000).toFixed(1)}K`
