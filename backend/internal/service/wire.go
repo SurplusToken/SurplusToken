@@ -420,6 +420,11 @@ func ProvideCarpoolUpstreamQuotaService(carpoolService *CarpoolService, repo Car
 	return svc
 }
 
+// ProvideCarpoolUsageSummaryService 构造拼车本周用量摘要服务（读自家库，无缓存）。
+func ProvideCarpoolUsageSummaryService(repo CarpoolRepository, subscriptionService *SubscriptionService) *CarpoolUsageSummaryService {
+	return NewCarpoolUsageSummaryService(repo, subscriptionService)
+}
+
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.
 // 出站 Codex 身份的版本号靠它跟随官方发布，无需为了跟版本而发新版本；面板可关闭。
 func ProvideOpenAICodexVersionSyncService(
@@ -1013,6 +1018,7 @@ var ProviderSet = wire.NewSet(
 	ProvideProxyExpiryService,
 	ProvideCprClient,
 	ProvideCarpoolUpstreamQuotaService,
+	ProvideCarpoolUsageSummaryService,
 	ProvideSubscriptionExpiryService,
 	ProvideCarpoolSettlementScheduler,
 	ProvideTimingWheelService,

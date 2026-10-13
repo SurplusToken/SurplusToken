@@ -184,6 +184,9 @@ func RegisterUserRoutes(
 			// 上游 cpr 账号周额度（服务端代理 + Redis 缓存；refresh 有服务端冷却）。
 			carpools.GET("/:id/upstream-quota", h.UpstreamQuota.Get)
 			carpools.POST("/:id/upstream-quota/refresh", h.UpstreamQuota.Refresh)
+			// 本周用量摘要（订阅页同口径 + 全车合计，读自家库直出）。可见性与
+			// upstream-quota 同一道闸（成员/admin，未上车者仅 public 且招募中可读）。
+			carpools.GET("/:id/usage-summary", h.UsageSummary.Get)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)

@@ -269,6 +269,18 @@ export default {
       refreshTooFrequent: '刷新太频繁了，请稍后再试',
       retry: '重试'
     },
+    // 本周用量（详情弹窗「用量」卡片）：与订阅页用量面板同口径。
+    // 老车（无保底）只出实际用量，保底/预计结算为 null，前端展示「按量计费」。
+    usageSummary: {
+      title: '本周用量',
+      me: '我的本周',
+      reserved: '保底',
+      estimatedBill: '预计结算',
+      total: '全车本周',
+      members: '{count} 人',
+      weeklyLimit: '限额 {amount}',
+      paygHint: '按量计费，无保底'
+    },
     settlement: {
       title: '月度结算单',
       period: '结算周期',

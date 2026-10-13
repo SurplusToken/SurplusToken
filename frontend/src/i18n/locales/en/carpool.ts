@@ -271,6 +271,20 @@ export default {
       refreshTooFrequent: 'Refreshing too often. Please try again in a moment.',
       retry: 'Retry'
     },
+    // Weekly usage (the "Usage" card in the detail dialog): same accounting as
+    // the subscriptions page usage panel. Legacy cars (no reserved floor) only
+    // report actual usage; reserved/estimated bill are null and the card shows
+    // the pay-as-you-go note instead.
+    usageSummary: {
+      title: 'Weekly usage',
+      me: 'My usage this week',
+      reserved: 'Reserved floor',
+      estimatedBill: 'Estimated bill',
+      total: 'Whole car this week',
+      members: '{count} members',
+      weeklyLimit: 'limit {amount}',
+      paygHint: 'Pay-as-you-go; no reserved floor'
+    },
     settlement: {
       title: 'Monthly settlement',
       period: 'Billing period',

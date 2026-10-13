@@ -750,6 +750,78 @@ export async function refreshUpstreamQuota(id: number): Promise<UpstreamQuota> {
   return mapUpstreamQuota(data)
 }
 
+// ---------------------------------------------------------------------------
+// 本周用量摘要（拼车详情页「用量」卡片）：我的本周/保底/预计结算 + 全车合计。
+// 与订阅页用量面板同口径（user_subscriptions.weekly_usage_usd）；estimatedBillUsd =
+// max(reserved, actual)，老车（car_type 0/1 无保底）declared/reserved/estimatedBill
+// 为 null，前端按「按量计费」展示。weekStart/weekEnd 为 null 表示暂无窗口锚点
+// （车上无成员且查看者不在车上）。
+// ---------------------------------------------------------------------------
+
+export interface CarpoolUsageSummaryMe {
+  weekUsd: number
+  declaredUsd: number | null
+  reservedUsd: number | null
+  estimatedBillUsd: number | null
+}
+
+export interface CarpoolUsageSummaryTotal {
+  weekUsd: number
+  memberCount: number
+}
+
+export interface CarpoolUsageSummary {
+  weekStart: string | null
+  weekEnd: string | null
+  // null = 查看者不在车上（可见性闸已过的 public+recruiting 车）
+  me: CarpoolUsageSummaryMe | null
+  total: CarpoolUsageSummaryTotal
+  weeklyLimitUsd: number | null
+}
+
+interface CarpoolUsageSummaryMeResponse {
+  week_usd: number
+  declared_usd: number | null
+  reserved_usd: number | null
+  estimated_bill_usd: number | null
+}
+
+export interface CarpoolUsageSummaryResponse {
+  usage_summary: {
+    week_start: string | null
+    week_end: string | null
+    me: CarpoolUsageSummaryMeResponse | null
+    total: { week_usd: number; member_count: number }
+    weekly_limit_usd: number | null
+  }
+}
+
+export function mapUsageSummary(data: CarpoolUsageSummaryResponse): CarpoolUsageSummary {
+  const payload = data.usage_summary
+  return {
+    weekStart: payload.week_start,
+    weekEnd: payload.week_end,
+    me: payload.me
+      ? {
+          weekUsd: payload.me.week_usd,
+          declaredUsd: payload.me.declared_usd,
+          reservedUsd: payload.me.reserved_usd,
+          estimatedBillUsd: payload.me.estimated_bill_usd,
+        }
+      : null,
+    total: {
+      weekUsd: payload.total.week_usd,
+      memberCount: payload.total.member_count,
+    },
+    weeklyLimitUsd: payload.weekly_limit_usd,
+  }
+}
+
+export async function usageSummary(id: number): Promise<CarpoolUsageSummary> {
+  const { data } = await apiClient.get<CarpoolUsageSummaryResponse>(`/carpools/${id}/usage-summary`)
+  return mapUsageSummary(data)
+}
+
 export default {
   list,
   create,
@@ -780,4 +852,5 @@ export default {
   setJoinLocked,
   upstreamQuota,
   refreshUpstreamQuota,
+  usageSummary,
 }

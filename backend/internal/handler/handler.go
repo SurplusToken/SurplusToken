@@ -59,6 +59,7 @@ type Handlers struct {
 	ChannelMonitorV2 *ChannelMonitorV2Handler
 	Carpool          *CarpoolHandler
 	UpstreamQuota    *CarpoolUpstreamQuotaHandler
+	UsageSummary     *CarpoolUsageSummaryHandler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler

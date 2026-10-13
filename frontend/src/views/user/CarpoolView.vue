@@ -1023,6 +1023,60 @@
             <p class="mt-2 text-[10px] text-gray-400 dark:text-dark-400">{{ upstreamQuotaUpdatedAgo }}</p>
           </template>
         </div>
+
+        <!--
+          本周用量（成员视角）：我的本周用量 + 保底/预计结算 + 全车合计，数据与订阅页
+          用量面板同口径。打开弹窗时与上游额度一起静默拉取；失败时整个区块不渲染
+          （本地库读数，重开弹窗即重试）。
+        -->
+        <div
+          v-if="showUsageSummarySection"
+          data-testid="carpool-usage-summary"
+          class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.usageSummary.title') }}</div>
+
+          <div
+            v-if="usageSummaryLoading && !usageSummary"
+            class="mt-3 animate-pulse space-y-2"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <div class="h-4 w-28 rounded bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-3 w-40 rounded bg-gray-200 dark:bg-dark-600"></div>
+          </div>
+
+          <template v-else-if="usageSummary">
+            <dl class="mt-2 space-y-1.5">
+              <template v-if="usageSummary.me">
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.me') }}</dt>
+                  <dd class="font-medium tabular-nums text-gray-800 dark:text-dark-100">{{ formatUsd(usageSummary.me.weekUsd) }}</dd>
+                </div>
+                <div v-if="usageSummary.me.reservedUsd !== null" class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.reserved') }}</dt>
+                  <dd class="tabular-nums text-gray-700 dark:text-dark-100">{{ formatUsd(usageSummary.me.reservedUsd) }}</dd>
+                </div>
+                <div v-if="usageSummary.me.estimatedBillUsd !== null" class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.estimatedBill') }}</dt>
+                  <dd class="font-semibold tabular-nums text-gray-900 dark:text-dark-100">{{ formatUsd(usageSummary.me.estimatedBillUsd) }}</dd>
+                </div>
+                <!-- 老车（无保底）按量计费，不出保底/预计结算 -->
+                <p v-else class="text-[10px] text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.paygHint') }}</p>
+              </template>
+              <div class="flex items-baseline justify-between gap-2">
+                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.total') }}</dt>
+                <dd class="tabular-nums text-gray-700 dark:text-dark-100">
+                  {{ formatUsd(usageSummary.total.weekUsd) }}
+                  · {{ t('carpool.usageSummary.members', { count: usageSummary.total.memberCount }) }}
+                  <template v-if="usageSummary.weeklyLimitUsd !== null">
+                    · {{ t('carpool.usageSummary.weeklyLimit', { amount: formatUsd(usageSummary.weeklyLimitUsd) }) }}
+                  </template>
+                </dd>
+              </div>
+            </dl>
+          </template>
+        </div>
       </div>
     </BaseDialog>
 
@@ -1185,6 +1239,7 @@ import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import carpoolAPI, {
   type Carpool,
   type CarpoolSettlement,
+  type CarpoolUsageSummary,
   type CarpoolVisibility,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
@@ -1339,6 +1394,18 @@ const upstreamQuotaUpdatedAgo = computed(() => {
   const source = quota.weekly?.observedAt || quota.generatedAt
   return t('carpool.upstreamQuota.updatedAgo', { time: formatRelativeTime(source) })
 })
+
+// —— 本周用量（详情弹窗内的成员视角用量摘要，与订阅页面板同口径）——
+const usageSummary = ref<CarpoolUsageSummary | null>(null)
+const usageSummaryLoading = ref(false)
+// 与 upstreamQuotaSeq 同理：连点两辆车的「详情」要丢弃过期响应。
+let usageSummarySeq = 0
+
+// 区块渲染条件：加载中或已有数据。打开弹窗的 GET 失败静默清空数据、区块随之
+// 消失（与上游额度区块同一惯例： ancillary 读数失败不打扰用户）。
+const showUsageSummarySection = computed(() => (
+  usageSummaryLoading.value || usageSummary.value !== null
+))
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -1990,6 +2057,23 @@ function openDetails(carpool: Carpool): void {
   selectedCarpool.value = carpool
   detailDialogOpen.value = true
   loadUpstreamQuota(carpool.id)
+  loadUsageSummary(carpool.id)
+}
+
+// 打开详情弹窗时自动拉一次本周用量摘要（本地库读数，无缓存）。失败静默隐藏区块。
+async function loadUsageSummary(carpoolId: number): Promise<void> {
+  const seq = ++usageSummarySeq
+  usageSummaryLoading.value = true
+  try {
+    const summary = await carpoolAPI.usageSummary(carpoolId)
+    if (seq !== usageSummarySeq) return
+    usageSummary.value = summary
+  } catch {
+    if (seq !== usageSummarySeq) return
+    usageSummary.value = null
+  } finally {
+    if (seq === usageSummarySeq) usageSummaryLoading.value = false
+  }
 }
 
 // 打开详情弹窗时自动拉一次上游周额度。失败静默隐藏区块（功能未启用/未配置

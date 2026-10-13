@@ -500,6 +500,9 @@ type CarpoolRepository interface {
 	// ListCprAccountIDs 批量解析一组车的 cpr 账号映射（GetCprAccountID 的列表版，
 	// 一条 SQL）。map 里缺失的 id 表示未配置。
 	ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error)
+	// ListMemberWeekUsage 返回车上 active/joined 成员的本周用量行
+	// （usage-summary 端点用；CarpoolUsageSummaryRepository 窄接口同源）。
+	ListMemberWeekUsage(ctx context.Context, carpoolID int64) ([]CarpoolMemberWeekUsageRow, error)
 	GetByInvite(ctx context.Context, userID int64, tokenHash string) (*Carpool, error)
 	Create(ctx context.Context, ownerUserID int64, input CreateCarpoolInput, inviteHash, inviteHint string) (*CarpoolMutationResult, error)
 	CreateInvite(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool, inviteHash, inviteHint string) error

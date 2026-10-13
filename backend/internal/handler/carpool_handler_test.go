@@ -77,6 +77,9 @@ func (s *carpoolHandlerRepoStub) GetCprAccountID(ctx context.Context, carpoolID 
 func (s *carpoolHandlerRepoStub) ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error) {
 	panic("unexpected call")
 }
+func (s *carpoolHandlerRepoStub) ListMemberWeekUsage(ctx context.Context, carpoolID int64) ([]service.CarpoolMemberWeekUsageRow, error) {
+	panic("unexpected call")
+}
 func (s *carpoolHandlerRepoStub) GetByInvite(ctx context.Context, userID int64, tokenHash string) (*service.Carpool, error) {
 	if s.invited == nil {
 		return nil, service.ErrCarpoolInviteInvalid

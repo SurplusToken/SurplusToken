@@ -29,6 +29,7 @@ const {
   updateMemberQuotaMock,
   upstreamQuotaMock,
   refreshUpstreamQuotaMock,
+  usageSummaryMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -55,6 +56,7 @@ const {
   updateMemberQuotaMock: vi.fn(),
   upstreamQuotaMock: vi.fn(),
   refreshUpstreamQuotaMock: vi.fn(),
+  usageSummaryMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -84,6 +86,7 @@ vi.mock('@/api/carpools', () => ({
     setJoinLocked: vi.fn(),
     upstreamQuota: upstreamQuotaMock,
     refreshUpstreamQuota: refreshUpstreamQuotaMock,
+    usageSummary: usageSummaryMock,
   },
 }))
 
@@ -236,6 +239,9 @@ describe('CarpoolView', () => {
     upstreamQuotaMock.mockResolvedValue({ configured: false })
     refreshUpstreamQuotaMock.mockReset()
     refreshUpstreamQuotaMock.mockResolvedValue({ configured: false })
+    // 默认拉取失败：「本周用量」区块静默隐藏（与上游额度打开时失败的惯例一致）
+    usageSummaryMock.mockReset()
+    usageSummaryMock.mockRejectedValue(new Error('network down'))
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -1288,6 +1294,71 @@ describe('CarpoolView', () => {
     expect(section.text()).toContain('carpool.upstreamQuota.accountExpires')
     expect(section.text()).not.toContain('carpool.upstreamQuota.renewsAutomatically')
     expect(section.text()).not.toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 本周用量卡片（详情弹窗）：保底车成员看到 我的本周/保底/预计结算 + 全车合计。
+  it('shows the weekly usage summary for a quota car member', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member', status: 'active' })])
+    usageSummaryMock.mockResolvedValue({
+      weekStart: '2026-10-12T00:00:00Z',
+      weekEnd: '2026-10-19T00:00:00Z',
+      me: { weekUsd: 12, declaredUsd: 20, reservedUsd: 17, estimatedBillUsd: 17 },
+      total: { weekUsd: 46, memberCount: 4 },
+      weeklyLimitUsd: 2400,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-usage-summary"]')
+    expect(section.text()).toContain('carpool.usageSummary.me')
+    expect(section.text()).toContain('$12')
+    expect(section.text()).toContain('carpool.usageSummary.reserved')
+    expect(section.text()).toContain('carpool.usageSummary.estimatedBill')
+    expect(section.text()).toContain('$17')
+    expect(section.text()).toContain('carpool.usageSummary.total')
+    expect(section.text()).toContain('carpool.usageSummary.members')
+    expect(section.text()).toContain('carpool.usageSummary.weeklyLimit')
+    expect(section.text()).not.toContain('carpool.usageSummary.paygHint')
+  })
+
+  // 老车（无保底）：只出实际用量 + 按量计费小字，不出保底/预计结算行。
+  it('shows pay-as-you-go note for legacy cars without reserved floor', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member', status: 'active', carType: 1 })])
+    usageSummaryMock.mockResolvedValue({
+      weekStart: '2026-10-12T00:00:00Z',
+      weekEnd: '2026-10-19T00:00:00Z',
+      me: { weekUsd: 12, declaredUsd: null, reservedUsd: null, estimatedBillUsd: null },
+      total: { weekUsd: 46, memberCount: 4 },
+      weeklyLimitUsd: 2400,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-usage-summary"]')
+    expect(section.text()).toContain('carpool.usageSummary.me')
+    expect(section.text()).toContain('carpool.usageSummary.paygHint')
+    expect(section.text()).not.toContain('carpool.usageSummary.reserved')
+    expect(section.text()).not.toContain('carpool.usageSummary.estimatedBill')
+    expect(section.text()).toContain('carpool.usageSummary.total')
+  })
+
+  // 打开详情时的用量拉取失败静默隐藏区块（与上游额度打开时失败的惯例一致）。
+  it('hides the usage summary section when the fetch fails', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    // beforeEach 里 usageSummaryMock 默认 mockRejectedValue
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-usage-summary"]').exists()).toBe(false)
   })
 
   // 自定义规则车不接新成员：升级前遗留的招募中老车永远达不到发车区间，

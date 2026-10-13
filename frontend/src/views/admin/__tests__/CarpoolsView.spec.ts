@@ -61,6 +61,7 @@ vi.mock('@/api/carpools', () => ({
     replaceGroupQrCode: replaceGroupQrCodeMock,
     upstreamQuota: vi.fn(),
     refreshUpstreamQuota: vi.fn(),
+    usageSummary: vi.fn(),
   },
 }))
 
