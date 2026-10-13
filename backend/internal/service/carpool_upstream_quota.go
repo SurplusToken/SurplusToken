@@ -37,6 +37,8 @@ type CarpoolUpstreamQuotaCache interface {
 	Set(ctx context.Context, carpoolID int64, entry *CarpoolUpstreamQuotaCacheEntry, ttl time.Duration) error
 	// TryAcquireRefreshCooldown 用 SET NX EX 抢占刷新冷却；false 表示冷却中。
 	TryAcquireRefreshCooldown(ctx context.Context, carpoolID int64, cooldown time.Duration) (bool, error)
+	// ReleaseRefreshCooldown 释放刷新冷却窗口（刷新失败时归还，避免失败也占冷却）。
+	ReleaseRefreshCooldown(ctx context.Context, carpoolID int64) error
 }
 
 // CarpoolUpstreamQuotaCacheEntry 是写进 Redis 的周额度快照
@@ -164,21 +166,35 @@ func (s *CarpoolUpstreamQuotaService) Refresh(ctx context.Context, carpoolID, ac
 	if accountID == "" {
 		return s.unconfiguredResult(carpoolID), nil
 	}
+	acquired := false
 	if s.cache != nil {
-		acquired, err := s.cache.TryAcquireRefreshCooldown(ctx, carpoolID, s.refreshCooldown)
+		acquired, err = s.cache.TryAcquireRefreshCooldown(ctx, carpoolID, s.refreshCooldown)
 		if err != nil {
 			// 冷却判断本身失败不阻塞刷新（fail-open，与缓存读取降级同一口径）。
 			slog.Warn("carpool upstream quota refresh cooldown check failed; allowing refresh",
 				"carpool_id", carpoolID, "error", err)
+			acquired = false
 		} else if !acquired {
 			return nil, ErrCarpoolUpstreamQuotaRefreshTooFrequent
 		}
 	}
+	// 刷新失败归还冷却窗口，避免一次失败把用户锁在冷却里。
+	release := func() {
+		if !acquired || s.cache == nil {
+			return
+		}
+		if relErr := s.cache.ReleaseRefreshCooldown(ctx, carpoolID); relErr != nil {
+			slog.Warn("carpool upstream quota refresh cooldown release failed",
+				"carpool_id", carpoolID, "error", relErr)
+		}
+	}
 	if err := s.cpr.RefreshQuota(ctx, accountID); err != nil {
+		release()
 		return nil, err
 	}
 	entry, err := s.fetchAndCache(ctx, carpoolID, accountID)
 	if err != nil {
+		release()
 		return nil, err
 	}
 	return s.resultFromEntry(carpoolID, accountID, entry, false), nil

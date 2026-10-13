@@ -36,7 +36,7 @@ type CprQuotaForecastData struct {
 // fields are cpr's pre-formatted strings and are passed through as-is.
 type CprQuotaForecast struct {
 	Period                 string                  `json:"period"`
-	TargetDays             int                     `json:"targetDays"`
+	TargetDays             float64                 `json:"targetDays"`
 	Extrapolated           bool                    `json:"extrapolated"`
 	Source                 *CprQuotaForecastSource `json:"source"`
 	UnavailableReason      *string                 `json:"unavailableReason"`

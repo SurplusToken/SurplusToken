@@ -75,3 +75,8 @@ func (c *carpoolUpstreamQuotaCache) TryAcquireRefreshCooldown(ctx context.Contex
 	return c.rdb.SetNX(ctx, carpoolUpstreamQuotaRefreshKey(carpoolID),
 		carpoolUpstreamQuotaRefreshKeyValue, cooldown).Result()
 }
+
+// ReleaseRefreshCooldown 删除本车的刷新冷却窗口（刷新失败归还）。
+func (c *carpoolUpstreamQuotaCache) ReleaseRefreshCooldown(ctx context.Context, carpoolID int64) error {
+	return c.rdb.Del(ctx, carpoolUpstreamQuotaRefreshKey(carpoolID)).Err()
+}

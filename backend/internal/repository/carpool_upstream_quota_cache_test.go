@@ -96,6 +96,26 @@ func TestCarpoolUpstreamQuotaCache_RefreshCooldown(t *testing.T) {
 	}
 }
 
+func TestCarpoolUpstreamQuotaCache_ReleaseRefreshCooldown(t *testing.T) {
+	c, mr := newUpstreamQuotaTestCache(t)
+	ctx := context.Background()
+
+	ok, err := c.TryAcquireRefreshCooldown(ctx, 7, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("acquire: ok=%v err=%v", ok, err)
+	}
+	if err := c.ReleaseRefreshCooldown(ctx, 7); err != nil {
+		t.Fatal(err)
+	}
+	if len(mr.Keys()) != 0 {
+		t.Errorf("keys = %v, want cooldown key removed", mr.Keys())
+	}
+	// 释放后可立即重新抢占。
+	if ok, err := c.TryAcquireRefreshCooldown(ctx, 7, time.Minute); err != nil || !ok {
+		t.Fatalf("re-acquire after release: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestCarpoolUpstreamQuotaCache_NilRedisReturnsNil(t *testing.T) {
 	if NewCarpoolUpstreamQuotaCache(nil) != nil {
 		t.Fatal("nil redis must yield a nil cache (feature degraded, service skips it)")
