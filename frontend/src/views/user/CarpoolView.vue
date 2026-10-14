@@ -256,8 +256,8 @@
                   <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
                     {{ carMonthlyFeeText(carpool) }}
-                    <!-- 席位/用量拆分直接渲染数值：type 3 是"¥50/人 + ¥1,200"，type 2 是"¥400 + ¥1,000" -->
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                    <!-- 席位/用量拆分直接渲染数值：base-fee 车无拆分；type 3 是"¥50/人 + ¥1,200"，type 2 是"¥400 + ¥1,000" -->
+                    <span v-if="carMonthlyFeeBreakdownText(carpool)" class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
                       {{ carMonthlyFeeBreakdownText(carpool) }}
                     </span>
                   </dd>
@@ -1651,16 +1651,20 @@ const joinExceedsRemaining = computed(() => (
 const joinBelowFloor = computed(() => (
   joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinDeclaredUsd.value < MIN_DECLARED_USD
 ))
-// 整车月费主数值：type 3 的席位费按人固定收取，与按车计的用量池直接相加
-// 会得到"¥1,250/车"这类误导合计，所以 type 3 显示"用量池 + 席位/人"。
+// 整车月费主数值：base-fee 车（cpr 直连车，base_fee_cny 为准）直接展示整车月费；
+// type 3 的席位费按人固定收取，与按车计的用量池直接相加会得到"¥1,250/车"这类
+// 误导合计，所以 type 3 显示"用量池 + 席位/人"。
 function carMonthlyFeeText(carpool: Carpool): string {
+  if (carpool.baseFeeCny > 0) return formatCny(carpool.baseFeeCny)
   if (carpool.carType === 3) {
     return `${formatCny(carpool.usagePoolCny)} + ${formatCny(carpool.seatFeeCny)}/${t('carpool.fields.perPerson')}`
   }
   return formatCny(carpool.seatFeeCny + carpool.usagePoolCny)
 }
-// 月费拆分小字：type 3 的席位部分带"/人"后缀，type 2 维持"席位 + 用量"的整车口径。
+// 月费拆分小字：base-fee 车没有席位/用量池拆分，返回空串（模板侧 v-if 隐藏）；
+// type 3 的席位部分带"/人"后缀，type 2 维持"席位 + 用量"的整车口径。
 function carMonthlyFeeBreakdownText(carpool: Carpool): string {
+  if (carpool.baseFeeCny > 0) return ''
   const seat = `${t('carpool.fields.carMonthlyFeeSeat')} ${formatCny(carpool.seatFeeCny)}`
   const pool = `${t('carpool.fields.carMonthlyFeePool')} ${formatCny(carpool.usagePoolCny)}`
   return carpool.carType === 3 ? `${seat}/${t('carpool.fields.perPerson')} + ${pool}` : `${seat} + ${pool}`
