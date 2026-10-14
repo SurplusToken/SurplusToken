@@ -285,7 +285,6 @@ export default {
     // 渲染按钮；兑换失败/未开通的提示文案。
     webSession: {
       open: '打开网页版 ChatGPT',
-      opening: '正在打开网页版 ChatGPT…',
       openFailed: '打开网页版失败，请稍后再试',
       notProvisioned: '该车未开通网页版',
       popupBlocked: '浏览器拦截了新标签页，请允许弹窗后重试'

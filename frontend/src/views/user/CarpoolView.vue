@@ -1091,19 +1091,18 @@
 
         <!--
           「打开网页版 ChatGPT」：与广场卡片共用按车探测结果（webSessionAvailableByCar，
-          列表加载时已对成员车探过，409/503/其他失败静默隐藏）。点击时新开窗口拿句柄，
-          再用新鲜 ticket 构造 form POST 到网关 /auth/sso/redeem，target 指向该句柄完成兑换。
+          列表加载时已对成员车探过，409/503/其他失败静默隐藏）。点击直接新开 launch
+          自动兑换页（免鉴权路由），页面脚本自带 token 换 ticket 后 POST 到网关 redeem。
         -->
         <div v-if="selectedCarpool && webSessionAvailableByCar[selectedCarpool.id]" class="flex justify-end">
           <button
             type="button"
             data-testid="carpool-open-web-session"
             class="btn btn-primary h-8 px-3 py-1.5 text-xs"
-            :disabled="webSessionOpening"
             @click="openWebSession(selectedCarpool)"
           >
             <Icon name="externalLink" size="xs" />
-            <span>{{ webSessionOpening ? t('common.loading') : t('carpool.webSession.open') }}</span>
+            <span>{{ t('carpool.webSession.open') }}</span>
           </button>
         </div>
       </div>
@@ -1270,7 +1269,6 @@ import carpoolAPI, {
   type CarpoolSettlement,
   type CarpoolUsageSummary,
   type CarpoolVisibility,
-  type CarpoolWebSession,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
   type CarpoolRosterMember,
@@ -1280,7 +1278,7 @@ import carpoolAPI, {
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatRelativeTime } from '@/utils/format'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
@@ -1442,7 +1440,6 @@ const showUsageSummarySection = computed(() => (
 // 再写 Access），成功才置 true；409（未开通）/503（未启用）/其他失败静默留空，
 // 与用量区块同一惯例。已探测过的车进 Set，列表轮询刷新不重复打网关。
 const webSessionAvailableByCar = reactive<Record<number, boolean>>({})
-const webSessionOpening = ref(false)
 const probedWebSessionCars = new Set<number>()
 
 async function probeWebSession(carpoolId: number): Promise<void> {
@@ -1465,60 +1462,16 @@ watch(carpools, (items) => {
   }
 })
 
-// 点击：先在用户手势里开窗口拿句柄（避免被弹窗拦截器拦），再用新鲜 ticket 构造
-// form POST 到 {gateway_origin}/auth/sso/redeem，target 指向该句柄完成兑换。
-async function openWebSession(carpool: Carpool): Promise<void> {
-  if (webSessionOpening.value) return
-  const win = window.open('', 'd2w-web-session')
+// 点击：在用户手势里直接新开 launch 自动兑换页（GET 导航，弹窗拦截器友好）。
+// 页面（后端真实路由）自带放行 CSP，脚本用同源 localStorage 的 Bearer token
+// 调 POST web-session 拿 ticket，再原地 POST 到网关 redeem——站点全局 CSP
+// 禁止 inline script 且 form-action 限 'self'，任何写在主文档/about:blank
+// 弹窗里的兑换脚本都会被静默拦掉，所以只能交给服务端路由出的页面做。
+function openWebSession(carpool: Carpool): void {
+  const win = window.open(`/api/v1/carpools/${carpool.id}/web-session/launch`, '_blank')
   if (!win) {
     appStore.showError(t('carpool.webSession.popupBlocked'))
-    return
   }
-  webSessionOpening.value = true
-  try {
-    const session = await carpoolAPI.webSession(carpool.id)
-    submitD2wRedeemForm(win, session)
-  } catch (error) {
-    win.close()
-    if (extractApiErrorCode(error) === 'WEB_SESSION_NOT_CONFIGURED') {
-      // 探测后配置被撤（如 slot 解绑）：隐藏按钮并明确提示。
-      webSessionAvailableByCar[carpool.id] = false
-      appStore.showError(t('carpool.webSession.notProvisioned'))
-    } else {
-      appStore.showError(carpoolError(error, 'carpool.webSession.openFailed'))
-    }
-  } finally {
-    webSessionOpening.value = false
-  }
-}
-
-// submitD2wRedeemForm 把「自动提交表单页」直接写进弹窗：表单在弹窗自己的上下文
-// 里提交（classic SSO popup 模式）。跨窗口 form.submit 在 Safari 会被拦（提交时
-// 已脱离 opener 的用户手势链），弹窗停在 about:blank、网关收不到 POST——所以
-// 不在当前页构造 form，而是 doc.write 进弹窗让其在内部完成兑换跳转。
-function submitD2wRedeemForm(win: Window, session: CarpoolWebSession): void {
-  const doc = win.document
-  doc.open()
-  doc.write(
-    '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' +
-    `<form id="d2w-redeem" action="${escapeHtmlAttr(session.gatewayOrigin)}/auth/sso/redeem" method="POST">` +
-    `<input type="hidden" name="ticket" value="${escapeHtmlAttr(session.ticket)}">` +
-    '</form>' +
-    `<p>${escapeHtmlAttr(t('carpool.webSession.opening'))}</p>` +
-    '<script>document.getElementById("d2w-redeem").submit()<\/script>' +
-    '</body></html>'
-  )
-  doc.close()
-}
-
-// escapeHtmlAttr 转义 & " < >：JWT 字符集本身安全，转义是防手滑把
-// gatewayOrigin/ticket 注入进 popup 的 HTML。
-function escapeHtmlAttr(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
 }
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。

@@ -132,6 +132,15 @@ func (s *CarpoolWebSessionService) Create(ctx context.Context, carpoolID, actorU
 	return &CarpoolWebSession{GatewayOrigin: s.signer.PublicOrigin(), Ticket: ticket}, nil
 }
 
+// PublicOrigin 返回 desktop2web 网关公网 origin（launch 自动兑换页的
+// form-action CSP 用），未启用网页版功能（signer=nil）时返回空串。
+func (s *CarpoolWebSessionService) PublicOrigin() string {
+	if s.signer == nil {
+		return ""
+	}
+	return s.signer.PublicOrigin()
+}
+
 // RevokeForMember 在成员下车/被移出后立即吊销其网页版 Access（网关 DELETE，
 // 连带吊销该 Access 下全部活跃会话）。功能未启用（admin=nil）或车未开通网页版
 // 时是空操作；其余错误原样返回，由调用方按 best-effort 处理。

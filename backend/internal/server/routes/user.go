@@ -226,4 +226,9 @@ func RegisterUserRoutes(
 			monitorV2.GET("/users", h.ChannelMonitorV2.Users)
 		}
 	}
+
+	// 「打开网页版 ChatGPT」launch 自动兑换页：浏览器弹窗直接导航（window.open
+	// 带不了 Authorization 头），故注册为免鉴权路由；页面不含敏感数据，ticket 仍
+	// 由页面脚本带同源 localStorage 的 Bearer token 调 POST web-session 才拿得到。
+	v1.GET("/carpools/:id/web-session/launch", h.WebSession.Launch)
 }
