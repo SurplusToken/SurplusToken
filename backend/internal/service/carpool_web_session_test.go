@@ -174,16 +174,17 @@ func TestWebSessionRevokeForMemberDeletesAccess(t *testing.T) {
 	cfg, _ := writeD2wTestKey(t)
 	cfg.Desktop2Web.AdminBaseURL = gateway.srv.URL
 	cfg.Desktop2Web.AdminPassword = "admin-secret"
-	svc := service.NewCarpoolWebSessionService(stub, nil, service.NewD2wAdminClient(cfg), service.NewD2wTicketSigner(cfg))
+	admin := service.NewD2wAdminClient(cfg)
+	svc := service.NewCarpoolWebSessionService(stub, nil, admin, service.NewD2wTicketSigner(cfg))
 
 	ctx := context.Background()
 	// 先供给再吊销，验证精确命中同一 accessID。
-	_, err := svc.EnsureChatUIAccess(ctx, "st-42-bob-at-surplustoken.com", "42", "bob-at-surplustoken.com", time.Now().Add(30*24*time.Hour).UnixMilli())
+	_, err := admin.EnsureChatUIAccess(ctx, "st-42-bob-at-surplustoken.com", "42", "bob-at-surplustoken.com", time.Now().Add(30*24*time.Hour).UnixMilli())
 	require.NoError(t, err)
 	require.NoError(t, svc.RevokeForMember(ctx, 10, 42))
 	require.Equal(t, int32(1), gateway.deleteCalls.Load())
 	require.Equal(t, "/__backend/admin/v1/accesses/st-42-bob-at-surplustoken.com", gateway.lastDeletePath.Load().(string))
-	remaining, err := svc.ListAccesses(ctx)
+	remaining, err := admin.ListAccesses(ctx)
 	require.NoError(t, err)
 	require.Empty(t, remaining, "吊销后 Access 列表应为空")
 }
