@@ -34,10 +34,10 @@ func (s *usageSummaryRepoStub) ListMemberWeekUsage(ctx context.Context, carpoolI
 // usageSummaryMaintainerStub 模拟 *SubscriptionService 的「加载 + 窗口维护」：
 // maintenanceHook 在维护阶段改写订阅（如模拟过期窗口被重置），返回维护后的行。
 type usageSummaryMaintainerStub struct {
-	subs            map[int64]*UserSubscription
-	getByIDErr      error
-	maintenanceErr  error
-	maintenanceHook func(sub *UserSubscription)
+	subs             map[int64]*UserSubscription
+	getByIDErr       error
+	maintenanceErr   error
+	maintenanceHook  func(sub *UserSubscription)
 	maintenanceCalls int
 }
 

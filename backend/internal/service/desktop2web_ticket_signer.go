@@ -115,7 +115,7 @@ func (s *D2wTicketSigner) PublicOrigin() string {
 
 // SignTicket mints one SSO ticket. now 由调用方传入（测试可注入）；
 // sub=Access.user_id，grantExp=Access.grant_expires_at_ms，jti 为 16 字节 hex
-//（首字符恒为字母数字，满足网关 ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ 约束——base64url
+// （首字符恒为字母数字，满足网关 ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ 约束——base64url
 // 可能以 -/_ 开头被拒）。
 func (s *D2wTicketSigner) SignTicket(now time.Time, sub, accessID string, grantExpiresAtMs int64, displayName string) (string, error) {
 	if s == nil {

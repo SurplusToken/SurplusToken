@@ -174,17 +174,17 @@ func TestD2wTicketJtiUniquePerCall(t *testing.T) {
 
 // d2wGatewayFixture 是一个假 desktop2web 网关：登录发 cookie、accesses 列表、PUT upsert。
 type d2wGatewayFixture struct {
-	srv           *httptest.Server
-	loginCalls    *atomic.Int32
-	listCalls     *atomic.Int32
-	putCalls      *atomic.Int32
-	deleteCalls   *atomic.Int32
-	lastPutBody   atomic.Value // string
-	lastPutOrigin atomic.Value // string
-	lastDeletePath atomic.Value // string
-	accesses      atomic.Value // []service.D2wAccess
-	putErr        atomic.Value // string：非空时 PUT 返回 500
-	cookieChecks  *atomic.Int32 // 携带正确 cookie 的请求数
+	srv            *httptest.Server
+	loginCalls     *atomic.Int32
+	listCalls      *atomic.Int32
+	putCalls       *atomic.Int32
+	deleteCalls    *atomic.Int32
+	lastPutBody    atomic.Value  // string
+	lastPutOrigin  atomic.Value  // string
+	lastDeletePath atomic.Value  // string
+	accesses       atomic.Value  // []service.D2wAccess
+	putErr         atomic.Value  // string：非空时 PUT 返回 500
+	cookieChecks   *atomic.Int32 // 携带正确 cookie 的请求数
 }
 
 func newD2wGatewayFixture(t *testing.T) *d2wGatewayFixture {
