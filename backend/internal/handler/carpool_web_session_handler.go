@@ -67,8 +67,10 @@ func (h *CarpoolWebSessionHandler) Launch(c *gin.Context) {
 
 // webSessionLaunchPage 是 launch 端点返回的自动兑换页。内联脚本：取
 // auth_token → POST web-session（幂等，先读比再写 Access）→ 构造 form 原地
-// POST 到 {gateway_origin}/auth/sso/redeem → 网关 303 进 ChatGPT。任何一步
-// 失败把提示留在 <p> 里，用户关闭弹窗回站点重试即可。
+// POST 到 {gateway_origin}/auth/sso/redeem → 网关 303 进 ChatGPT。换票失败
+// 重试一次：网关冷启动（Electron 运行时抢占 CPU、TLS 握手被饿死）造成的
+// 瞬时超时就此消化，用户无感。任何一步最终失败把提示留在 <p> 里，用户关闭
+// 弹窗回站点重试即可。
 func webSessionLaunchPage(carpoolID int64) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -90,27 +92,35 @@ func webSessionLaunchPage(carpoolID int64) string {
   msg.textContent = text.opening;
   var token = localStorage.getItem('auth_token');
   if (!token) { msg.textContent = text.failed; return; }
-  fetch('/api/v1/carpools/%d/web-session', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function (res) {
-    if (!res.ok) throw new Error('web-session ' + res.status);
-    return res.json();
-  }).then(function (body) {
-    var session = (body && body.data && body.data.web_session) || {};
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = session.gateway_origin + '/auth/sso/redeem';
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'ticket';
-    input.value = session.ticket;
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-  }).catch(function () {
-    msg.textContent = text.failed;
-  });
+  var postSession = function () {
+    return fetch('/api/v1/carpools/%d/web-session', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function (res) {
+      if (!res.ok) throw new Error('web-session ' + res.status);
+      return res.json();
+    });
+  };
+  postSession()
+    .catch(function () {
+      return new Promise(function (resolve) { setTimeout(resolve, 2500); }).then(postSession);
+    })
+    .then(function (body) {
+      var session = (body && body.data && body.data.web_session) || {};
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = session.gateway_origin + '/auth/sso/redeem';
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'ticket';
+      input.value = session.ticket;
+      form.appendChild(input);
+      document.body.appendChild(form);
+      form.submit();
+    })
+    .catch(function () {
+      msg.textContent = text.failed;
+    });
 })();
 </script>
 </body>
