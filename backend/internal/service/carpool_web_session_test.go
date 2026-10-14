@@ -98,7 +98,8 @@ func TestWebSessionAllowedForAdminWithoutMembership(t *testing.T) {
 
 func TestWebSessionNotProvisionedWithoutAccount(t *testing.T) {
 	stub := &webSessionRepoStub{carpool: webSessionMemberCarpool(), account: nil}
-	svc := newWebSessionFixture(t, stub, nil)	_, err := svc.Create(context.Background(), 10, 99, false)
+	svc := newWebSessionFixture(t, stub, nil)
+	_, err := svc.Create(context.Background(), 10, 99, false)
 	require.Error(t, err)
 	require.Equal(t, 409, infraerrors.Code(err))
 	require.Contains(t, err.Error(), "WEB_SESSION_NOT_CONFIGURED")
