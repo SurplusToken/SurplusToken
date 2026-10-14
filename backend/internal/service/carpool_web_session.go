@@ -78,8 +78,12 @@ func NewCarpoolWebSessionService(repo CarpoolWebSessionRepository, users Carpool
 	}
 }
 
-// Create 为查看者生成本车的网页版会话票据。未配置 503、不可见 403、
+// Create 为查看者生成本车的网页版会话票据。未配置 503、非成员 403、
 // 车无账号/账号无邮箱/slot 未配置 409；gateway 侧故障原样冒泡（500）。
+//
+// 权限比 upstream-quota 更严：额度信息允许「public 且招募中」的未上车者
+// 查看（上车决策参考），但网页版直接消耗车上账号，必须真是成员或 admin——
+// member_role 子查询只排除 status='left'，即只要还在车上（joined/active）。
 func (s *CarpoolWebSessionService) Create(ctx context.Context, carpoolID, actorUserID int64, isAdmin bool) (*CarpoolWebSession, error) {
 	if s.admin == nil || s.signer == nil {
 		return nil, ErrCarpoolWebSessionNotConfigured
@@ -88,7 +92,11 @@ func (s *CarpoolWebSessionService) Create(ctx context.Context, carpoolID, actorU
 	if err != nil {
 		return nil, err
 	}
-	if !canViewCarpoolUpstreamQuota(item, actorUserID, isAdmin) {
+	if item == nil {
+		return nil, ErrCarpoolForbidden
+	}
+	if !isAdmin && item.MemberRole == nil &&
+		(item.OwnerUserID == nil || *item.OwnerUserID != actorUserID) {
 		return nil, ErrCarpoolForbidden
 	}
 	account, err := s.repo.GetWebSessionAccount(ctx, carpoolID)

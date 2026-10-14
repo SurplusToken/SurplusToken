@@ -77,6 +77,15 @@ func TestWebSessionForbiddenForNonMember(t *testing.T) {
 	require.ErrorIs(t, err, service.ErrCarpoolForbidden)
 }
 
+func TestWebSessionForbiddenForNonMemberOnRecruitingPublicCar(t *testing.T) {
+	// 比 upstream-quota 更严：额度信息允许 public+recruiting 的未上车者读，
+	// 网页版直接消耗车上账号，未上车一律 403。
+	stub := &webSessionRepoStub{carpool: &service.Carpool{ID: 10, Status: "recruiting", Visibility: "public"}, account: &service.CarpoolWebSessionAccount{AccountID: 1, Email: "bob@example.com"}}
+	svc := newWebSessionFixture(t, stub, nil)
+	_, err := svc.Create(context.Background(), 10, 99, false)
+	require.ErrorIs(t, err, service.ErrCarpoolForbidden)
+}
+
 func TestWebSessionAllowedForAdminWithoutMembership(t *testing.T) {
 	stub := &webSessionRepoStub{carpool: &service.Carpool{ID: 10, Status: "active", Visibility: "invite_only"}, account: &service.CarpoolWebSessionAccount{AccountID: 1, Email: "bob@example.com"}}
 	users := &webSessionUserStub{user: &service.User{ID: 5, Username: "root"}}
