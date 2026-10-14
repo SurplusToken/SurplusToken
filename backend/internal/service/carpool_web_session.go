@@ -132,6 +132,31 @@ func (s *CarpoolWebSessionService) Create(ctx context.Context, carpoolID, actorU
 	return &CarpoolWebSession{GatewayOrigin: s.signer.PublicOrigin(), Ticket: ticket}, nil
 }
 
+// RevokeForMember 在成员下车/被移出后立即吊销其网页版 Access（网关 DELETE，
+// 连带吊销该 Access 下全部活跃会话）。功能未启用（admin=nil）或车未开通网页版
+// 时是空操作；其余错误原样返回，由调用方按 best-effort 处理。
+func (s *CarpoolWebSessionService) RevokeForMember(ctx context.Context, carpoolID, userID int64) error {
+	if s.admin == nil {
+		return nil
+	}
+	account, err := s.repo.GetWebSessionAccount(ctx, carpoolID)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return nil
+	}
+	slotID := account.SlotID
+	if slotID == "" {
+		email := strings.TrimSpace(account.Email)
+		if email == "" || !strings.Contains(email, "@") {
+			return nil
+		}
+		slotID = strings.ReplaceAll(email, "@", "-at-")
+	}
+	return s.admin.DeleteAccess(ctx, "st-"+strconv.FormatInt(userID, 10)+"-"+slotID)
+}
+
 // displayName 取查看者昵称（Username）；用户查不到或用户名为空时归一
 // "SurplusTokenLab"（网关缺省值）。失败静默——展示名不是拒绝路径。
 func (s *CarpoolWebSessionService) displayName(ctx context.Context, userID int64) string {

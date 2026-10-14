@@ -98,8 +98,7 @@ func TestWebSessionAllowedForAdminWithoutMembership(t *testing.T) {
 
 func TestWebSessionNotProvisionedWithoutAccount(t *testing.T) {
 	stub := &webSessionRepoStub{carpool: webSessionMemberCarpool(), account: nil}
-	svc := newWebSessionFixture(t, stub, nil)
-	_, err := svc.Create(context.Background(), 10, 99, false)
+	svc := newWebSessionFixture(t, stub, nil)	_, err := svc.Create(context.Background(), 10, 99, false)
 	require.Error(t, err)
 	require.Equal(t, 409, infraerrors.Code(err))
 	require.Contains(t, err.Error(), "WEB_SESSION_NOT_CONFIGURED")
@@ -161,4 +160,29 @@ func TestWebSessionUserLookupFailureDegradesDisplayName(t *testing.T) {
 	require.NoError(t, err, "displayName 不是拒绝路径")
 	_, claims := decodeD2wTicket(t, result.Ticket)
 	require.Equal(t, "SurplusTokenLab", claims["displayName"])
+}
+
+func TestWebSessionRevokeForMemberDeletesAccess(t *testing.T) {
+	// 下车/被移出后立即吊销：按 (userID, slotID) 推导 accessID 发 DELETE，
+	// 连带吊销该 Access 下全部活跃会话。
+	stub := &webSessionRepoStub{
+		carpool: webSessionMemberCarpool(),
+		account: &service.CarpoolWebSessionAccount{AccountID: 1, Email: "bob@surplustoken.com"},
+	}
+	gateway := newD2wGatewayFixture(t)
+	cfg, _ := writeD2wTestKey(t)
+	cfg.Desktop2Web.AdminBaseURL = gateway.srv.URL
+	cfg.Desktop2Web.AdminPassword = "admin-secret"
+	svc := service.NewCarpoolWebSessionService(stub, nil, service.NewD2wAdminClient(cfg), service.NewD2wTicketSigner(cfg))
+
+	ctx := context.Background()
+	// 先供给再吊销，验证精确命中同一 accessID。
+	_, err := svc.EnsureChatUIAccess(ctx, "st-42-bob-at-surplustoken.com", "42", "bob-at-surplustoken.com", time.Now().Add(30*24*time.Hour).UnixMilli())
+	require.NoError(t, err)
+	require.NoError(t, svc.RevokeForMember(ctx, 10, 42))
+	require.Equal(t, int32(1), gateway.deleteCalls.Load())
+	require.Equal(t, "/__backend/admin/v1/accesses/st-42-bob-at-surplustoken.com", gateway.lastDeletePath.Load().(string))
+	remaining, err := svc.ListAccesses(ctx)
+	require.NoError(t, err)
+	require.Empty(t, remaining, "吊销后 Access 列表应为空")
 }

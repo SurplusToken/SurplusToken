@@ -200,6 +200,16 @@ func (c *D2wAdminClient) ListAccesses(ctx context.Context) ([]D2wAccess, error) 
 	return out.Accesses, nil
 }
 
+// DeleteAccess removes one access. 用于成员下车/被移出后的即时吊销；
+// 404（Access 不存在）对调用方无害——吊销语义本来就是"确保没有"。
+func (c *D2wAdminClient) DeleteAccess(ctx context.Context, accessID string) error {
+	if c == nil {
+		return fmt.Errorf("desktop2web admin client not configured")
+	}
+	path := "/__backend/admin/v1/accesses/" + accessID
+	return c.do(ctx, http.MethodDelete, path, nil, true, nil)
+}
+
 // putAccess upserts one access (create-or-update). ANY field differing from the
 // stored record revokes every active session under that access, so callers must
 // read-compare-write via EnsureChatUIAccess instead of calling this directly.

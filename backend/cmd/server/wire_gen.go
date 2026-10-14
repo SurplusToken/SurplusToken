@@ -200,7 +200,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	carpoolUsageSummaryHandler := handler.NewCarpoolUsageSummaryHandler(carpoolUsageSummaryService)
 	d2wAdminClient := service.ProvideD2wAdminClient(configConfig)
 	d2wTicketSigner := service.ProvideD2wTicketSigner(configConfig)
-	carpoolWebSessionService := service.ProvideCarpoolWebSessionService(carpoolRepository, userRepository, d2wAdminClient, d2wTicketSigner)
+	carpoolWebSessionService := service.ProvideCarpoolWebSessionService(carpoolService, carpoolRepository, userRepository, d2wAdminClient, d2wTicketSigner)
 	carpoolWebSessionHandler := handler.NewCarpoolWebSessionHandler(carpoolWebSessionService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)

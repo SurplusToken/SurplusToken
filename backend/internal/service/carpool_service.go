@@ -560,6 +560,10 @@ type CarpoolService struct {
 	// cycles 提供分周期计费台账（可选注入）。未注入时结算退回按月整体算地板。
 	cycles CarpoolBillingCycleRecorder
 
+	// webSessionRevoker 在成员下车/被移出后吊销其 desktop2web 网页版 Access
+	//（可选注入，nil 时跳过吊销）。
+	webSessionRevoker carpoolWebSessionRevoker
+
 	// interestMu/interestLastAt 是自定义规则咨询的每用户冷却表（进程内）。
 	// 多实例部署下每实例各自限流——对"给 admin 发提示邮件"这种低频入口足够，
 	// 且不引入新的 Redis 硬依赖。
@@ -593,6 +597,35 @@ func (s *CarpoolService) SetUpstreamQuotaService(svc *CarpoolUpstreamQuotaServic
 		return
 	}
 	s.upstream = svc
+}
+
+// carpoolWebSessionRevoker 在成员下车/被移出后吊销其 desktop2web 网页版
+// Access。具体实现是 *CarpoolWebSessionService；接口化以便测试替身。
+type carpoolWebSessionRevoker interface {
+	RevokeForMember(ctx context.Context, carpoolID, userID int64) error
+}
+
+// SetWebSessionRevoker 注入网页版 Access 吊销器（wire 组装时调用）。
+func (s *CarpoolService) SetWebSessionRevoker(r carpoolWebSessionRevoker) {
+	if s == nil {
+		return
+	}
+	s.webSessionRevoker = r
+}
+
+// revokeMemberWebSession 成员下车/被移出后的 desktop2web Access 即时吊销。
+// Best-effort：独立短超时上下文同步执行（调用方已放在 goroutine 里），失败只
+// 记日志——网关挂了不能挡住下车，残留的 Access 最迟在授权到期后失效。
+func (s *CarpoolService) revokeMemberWebSession(carpoolID, userID int64) {
+	if s.webSessionRevoker == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.webSessionRevoker.RevokeForMember(ctx, carpoolID, userID); err != nil {
+		slog.Warn("carpool web session revoke failed (left member may keep gateway access until grant expiry)",
+			"carpool_id", carpoolID, "user_id", userID, "error", err)
+	}
 }
 
 // loadMemberCycles 取回本车在结算区间内的分周期台账，按成员分组。
@@ -917,6 +950,7 @@ func (s *CarpoolService) Leave(ctx context.Context, carpoolID, userID int64) (*C
 	if err != nil {
 		return nil, err
 	}
+	go s.revokeMemberWebSession(carpoolID, userID)
 	fillCarpoolPresentation(result.Carpool)
 	return result, nil
 }
@@ -1120,6 +1154,7 @@ func (s *CarpoolService) RemoveMember(ctx context.Context, carpoolID, memberUser
 	if err != nil {
 		return nil, err
 	}
+	go s.revokeMemberWebSession(carpoolID, memberUserID)
 	s.notifyMemberRemoved(ctx, result, memberUserID)
 	if result.AutoUnconfirmed {
 		s.notifyOwnerAutoUnconfirmed(ctx, result)

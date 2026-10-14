@@ -440,8 +440,11 @@ func ProvideD2wTicketSigner(cfg *config.Config) *D2wTicketSigner {
 
 // ProvideCarpoolWebSessionService 构造拼车网页版会话签发服务。admin/signer 为
 // nil（功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
-func ProvideCarpoolWebSessionService(repo CarpoolRepository, userRepo UserRepository, admin *D2wAdminClient, signer *D2wTicketSigner) *CarpoolWebSessionService {
-	return NewCarpoolWebSessionService(repo, userRepo, admin, signer)
+// 构造后回注 CarpoolService：成员下车/被移出时据此即时吊销其网关 Access。
+func ProvideCarpoolWebSessionService(carpoolService *CarpoolService, repo CarpoolRepository, userRepo UserRepository, admin *D2wAdminClient, signer *D2wTicketSigner) *CarpoolWebSessionService {
+	svc := NewCarpoolWebSessionService(repo, userRepo, admin, signer)
+	carpoolService.SetWebSessionRevoker(svc)
+	return svc
 }
 
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.

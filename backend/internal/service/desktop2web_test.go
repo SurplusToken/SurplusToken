@@ -178,8 +178,10 @@ type d2wGatewayFixture struct {
 	loginCalls    *atomic.Int32
 	listCalls     *atomic.Int32
 	putCalls      *atomic.Int32
+	deleteCalls   *atomic.Int32
 	lastPutBody   atomic.Value // string
 	lastPutOrigin atomic.Value // string
+	lastDeletePath atomic.Value // string
 	accesses      atomic.Value // []service.D2wAccess
 	putErr        atomic.Value // string：非空时 PUT 返回 500
 	cookieChecks  *atomic.Int32 // 携带正确 cookie 的请求数
@@ -188,6 +190,7 @@ type d2wGatewayFixture struct {
 func newD2wGatewayFixture(t *testing.T) *d2wGatewayFixture {
 	f := &d2wGatewayFixture{
 		loginCalls:   &atomic.Int32{},
+		deleteCalls:  &atomic.Int32{},
 		listCalls:    &atomic.Int32{},
 		putCalls:     &atomic.Int32{},
 		cookieChecks: &atomic.Int32{},
@@ -227,6 +230,22 @@ func newD2wGatewayFixture(t *testing.T) *d2wGatewayFixture {
 			payload, _ := json.Marshal(map[string]any{"schemaVersion": 1, "accesses": f.accesses.Load()})
 			_, _ = w.Write(payload)
 		default:
+			// DELETE /__backend/admin/v1/accesses/:accessId
+			if r.Method == http.MethodDelete {
+				f.deleteCalls.Add(1)
+				f.lastDeletePath.Store(r.URL.Path)
+				id := filepath.Base(r.URL.Path)
+				list := f.accesses.Load().([]service.D2wAccess)
+				kept := list[:0]
+				for _, item := range list {
+					if item.AccessID != id {
+						kept = append(kept, item)
+					}
+				}
+				f.accesses.Store(kept)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			// PUT /__backend/admin/v1/accesses/:accessId
 			if r.Method == http.MethodPut {
 				f.putCalls.Add(1)
