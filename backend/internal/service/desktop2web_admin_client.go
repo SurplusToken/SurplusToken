@@ -47,6 +47,15 @@ type D2wAccess struct {
 	GrantExpiresAtMs int64  `json:"grantExpiresAtMs"`
 }
 
+// d2wAccessUpsert 是 PUT /accesses/:id 的请求体：网关 upsertAccessInputSchema
+// 由 strictObject omit(accessId) 得出，多带一个键（哪怕是空 accessId）都会被拒。
+type d2wAccessUpsert struct {
+	UserID           string `json:"userId"`
+	AccountSlotID    string `json:"accountSlotId"`
+	Role             string `json:"role"`
+	GrantExpiresAtMs int64  `json:"grantExpiresAtMs"`
+}
+
 // d2wAccessGrantRefreshThreshold：存量 Access 的授权剩余不足该阈值时视为
 // "即将过期"，ensureChatUIAccess 会顺手续到 now+d2wAccessGrantTTL。阈值设 24h：
 // 远低于 30 天授权期，又不会因时钟抖动把刚签的记录反复重写（每次 PUT 都会
@@ -199,7 +208,13 @@ func (c *D2wAdminClient) putAccess(ctx context.Context, accessID string, access 
 		return fmt.Errorf("desktop2web admin client not configured")
 	}
 	path := "/__backend/admin/v1/accesses/" + accessID
-	return c.do(ctx, http.MethodPut, path, access, true, nil)
+	upsert := d2wAccessUpsert{
+		UserID:           access.UserID,
+		AccountSlotID:    access.AccountSlotID,
+		Role:             access.Role,
+		GrantExpiresAtMs: access.GrantExpiresAtMs,
+	}
+	return c.do(ctx, http.MethodPut, path, upsert, true, nil)
 }
 
 // EnsureChatUIAccess 维护一条 chat-ui Access 的幂等供给：先 GET 列表比对，

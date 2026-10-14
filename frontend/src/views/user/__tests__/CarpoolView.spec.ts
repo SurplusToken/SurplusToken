@@ -1370,8 +1370,8 @@ describe('CarpoolView', () => {
     expect(wrapper.find('[data-testid="carpool-usage-summary"]').exists()).toBe(false)
   })
 
-  // 网页版会话：进入详情时探测成功才渲染按钮；点击时新开窗口并构造 form
-  // POST 到 {gateway_origin}/auth/sso/redeem，target 指向该窗口。
+  // 网页版会话：列表加载后对成员车按车探测，成功才渲染按钮；点击时新开窗口并
+  // 构造 form POST 到 {gateway_origin}/auth/sso/redeem，target 指向该窗口。
   it('opens a redeem form targeted at the new window when the probe succeeded', async () => {
     listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
     webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
@@ -1381,6 +1381,8 @@ describe('CarpoolView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    // 列表加载时已对成员车探测过一次：卡片按钮此时已渲染。
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(true)
     await findButton(wrapper, 'carpool.actions.details').trigger('click')
     await flushPromises()
 
@@ -1389,7 +1391,7 @@ describe('CarpoolView', () => {
     await flushPromises()
 
     expect(openSpy).toHaveBeenCalledWith('', 'd2w-web-session')
-    // 探测 + 点击共两次会话请求（后端幂等，点击用新鲜 ticket）。
+    // 列表探测 + 点击共两次会话请求（弹窗打开时的探测被去重；后端幂等，点击用新鲜 ticket）。
     expect(webSessionMock).toHaveBeenCalledTimes(2)
     expect(submitSpy).toHaveBeenCalledOnce()
     const form = submitSpy.mock.contexts[0] as HTMLFormElement
@@ -1415,6 +1417,7 @@ describe('CarpoolView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
@@ -1438,6 +1441,8 @@ describe('CarpoolView', () => {
 
     expect(win.close).toHaveBeenCalledOnce()
     expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(false)
+    // 按车记录同步失效：广场卡片上的入口也一并隐藏。
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
     expect(showErrorMock).toHaveBeenCalledWith('carpool.webSession.notProvisioned')
 
     openSpy.mockRestore()
@@ -1464,6 +1469,81 @@ describe('CarpoolView', () => {
     expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(true)
     // 通用失败路径沿用 carpoolError 惯例：上游原始 message 直出。
     expect(showErrorMock).toHaveBeenCalledWith('gateway down')
+
+    openSpy.mockRestore()
+  })
+
+  // 探测按车隔离：A 车 409 不影响 B 车的卡片按钮；非成员车根本不发探测请求。
+  it('probes web session per car so one failing car does not hide another car button', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, memberRole: 'member' }),
+      makeCarpool({ id: 11, name: 'web-car', memberRole: 'member' }),
+      makeCarpool({ id: 12, name: 'public-car', memberRole: null }),
+    ])
+    webSessionMock.mockImplementation((id: number) => id === 11
+      ? Promise.resolve({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+      : Promise.reject(Object.assign(new Error('WEB_SESSION_NOT_CONFIGURED'), { reason: 'WEB_SESSION_NOT_CONFIGURED' })))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="carpool-card-web-session-11"]').exists()).toBe(true)
+    // 非成员的公开车不发探测（后端也会对非成员 403，纯属浪费）。
+    expect(webSessionMock).toHaveBeenCalledTimes(2)
+    expect(webSessionMock).toHaveBeenCalledWith(10)
+    expect(webSessionMock).toHaveBeenCalledWith(11)
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
+  // 卡片按钮点击：与弹窗按钮同一兑换流程（新窗口句柄 + form POST 参数断言）。
+  it('submits the redeem form from the card button', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 11, memberRole: 'member' })])
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-xyz' })
+    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+    const submitSpy = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="carpool-card-web-session-11"]').trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('', 'd2w-web-session')
+    // 列表探测 + 点击取新 ticket，共两次。
+    expect(webSessionMock).toHaveBeenCalledTimes(2)
+    expect(submitSpy).toHaveBeenCalledOnce()
+    const form = submitSpy.mock.contexts[0] as HTMLFormElement
+    expect(form.getAttribute('action')).toBe('http://d2w.test:4310/auth/sso/redeem')
+    expect(form.getAttribute('method')).toBe('POST')
+    expect(form.getAttribute('target')).toBe('d2w-web-session')
+    const input = form.querySelector('input[name="ticket"]') as HTMLInputElement
+    expect(input.value).toBe('ticket-xyz')
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    openSpy.mockRestore()
+    submitSpy.mockRestore()
+  })
+
+  // 点击卡片按钮后配置被撤（409）：按车隐藏卡片入口、明确提示、关闭空白页。
+  it('hides the card button and toasts when redemption reports not provisioned', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock
+      .mockResolvedValueOnce({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+      .mockRejectedValueOnce(Object.assign(new Error('boom'), { reason: 'WEB_SESSION_NOT_CONFIGURED' }))
+    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="carpool-card-web-session-10"]').trigger('click')
+    await flushPromises()
+
+    expect(win.close).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
+    expect(showErrorMock).toHaveBeenCalledWith('carpool.webSession.notProvisioned')
 
     openSpy.mockRestore()
   })

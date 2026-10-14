@@ -304,6 +304,17 @@
                   <Icon name="eye" size="sm" />
                   <span>{{ t('carpool.actions.details') }}</span>
                 </button>
+                <!-- 网页版 ChatGPT：列表加载时按车探测过、确认开通才渲染（后端 409/503 静默） -->
+                <button
+                  v-if="webSessionAvailableByCar[carpool.id]"
+                  type="button"
+                  :data-testid="`carpool-card-web-session-${carpool.id}`"
+                  class="btn btn-secondary h-9 px-3 py-2"
+                  @click="openWebSession(carpool)"
+                >
+                  <Icon name="externalLink" size="sm" />
+                  <span>{{ t('carpool.webSession.open') }}</span>
+                </button>
                 <button
                   v-if="canInvite(carpool)"
                   type="button"
@@ -1079,17 +1090,17 @@
         </div>
 
         <!--
-          「打开网页版 ChatGPT」：进入详情时探测一次（POST 本身幂等，成功才渲染
-          按钮，409/503/其他失败静默隐藏）。点击时新开窗口拿句柄，再用新鲜 ticket
-          构造 form POST 到网关 /auth/sso/redeem，target 指向该句柄完成兑换。
+          「打开网页版 ChatGPT」：与广场卡片共用按车探测结果（webSessionAvailableByCar，
+          列表加载时已对成员车探过，409/503/其他失败静默隐藏）。点击时新开窗口拿句柄，
+          再用新鲜 ticket 构造 form POST 到网关 /auth/sso/redeem，target 指向该句柄完成兑换。
         -->
-        <div v-if="webSessionAvailable" class="flex justify-end">
+        <div v-if="selectedCarpool && webSessionAvailableByCar[selectedCarpool.id]" class="flex justify-end">
           <button
             type="button"
             data-testid="carpool-open-web-session"
             class="btn btn-primary h-8 px-3 py-1.5 text-xs"
             :disabled="webSessionOpening"
-            @click="openWebSession"
+            @click="openWebSession(selectedCarpool)"
           >
             <Icon name="externalLink" size="xs" />
             <span>{{ webSessionOpening ? t('common.loading') : t('carpool.webSession.open') }}</span>
@@ -1246,7 +1257,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -1426,29 +1437,38 @@ const showUsageSummarySection = computed(() => (
   usageSummaryLoading.value || usageSummary.value !== null
 ))
 
-// —— 网页版会话（详情弹窗「打开网页版 ChatGPT」）——
-// 进入详情时探测一次：POST 本身幂等（后端先读比再写 Access），成功才渲染按钮，
-// 409（车未开通）/503（功能未启用）/其他失败静默隐藏，与用量区块同一惯例。
-const webSessionAvailable = ref(false)
+// —— 网页版会话（「打开网页版 ChatGPT」，广场卡片 + 详情弹窗共用）——
+// 按车记录可用性：广场列表加载后对成员车逐个探测（POST 本身幂等，后端先读比
+// 再写 Access），成功才置 true；409（未开通）/503（未启用）/其他失败静默留空，
+// 与用量区块同一惯例。已探测过的车进 Set，列表轮询刷新不重复打网关。
+const webSessionAvailableByCar = reactive<Record<number, boolean>>({})
 const webSessionOpening = ref(false)
-let webSessionSeq = 0
+const probedWebSessionCars = new Set<number>()
 
 async function probeWebSession(carpoolId: number): Promise<void> {
-  const seq = ++webSessionSeq
-  webSessionAvailable.value = false
+  if (probedWebSessionCars.has(carpoolId)) return
+  probedWebSessionCars.add(carpoolId)
   try {
     await carpoolAPI.webSession(carpoolId)
-    if (seq === webSessionSeq) webSessionAvailable.value = true
+    webSessionAvailableByCar[carpoolId] = true
   } catch {
     // 未开通/未启用/网络失败：不渲染按钮，不打扰用户。
   }
 }
 
+// 广场列表加载/刷新后：对本人是成员的车（owner/member）探测网页版会话可用性。
+// 非成员的车后端会 403，不浪费请求；探测结果按车记录，A 车失败不影响 B 车按钮。
+watch(carpools, (items) => {
+  for (const car of items) {
+    if (car.memberRole !== 'owner' && car.memberRole !== 'member') continue
+    probeWebSession(car.id)
+  }
+})
+
 // 点击：先在用户手势里开窗口拿句柄（避免被弹窗拦截器拦），再用新鲜 ticket 构造
 // form POST 到 {gateway_origin}/auth/sso/redeem，target 指向该句柄完成兑换。
-async function openWebSession(): Promise<void> {
-  const carpool = selectedCarpool.value
-  if (!carpool || webSessionOpening.value) return
+async function openWebSession(carpool: Carpool): Promise<void> {
+  if (webSessionOpening.value) return
   const win = window.open('', 'd2w-web-session')
   if (!win) {
     appStore.showError(t('carpool.webSession.popupBlocked'))
@@ -1462,7 +1482,7 @@ async function openWebSession(): Promise<void> {
     win.close()
     if (extractApiErrorCode(error) === 'WEB_SESSION_NOT_CONFIGURED') {
       // 探测后配置被撤（如 slot 解绑）：隐藏按钮并明确提示。
-      webSessionAvailable.value = false
+      webSessionAvailableByCar[carpool.id] = false
       appStore.showError(t('carpool.webSession.notProvisioned'))
     } else {
       appStore.showError(carpoolError(error, 'carpool.webSession.openFailed'))

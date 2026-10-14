@@ -295,6 +295,7 @@ func TestD2wAdminClientLoginAndEnsureAccess(t *testing.T) {
 	require.Equal(t, int32(1), fixture.putCalls.Load())
 	require.Equal(t, int32(1), fixture.loginCalls.Load(), "首次请求应触发一次登录拿 cookie")
 	require.Equal(t, "http://d2w.test:4310", fixture.lastPutOrigin.Load(), "写操作必须带精确 Origin 头")
+	require.NotContains(t, fixture.lastPutBody.Load().(string), "accessId", "网关 upsertAccessInputSchema 是 strictObject(omit accessId)，多键即 400")
 
 	// 第二次：字段完全相同（grant 未临近到期）→ 跳过，绝不吊销在用的会话。
 	wrote, err = client.EnsureChatUIAccess(ctx, "st-9-bob-at-example.com", "9", "bob-at-example.com", time.Now().Add(30*24*time.Hour).UnixMilli())
