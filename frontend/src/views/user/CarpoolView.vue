@@ -1492,21 +1492,33 @@ async function openWebSession(carpool: Carpool): Promise<void> {
   }
 }
 
-// submitD2wRedeemForm 把 ticket 装进一个隐藏 form 提交到网关兑换端点。
-// 独立函数便于单测对 document.createElement 打桩断言参数。
+// submitD2wRedeemForm 把「自动提交表单页」直接写进弹窗：表单在弹窗自己的上下文
+// 里提交（classic SSO popup 模式）。跨窗口 form.submit 在 Safari 会被拦（提交时
+// 已脱离 opener 的用户手势链），弹窗停在 about:blank、网关收不到 POST——所以
+// 不在当前页构造 form，而是 doc.write 进弹窗让其在内部完成兑换跳转。
 function submitD2wRedeemForm(win: Window, session: CarpoolWebSession): void {
-  const form = document.createElement('form')
-  form.action = `${session.gatewayOrigin}/auth/sso/redeem`
-  form.method = 'POST'
-  form.target = win.name
-  const ticketInput = document.createElement('input')
-  ticketInput.type = 'hidden'
-  ticketInput.name = 'ticket'
-  ticketInput.value = session.ticket
-  form.appendChild(ticketInput)
-  document.body.appendChild(form)
-  form.submit()
-  document.body.removeChild(form)
+  const doc = win.document
+  doc.open()
+  doc.write(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' +
+    `<form id="d2w-redeem" action="${escapeHtmlAttr(session.gatewayOrigin)}/auth/sso/redeem" method="POST">` +
+    `<input type="hidden" name="ticket" value="${escapeHtmlAttr(session.ticket)}">` +
+    '</form>' +
+    `<p>${escapeHtmlAttr(t('carpool.webSession.opening'))}</p>` +
+    '<script>document.getElementById("d2w-redeem").submit()<\/script>' +
+    '</body></html>'
+  )
+  doc.close()
+}
+
+// escapeHtmlAttr 转义 & " < >：JWT 字符集本身安全，转义是防手滑把
+// gatewayOrigin/ticket 注入进 popup 的 HTML。
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。

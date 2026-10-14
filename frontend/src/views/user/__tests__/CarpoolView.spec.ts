@@ -202,6 +202,16 @@ function findButton(wrapper: ReturnType<typeof mountView>, text: string) {
   return button
 }
 
+// fakeD2wWindow 给 window.open 打桩用：submitD2wRedeemForm 走 doc.write 把兑换页
+// 写进弹窗，这里用 mock document 断言 write 收到的 HTML。
+function fakeD2wWindow() {
+  return {
+    name: 'd2w-web-session',
+    close: vi.fn(),
+    document: { open: vi.fn(), write: vi.fn(), close: vi.fn() },
+  }
+}
+
 describe('CarpoolView', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -1370,14 +1380,13 @@ describe('CarpoolView', () => {
     expect(wrapper.find('[data-testid="carpool-usage-summary"]').exists()).toBe(false)
   })
 
-  // 网页版会话：列表加载后对成员车按车探测，成功才渲染按钮；点击时新开窗口并
-  // 构造 form POST 到 {gateway_origin}/auth/sso/redeem，target 指向该窗口。
+  // 网页版会话：列表加载后对成员车按车探测，成功才渲染按钮；点击时新开窗口，
+  // 把自动提交表单页写进弹窗（Safari 会拦跨窗口表单提交，表单必须在弹窗内提交）。
   it('opens a redeem form targeted at the new window when the probe succeeded', async () => {
     listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
     webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
-    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const win = fakeD2wWindow()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
-    const submitSpy = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
 
     const wrapper = mountView()
     await flushPromises()
@@ -1393,17 +1402,17 @@ describe('CarpoolView', () => {
     expect(openSpy).toHaveBeenCalledWith('', 'd2w-web-session')
     // 列表探测 + 点击共两次会话请求（弹窗打开时的探测被去重；后端幂等，点击用新鲜 ticket）。
     expect(webSessionMock).toHaveBeenCalledTimes(2)
-    expect(submitSpy).toHaveBeenCalledOnce()
-    const form = submitSpy.mock.contexts[0] as HTMLFormElement
-    expect(form.getAttribute('action')).toBe('http://d2w.test:4310/auth/sso/redeem')
-    expect(form.getAttribute('method')).toBe('POST')
-    expect(form.getAttribute('target')).toBe('d2w-web-session')
-    const input = form.querySelector('input[name="ticket"]') as HTMLInputElement
-    expect(input.value).toBe('ticket-abc')
+    // 兑换页直接写进弹窗：open → write(表单+自动提交脚本) → close。
+    expect(win.document.open).toHaveBeenCalledOnce()
+    expect(win.document.close).toHaveBeenCalledOnce()
+    expect(win.document.write).toHaveBeenCalledOnce()
+    const html = win.document.write.mock.calls[0][0] as string
+    expect(html).toContain('<form id="d2w-redeem" action="http://d2w.test:4310/auth/sso/redeem" method="POST">')
+    expect(html).toContain('<input type="hidden" name="ticket" value="ticket-abc">')
+    expect(html).toContain('<script>document.getElementById("d2w-redeem").submit()</script>')
     expect(showErrorMock).not.toHaveBeenCalled()
 
     openSpy.mockRestore()
-    submitSpy.mockRestore()
   })
 
   // 探测返回 409 WEB_SESSION_NOT_CONFIGURED（车未开通）：按钮不渲染、无报错 toast。
@@ -1496,13 +1505,13 @@ describe('CarpoolView', () => {
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
-  // 卡片按钮点击：与弹窗按钮同一兑换流程（新窗口句柄 + form POST 参数断言）。
+  // 卡片按钮点击：与弹窗按钮同一兑换流程（新窗口句柄 + 写进弹窗的表单 HTML 断言，
+  // 顺带验证 ticket 的 HTML 属性转义）。
   it('submits the redeem form from the card button', async () => {
     listCarpools.mockResolvedValue([makeCarpool({ id: 11, memberRole: 'member' })])
-    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-xyz' })
-    const win = { name: 'd2w-web-session', close: vi.fn() }
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ta&b"c<d>' })
+    const win = fakeD2wWindow()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
-    const submitSpy = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
 
     const wrapper = mountView()
     await flushPromises()
@@ -1513,17 +1522,15 @@ describe('CarpoolView', () => {
     expect(openSpy).toHaveBeenCalledWith('', 'd2w-web-session')
     // 列表探测 + 点击取新 ticket，共两次。
     expect(webSessionMock).toHaveBeenCalledTimes(2)
-    expect(submitSpy).toHaveBeenCalledOnce()
-    const form = submitSpy.mock.contexts[0] as HTMLFormElement
-    expect(form.getAttribute('action')).toBe('http://d2w.test:4310/auth/sso/redeem')
-    expect(form.getAttribute('method')).toBe('POST')
-    expect(form.getAttribute('target')).toBe('d2w-web-session')
-    const input = form.querySelector('input[name="ticket"]') as HTMLInputElement
-    expect(input.value).toBe('ticket-xyz')
+    expect(win.document.write).toHaveBeenCalledOnce()
+    const html = win.document.write.mock.calls[0][0] as string
+    expect(html).toContain('<form id="d2w-redeem" action="http://d2w.test:4310/auth/sso/redeem" method="POST">')
+    // ticket 做 HTML 属性转义（& " < >），防注入弹窗 HTML。
+    expect(html).toContain('value="ta&amp;b&quot;c&lt;d&gt;"')
+    expect(win.document.close).toHaveBeenCalledOnce()
     expect(showErrorMock).not.toHaveBeenCalled()
 
     openSpy.mockRestore()
-    submitSpy.mockRestore()
   })
 
   // 点击卡片按钮后配置被撤（409）：按车隐藏卡片入口、明确提示、关闭空白页。

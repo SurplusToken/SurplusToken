@@ -289,6 +289,7 @@ export default {
     // the button only renders when the backend confirms provisioning.
     webSession: {
       open: 'Open web ChatGPT',
+      opening: 'Opening web ChatGPT…',
       openFailed: 'Failed to open the web session; please try again later',
       notProvisioned: 'Web ChatGPT is not enabled for this car',
       popupBlocked: 'The browser blocked the new tab; please allow popups and retry'
