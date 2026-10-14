@@ -1077,6 +1077,24 @@
             </dl>
           </template>
         </div>
+
+        <!--
+          「打开网页版 ChatGPT」：进入详情时探测一次（POST 本身幂等，成功才渲染
+          按钮，409/503/其他失败静默隐藏）。点击时新开窗口拿句柄，再用新鲜 ticket
+          构造 form POST 到网关 /auth/sso/redeem，target 指向该句柄完成兑换。
+        -->
+        <div v-if="webSessionAvailable" class="flex justify-end">
+          <button
+            type="button"
+            data-testid="carpool-open-web-session"
+            class="btn btn-primary h-8 px-3 py-1.5 text-xs"
+            :disabled="webSessionOpening"
+            @click="openWebSession"
+          >
+            <Icon name="externalLink" size="xs" />
+            <span>{{ webSessionOpening ? t('common.loading') : t('carpool.webSession.open') }}</span>
+          </button>
+        </div>
       </div>
     </BaseDialog>
 
@@ -1241,6 +1259,7 @@ import carpoolAPI, {
   type CarpoolSettlement,
   type CarpoolUsageSummary,
   type CarpoolVisibility,
+  type CarpoolWebSession,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
   type CarpoolRosterMember,
@@ -1250,7 +1269,7 @@ import carpoolAPI, {
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { formatRelativeTime } from '@/utils/format'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
@@ -1406,6 +1425,69 @@ let usageSummarySeq = 0
 const showUsageSummarySection = computed(() => (
   usageSummaryLoading.value || usageSummary.value !== null
 ))
+
+// —— 网页版会话（详情弹窗「打开网页版 ChatGPT」）——
+// 进入详情时探测一次：POST 本身幂等（后端先读比再写 Access），成功才渲染按钮，
+// 409（车未开通）/503（功能未启用）/其他失败静默隐藏，与用量区块同一惯例。
+const webSessionAvailable = ref(false)
+const webSessionOpening = ref(false)
+let webSessionSeq = 0
+
+async function probeWebSession(carpoolId: number): Promise<void> {
+  const seq = ++webSessionSeq
+  webSessionAvailable.value = false
+  try {
+    await carpoolAPI.webSession(carpoolId)
+    if (seq === webSessionSeq) webSessionAvailable.value = true
+  } catch {
+    // 未开通/未启用/网络失败：不渲染按钮，不打扰用户。
+  }
+}
+
+// 点击：先在用户手势里开窗口拿句柄（避免被弹窗拦截器拦），再用新鲜 ticket 构造
+// form POST 到 {gateway_origin}/auth/sso/redeem，target 指向该句柄完成兑换。
+async function openWebSession(): Promise<void> {
+  const carpool = selectedCarpool.value
+  if (!carpool || webSessionOpening.value) return
+  const win = window.open('', 'd2w-web-session')
+  if (!win) {
+    appStore.showError(t('carpool.webSession.popupBlocked'))
+    return
+  }
+  webSessionOpening.value = true
+  try {
+    const session = await carpoolAPI.webSession(carpool.id)
+    submitD2wRedeemForm(win, session)
+  } catch (error) {
+    win.close()
+    if (extractApiErrorCode(error) === 'WEB_SESSION_NOT_CONFIGURED') {
+      // 探测后配置被撤（如 slot 解绑）：隐藏按钮并明确提示。
+      webSessionAvailable.value = false
+      appStore.showError(t('carpool.webSession.notProvisioned'))
+    } else {
+      appStore.showError(carpoolError(error, 'carpool.webSession.openFailed'))
+    }
+  } finally {
+    webSessionOpening.value = false
+  }
+}
+
+// submitD2wRedeemForm 把 ticket 装进一个隐藏 form 提交到网关兑换端点。
+// 独立函数便于单测对 document.createElement 打桩断言参数。
+function submitD2wRedeemForm(win: Window, session: CarpoolWebSession): void {
+  const form = document.createElement('form')
+  form.action = `${session.gatewayOrigin}/auth/sso/redeem`
+  form.method = 'POST'
+  form.target = win.name
+  const ticketInput = document.createElement('input')
+  ticketInput.type = 'hidden'
+  ticketInput.name = 'ticket'
+  ticketInput.value = session.ticket
+  form.appendChild(ticketInput)
+  document.body.appendChild(form)
+  form.submit()
+  document.body.removeChild(form)
+}
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -2058,6 +2140,7 @@ function openDetails(carpool: Carpool): void {
   detailDialogOpen.value = true
   loadUpstreamQuota(carpool.id)
   loadUsageSummary(carpool.id)
+  probeWebSession(carpool.id)
 }
 
 // 打开详情弹窗时自动拉一次本周用量摘要（本地库读数，无缓存）。失败静默隐藏区块。

@@ -500,6 +500,10 @@ type CarpoolRepository interface {
 	// ListCprAccountIDs 批量解析一组车的 cpr 账号映射（GetCprAccountID 的列表版，
 	// 一条 SQL）。map 里缺失的 id 表示未配置。
 	ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error)
+	// GetWebSessionAccount 解析本车网页版会话使用的上游账号（主账号 + 组内
+	// 邮箱回退，与 GetCprAccountID 同口径）。无可用账号返回 (nil, nil)；
+	// 车不存在返回 ErrCarpoolNotFound（web-session 端点用）。
+	GetWebSessionAccount(ctx context.Context, carpoolID int64) (*CarpoolWebSessionAccount, error)
 	// ListMemberWeekUsage 返回车上 active/joined 成员的本周用量行
 	// （usage-summary 端点用；CarpoolUsageSummaryRepository 窄接口同源）。
 	ListMemberWeekUsage(ctx context.Context, carpoolID int64) ([]CarpoolMemberWeekUsageRow, error)

@@ -285,6 +285,14 @@ export default {
       weeklyLimit: 'limit {amount}',
       paygHint: 'Pay-as-you-go; no reserved floor'
     },
+    // Web ChatGPT session (desktop2web SSO): probed when the detail dialog opens;
+    // the button only renders when the backend confirms provisioning.
+    webSession: {
+      open: 'Open web ChatGPT',
+      openFailed: 'Failed to open the web session; please try again later',
+      notProvisioned: 'Web ChatGPT is not enabled for this car',
+      popupBlocked: 'The browser blocked the new tab; please allow popups and retry'
+    },
     settlement: {
       title: 'Monthly settlement',
       period: 'Billing period',

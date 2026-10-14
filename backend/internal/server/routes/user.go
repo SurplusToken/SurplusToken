@@ -187,6 +187,10 @@ func RegisterUserRoutes(
 			// 本周用量摘要（订阅页同口径 + 全车合计，读自家库直出）。可见性与
 			// upstream-quota 同一道闸（成员/admin，未上车者仅 public 且招募中可读）。
 			carpools.GET("/:id/usage-summary", h.UsageSummary.Get)
+			// 「打开网页版 ChatGPT」：幂等供给 desktop2web Access + 签发 ES256
+			// SSO ticket。可见性与 upstream-quota 同一道闸；未配置 503、车无
+			// 账号/邮箱 409（前端据此隐藏按钮）。
+			carpools.POST("/:id/web-session", h.WebSession.Create)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)

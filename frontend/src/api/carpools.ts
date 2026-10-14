@@ -822,6 +822,38 @@ export async function usageSummary(id: number): Promise<CarpoolUsageSummary> {
   return mapUsageSummary(data)
 }
 
+// ---------------------------------------------------------------------------
+// 网页版会话（详情弹窗「打开网页版 ChatGPT」按钮）：后端幂等供给 desktop2web
+// Access 并签发 ES256 SSO ticket，前端拿到 {gateway_origin, ticket} 后构造
+// form POST 到 {gateway_origin}/auth/sso/redeem 兑换出网关会话 cookie。
+// 409 WEB_SESSION_NOT_CONFIGURED = 该车未开通（无账号/无邮箱/slot 未配置），
+// 503 DESKTOP2WEB_NOT_CONFIGURED = 功能未启用；两者都静默隐藏按钮。
+// ---------------------------------------------------------------------------
+
+export interface CarpoolWebSession {
+  gatewayOrigin: string
+  ticket: string
+}
+
+export interface CarpoolWebSessionResponse {
+  web_session: {
+    gateway_origin: string
+    ticket: string
+  }
+}
+
+export function mapWebSession(data: CarpoolWebSessionResponse): CarpoolWebSession {
+  return {
+    gatewayOrigin: data.web_session.gateway_origin,
+    ticket: data.web_session.ticket,
+  }
+}
+
+export async function webSession(id: number): Promise<CarpoolWebSession> {
+  const { data } = await apiClient.post<CarpoolWebSessionResponse>(`/carpools/${id}/web-session`)
+  return mapWebSession(data)
+}
+
 export default {
   list,
   create,
@@ -853,4 +885,5 @@ export default {
   upstreamQuota,
   refreshUpstreamQuota,
   usageSummary,
+  webSession,
 }

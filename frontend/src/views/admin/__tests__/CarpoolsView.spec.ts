@@ -62,6 +62,7 @@ vi.mock('@/api/carpools', () => ({
     upstreamQuota: vi.fn(),
     refreshUpstreamQuota: vi.fn(),
     usageSummary: vi.fn(),
+    webSession: vi.fn(),
   },
 }))
 

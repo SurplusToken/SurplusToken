@@ -281,6 +281,14 @@ export default {
       weeklyLimit: '限额 {amount}',
       paygHint: '按量计费，无保底'
     },
+    // 网页版会话（desktop2web SSO）：进入详情弹窗时探测一次，后端确认开通才
+    // 渲染按钮；兑换失败/未开通的提示文案。
+    webSession: {
+      open: '打开网页版 ChatGPT',
+      openFailed: '打开网页版失败，请稍后再试',
+      notProvisioned: '该车未开通网页版',
+      popupBlocked: '浏览器拦截了新标签页，请允许弹窗后重试'
+    },
     settlement: {
       title: '月度结算单',
       period: '结算周期',

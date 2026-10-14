@@ -60,6 +60,7 @@ type Handlers struct {
 	Carpool          *CarpoolHandler
 	UpstreamQuota    *CarpoolUpstreamQuotaHandler
 	UsageSummary     *CarpoolUsageSummaryHandler
+	WebSession       *CarpoolWebSessionHandler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler

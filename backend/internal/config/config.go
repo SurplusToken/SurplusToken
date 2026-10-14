@@ -104,6 +104,7 @@ type Config struct {
 	Update                        UpdateConfig                  `mapstructure:"update"`
 	Idempotency                   IdempotencyConfig             `mapstructure:"idempotency"`
 	Cpr                           CprConfig                     `mapstructure:"cpr"`
+	Desktop2Web                   Desktop2WebConfig             `mapstructure:"desktop2web"`
 	BatchImage                    BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage                  ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                       PluginConfig                  `mapstructure:"plugins"`
@@ -133,6 +134,36 @@ type CprConfig struct {
 	// RefreshCooldownSeconds 是 POST upstream-quota/refresh 的每车冷却窗口
 	//（carpool:upstream_quota:refresh:<id>，SET NX EX）。
 	RefreshCooldownSeconds int `mapstructure:"refresh_cooldown_seconds"`
+}
+
+// Desktop2WebConfig holds settings for the desktop2web gateway integration,
+// which backs the carpool "打开网页版 ChatGPT" feature (拼车网页版会话).
+//
+// Supply side goes through the gateway admin API (admin cookie auth, write
+// operations gated on an exact Origin header), tickets are ES256 JWS signed
+// with the configured private key. Anything missing (admin_base_url /
+// admin_password / sso_private_key_file) disables the feature gracefully:
+// NewD2wAdminClient / NewD2wTicketSigner return nil and the web-session
+// endpoint answers 503 DESKTOP2WEB_NOT_CONFIGURED instead of failing
+// unrelated requests.
+type Desktop2WebConfig struct {
+	// PublicOrigin 是网关对外 origin（如 http://100.118.150.10:4310），同时是
+	// admin 写操作要求的精确 Origin 头取值、ticket aud 校验基准和前端兑换表单的
+	// action 前缀。注意兑换/管理端都以此为准：改了反代就必须同步改这里。
+	PublicOrigin string `mapstructure:"public_origin"`
+	// SsoIssuer 是 ticket iss（网关按 DESKTOP2WEB_SSO_ISSUER 精确匹配）。
+	SsoIssuer string `mapstructure:"sso_issuer"`
+	// SsoKeyID 是 ticket header kid（网关按 DESKTOP2WEB_SSO_KEY_ID 精确匹配）。
+	SsoKeyID string `mapstructure:"sso_key_id"`
+	// SsoPrivateKeyFile 是 ES256 私钥 PEM 路径（ecdsa P-256，PKCS8）。
+	// 私钥只在签发方；网关只配公钥，无法伪造 ticket。
+	SsoPrivateKeyFile string `mapstructure:"sso_private_key_file"`
+	// AdminBaseURL 是网关 admin API 基础地址（通常等于 PublicOrigin）。
+	// 为空则整个网页版会话功能禁用（接口答 503）。
+	AdminBaseURL string `mapstructure:"admin_base_url"`
+	// AdminPassword 是网关 admin 登录密码（来自 env DESKTOP2WEB_ADMIN_PASSWORD，
+	// 或 DESKTOP2WEB_ADMIN_PASSWORD_FILE 指向的文件内容）。
+	AdminPassword string `mapstructure:"admin_password"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -1945,6 +1976,23 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.OIDC.UsePKCEExplicit = hasExplicitConfigOrEnv("oidc_connect.use_pkce", "OIDC_CONNECT_USE_PKCE")
 	cfg.OIDC.ValidateIDTokenExplicit = hasExplicitConfigOrEnv("oidc_connect.validate_id_token", "OIDC_CONNECT_VALIDATE_ID_TOKEN")
 	cfg.Dashboard.KeyPrefix = strings.TrimSpace(cfg.Dashboard.KeyPrefix)
+	// desktop2web admin 密码支持 _FILE 后缀（密钥不入 env/配置文件的部署惯例）：
+	// DESKTOP2WEB_ADMIN_PASSWORD 非空时优先；否则读 DESKTOP2WEB_ADMIN_PASSWORD_FILE
+	// 指向的文件内容（首尾空白剔除）。两者都空 = 功能禁用，不报错。
+	if strings.TrimSpace(cfg.Desktop2Web.AdminPassword) == "" {
+		if passwordFile := strings.TrimSpace(os.Getenv("DESKTOP2WEB_ADMIN_PASSWORD_FILE")); passwordFile != "" {
+			content, err := os.ReadFile(passwordFile)
+			if err != nil {
+				return nil, fmt.Errorf("read desktop2web admin password file %q: %w", passwordFile, err)
+			}
+			cfg.Desktop2Web.AdminPassword = strings.TrimSpace(string(content))
+		}
+	}
+	cfg.Desktop2Web.PublicOrigin = strings.TrimRight(strings.TrimSpace(cfg.Desktop2Web.PublicOrigin), "/")
+	cfg.Desktop2Web.SsoIssuer = strings.TrimSpace(cfg.Desktop2Web.SsoIssuer)
+	cfg.Desktop2Web.SsoKeyID = strings.TrimSpace(cfg.Desktop2Web.SsoKeyID)
+	cfg.Desktop2Web.SsoPrivateKeyFile = strings.TrimSpace(cfg.Desktop2Web.SsoPrivateKeyFile)
+	cfg.Desktop2Web.AdminBaseURL = strings.TrimRight(strings.TrimSpace(cfg.Desktop2Web.AdminBaseURL), "/")
 	cfg.CORS.AllowedOrigins = normalizeStringSlice(cfg.CORS.AllowedOrigins)
 	cfg.Security.ResponseHeaders.AdditionalAllowed = normalizeStringSlice(cfg.Security.ResponseHeaders.AdditionalAllowed)
 	cfg.Security.ResponseHeaders.ForceRemove = normalizeStringSlice(cfg.Security.ResponseHeaders.ForceRemove)
@@ -2674,6 +2722,16 @@ func setDefaults() {
 	viper.SetDefault("cpr.admin_key", "")
 	viper.SetDefault("cpr.cache_ttl_seconds", 300)
 	viper.SetDefault("cpr.refresh_cooldown_seconds", 600)
+
+	// desktop2web gateway（拼车「打开网页版 ChatGPT」）。admin_base_url /
+	// admin_password / sso_private_key_file 任一缺失 = 功能禁用（接口答 503），
+	// 与 cpr 的禁用口径一致。admin_password 另支持 DESKTOP2WEB_ADMIN_PASSWORD_FILE。
+	viper.SetDefault("desktop2web.public_origin", "http://100.118.150.10:4310")
+	viper.SetDefault("desktop2web.sso_issuer", "https://surplustoken.com")
+	viper.SetDefault("desktop2web.sso_key_id", "sub2api-v1")
+	viper.SetDefault("desktop2web.sso_private_key_file", "")
+	viper.SetDefault("desktop2web.admin_base_url", "")
+	viper.SetDefault("desktop2web.admin_password", "")
 
 	setEnvReachableDefaults()
 }

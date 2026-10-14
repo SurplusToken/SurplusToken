@@ -30,6 +30,8 @@ const {
   upstreamQuotaMock,
   refreshUpstreamQuotaMock,
   usageSummaryMock,
+  webSessionMock,
+  showErrorMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -57,6 +59,8 @@ const {
   upstreamQuotaMock: vi.fn(),
   refreshUpstreamQuotaMock: vi.fn(),
   usageSummaryMock: vi.fn(),
+  webSessionMock: vi.fn(),
+  showErrorMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -87,6 +91,7 @@ vi.mock('@/api/carpools', () => ({
     upstreamQuota: upstreamQuotaMock,
     refreshUpstreamQuota: refreshUpstreamQuotaMock,
     usageSummary: usageSummaryMock,
+    webSession: webSessionMock,
   },
 }))
 
@@ -109,7 +114,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     showSuccess,
-    showError: vi.fn(),
+    showError: showErrorMock,
     showWarning,
   }),
 }))
@@ -242,6 +247,10 @@ describe('CarpoolView', () => {
     // 默认拉取失败：「本周用量」区块静默隐藏（与上游额度打开时失败的惯例一致）
     usageSummaryMock.mockReset()
     usageSummaryMock.mockRejectedValue(new Error('network down'))
+    // 默认未开通：「打开网页版 ChatGPT」按钮不渲染（409/503 都静默）
+    webSessionMock.mockReset()
+    webSessionMock.mockRejectedValue(Object.assign(new Error('WEB_SESSION_NOT_CONFIGURED'), { reason: 'WEB_SESSION_NOT_CONFIGURED' }))
+    showErrorMock.mockReset()
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -1359,6 +1368,104 @@ describe('CarpoolView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="carpool-usage-summary"]').exists()).toBe(false)
+  })
+
+  // 网页版会话：进入详情时探测成功才渲染按钮；点击时新开窗口并构造 form
+  // POST 到 {gateway_origin}/auth/sso/redeem，target 指向该窗口。
+  it('opens a redeem form targeted at the new window when the probe succeeded', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+    const submitSpy = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const button = wrapper.get('[data-testid="carpool-open-web-session"]')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('', 'd2w-web-session')
+    // 探测 + 点击共两次会话请求（后端幂等，点击用新鲜 ticket）。
+    expect(webSessionMock).toHaveBeenCalledTimes(2)
+    expect(submitSpy).toHaveBeenCalledOnce()
+    const form = submitSpy.mock.contexts[0] as HTMLFormElement
+    expect(form.getAttribute('action')).toBe('http://d2w.test:4310/auth/sso/redeem')
+    expect(form.getAttribute('method')).toBe('POST')
+    expect(form.getAttribute('target')).toBe('d2w-web-session')
+    const input = form.querySelector('input[name="ticket"]') as HTMLInputElement
+    expect(input.value).toBe('ticket-abc')
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    openSpy.mockRestore()
+    submitSpy.mockRestore()
+  })
+
+  // 探测返回 409 WEB_SESSION_NOT_CONFIGURED（车未开通）：按钮不渲染、无报错 toast。
+  it('hides the web session button silently when not provisioned', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    // beforeEach 里 webSessionMock 默认以 WEB_SESSION_NOT_CONFIGURED reject
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(false)
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
+  // 探测成功但点击时配置被撤（409）：隐藏按钮、明确提示、关闭已开的空白页。
+  it('hides the button and toasts when redemption later reports not provisioned', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock
+      .mockResolvedValueOnce({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+      .mockRejectedValueOnce(Object.assign(new Error('boom'), { reason: 'WEB_SESSION_NOT_CONFIGURED' }))
+    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="carpool-open-web-session"]').trigger('click')
+    await flushPromises()
+
+    expect(win.close).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(false)
+    expect(showErrorMock).toHaveBeenCalledWith('carpool.webSession.notProvisioned')
+
+    openSpy.mockRestore()
+  })
+
+  // 点击时网络/网关故障：保留按钮、通用报错、关闭空白页。
+  it('keeps the button and toasts a generic error when redemption fails transiently', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock
+      .mockResolvedValueOnce({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+      .mockRejectedValueOnce(new Error('gateway down'))
+    const win = { name: 'd2w-web-session', close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="carpool-open-web-session"]').trigger('click')
+    await flushPromises()
+
+    expect(win.close).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(true)
+    // 通用失败路径沿用 carpoolError 惯例：上游原始 message 直出。
+    expect(showErrorMock).toHaveBeenCalledWith('gateway down')
+
+    openSpy.mockRestore()
   })
 
   // 自定义规则车不接新成员：升级前遗留的招募中老车永远达不到发车区间，

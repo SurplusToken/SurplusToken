@@ -425,6 +425,25 @@ func ProvideCarpoolUsageSummaryService(repo CarpoolRepository, subscriptionServi
 	return NewCarpoolUsageSummaryService(repo, subscriptionService)
 }
 
+// ProvideD2wAdminClient builds the desktop2web gateway admin client. Returns
+// nil (feature disabled) when desktop2web.admin_base_url / admin_password is
+// empty; the web-session endpoint then answers 503 DESKTOP2WEB_NOT_CONFIGURED.
+func ProvideD2wAdminClient(cfg *config.Config) *D2wAdminClient {
+	return NewD2wAdminClient(cfg)
+}
+
+// ProvideD2wTicketSigner loads the ES256 SSO signing key. Returns nil (feature
+// disabled) when desktop2web.sso_private_key_file is empty or unreadable.
+func ProvideD2wTicketSigner(cfg *config.Config) *D2wTicketSigner {
+	return NewD2wTicketSigner(cfg)
+}
+
+// ProvideCarpoolWebSessionService 构造拼车网页版会话签发服务。admin/signer 为
+// nil（功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
+func ProvideCarpoolWebSessionService(repo CarpoolRepository, userRepo UserRepository, admin *D2wAdminClient, signer *D2wTicketSigner) *CarpoolWebSessionService {
+	return NewCarpoolWebSessionService(repo, userRepo, admin, signer)
+}
+
 // ProvideOpenAICodexVersionSyncService creates and starts OpenAICodexVersionSyncService.
 // 出站 Codex 身份的版本号靠它跟随官方发布，无需为了跟版本而发新版本；面板可关闭。
 func ProvideOpenAICodexVersionSyncService(
@@ -1019,6 +1038,9 @@ var ProviderSet = wire.NewSet(
 	ProvideCprClient,
 	ProvideCarpoolUpstreamQuotaService,
 	ProvideCarpoolUsageSummaryService,
+	ProvideD2wAdminClient,
+	ProvideD2wTicketSigner,
+	ProvideCarpoolWebSessionService,
 	ProvideSubscriptionExpiryService,
 	ProvideCarpoolSettlementScheduler,
 	ProvideTimingWheelService,
