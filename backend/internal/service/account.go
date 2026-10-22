@@ -146,6 +146,13 @@ func isOpenAIPersonalAccessTokenAuthMode(value string) bool {
 	}
 }
 
+// stringValue 从 any 中安全取 string，非 string 返回空串。
+// 账号 extra / 上游请求体解析共用的小工具。
+func stringValue(value any) string {
+	s, _ := value.(string)
+	return s
+}
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`

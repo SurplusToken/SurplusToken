@@ -73,7 +73,7 @@
         {{ t('admin.accounts.openaiQuotaReset.points') }}
         <span class="truncate tabular-nums">{{ creditsDisplay }}</span>
       </button>
-      <OpenAIReferralCell v-if="scope === 'admin'" :account="account" />
+      <OpenAIReferralCell :account="account" />
     </div>
 
     <div v-if="creditsCacheWarning" class="text-[10px] text-amber-600 dark:text-amber-400">
@@ -190,7 +190,6 @@ import {
   type OpenAIQuotaUsage,
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
-import { queryOwnerOpenAIQuota, resetOwnerOpenAIQuota } from '@/api/accounts'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import OpenAIReferralCell from '@/components/account/OpenAIReferralCell.vue'
 
@@ -204,15 +203,9 @@ interface QuotaAccountLike {
   extra?: Account['extra']
 }
 
-const props = withDefaults(
-  defineProps<{
-    account: QuotaAccountLike
-    // 'admin' (default): /admin/openai/... (admin-only).
-    // 'user': owner-guarded /accounts/pool/... so a contributor can self-serve.
-    scope?: 'admin' | 'user'
-  }>(),
-  { scope: 'admin' }
-)
+const props = defineProps<{
+  account: QuotaAccountLike
+}>()
 
 const emit = defineEmits<{
   'account-updated': [account: Account]
@@ -459,9 +452,7 @@ const handleQuery = async () => {
   resetWarning.value = null
   showResetCreditDetails.value = false
   try {
-    const result = props.scope === 'user'
-      ? await queryOwnerOpenAIQuota(accountID)
-      : await refreshOpenAIQuota(accountID)
+    const result = await refreshOpenAIQuota(accountID)
     if (props.account.id !== accountID) return
     updateCredits(result)
     creditsCacheWarning.value = 'credits_cache_persisted' in result && result.credits_cache_persisted === false
@@ -471,7 +462,7 @@ const handleQuery = async () => {
     data.value = result
     if ('cache_persisted' in result && result.cache_persisted === true) {
       cachedData.value = result
-    } else if (props.scope !== 'user') {
+    } else {
       resetWarning.value = t('admin.accounts.openaiQuotaReset.refreshCachePersistFailed')
     }
   } catch (e) {
@@ -505,22 +496,11 @@ const confirmReset = async () => {
   resetMessage.value = null
   resetWarning.value = null
   try {
-    const result: OpenAIQuotaResetResult = props.scope === 'user'
-      ? await resetOwnerOpenAIQuota(accountID)
-      : await resetOpenAIQuota(accountID)
+    const result: OpenAIQuotaResetResult = await resetOpenAIQuota(accountID)
     if (props.account.id !== accountID) return
-    if (props.scope === 'user' && !result.quota) {
-      try {
-        result.quota = await queryOwnerOpenAIQuota(accountID)
-        result.cache_refreshed = false
-      } catch {
-        result.warning_code = 'reset_credit_cache_refresh_failed'
-      }
-      if (props.account.id !== accountID) return
-    }
     updateCredits(result.quota ?? null)
     showResetCreditDetails.value = false
-    if (result.quota && (result.cache_refreshed || props.scope === 'user')) {
+    if (result.quota && result.cache_refreshed) {
       data.value = result.quota
       cachedData.value = result.quota
     } else {

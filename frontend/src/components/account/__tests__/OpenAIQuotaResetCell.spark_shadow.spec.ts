@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import OpenAIReferralCell from '../OpenAIReferralCell.vue'
-import { queryOwnerOpenAIQuota, resetOwnerOpenAIQuota } from '@/api/accounts'
 import type { Account } from '@/types'
 import { refreshOpenAIQuota, resetOpenAIQuota, type OpenAIQuotaRefreshResult } from '@/api/admin/accounts'
 
@@ -12,11 +10,6 @@ vi.mock('@/api/admin/accounts', () => ({
   resetOpenAIQuota: vi.fn(),
   refreshOpenAIReferrals: vi.fn(),
   sendOpenAIReferralInvite: vi.fn(),
-}))
-
-vi.mock('@/api/accounts', () => ({
-  queryOwnerOpenAIQuota: vi.fn(),
-  resetOwnerOpenAIQuota: vi.fn(),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -69,8 +62,6 @@ const resetButton = (wrapper: ReturnType<typeof mount>) =>
   wrapper.findAll('button')[1]
 
 beforeEach(() => {
-  vi.mocked(queryOwnerOpenAIQuota).mockReset()
-  vi.mocked(resetOwnerOpenAIQuota).mockReset()
   vi.mocked(refreshOpenAIQuota).mockReset()
   vi.mocked(resetOpenAIQuota).mockReset()
 })
@@ -479,44 +470,6 @@ describe('OpenAIQuotaResetCell 自动用卡运行态', () => {
     })
     const wrapper = mount(OpenAIQuotaResetCell, { props: { account } })
     expect(wrapper.find('[data-testid="auto-reset-credit-state"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
-})
-
-
-describe('OpenAIQuotaResetCell owner access', () => {
-  it('queries through the owner endpoint without administrator referral controls', async () => {
-    vi.mocked(queryOwnerOpenAIQuota).mockResolvedValue({ fetched_at: 1 })
-    const wrapper = mount(OpenAIQuotaResetCell, { props: { account: makeAccount({}), scope: 'user' } })
-    expect(wrapper.findComponent(OpenAIReferralCell).exists()).toBe(false)
-    await wrapper.findAll('button')[0].trigger('click')
-    await flushPromises()
-    expect(queryOwnerOpenAIQuota).toHaveBeenCalledWith(1)
-    expect(refreshOpenAIQuota).not.toHaveBeenCalled()
-    expect(wrapper.text()).not.toContain('admin.accounts.openaiQuotaReset.refreshCachePersistFailed')
-    wrapper.unmount()
-  })
-
-  it('reads fresh owner quota after consuming a reset credit without a returned quota snapshot', async () => {
-    vi.mocked(resetOwnerOpenAIQuota).mockResolvedValue({
-      code: 'success', windows_reset: 1, cache_refreshed: false, account_state_recovered: true,
-    })
-    vi.mocked(queryOwnerOpenAIQuota).mockResolvedValue({
-      fetched_at: 2, rate_limit_reset_credits: { available_count: 0, credits: [] },
-    })
-    const account = makeAccount({ extra: { codex_reset_credit_snapshot: {
-      available_count: 1, credits: [{ expires_at: FUTURE_EXPIRY_EARLY }],
-    } } })
-    const wrapper = mount(OpenAIQuotaResetCell, { props: { account, scope: 'user' } })
-    await resetButton(wrapper).trigger('click')
-    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(resetOwnerOpenAIQuota).toHaveBeenCalledWith(1)
-    expect(queryOwnerOpenAIQuota).toHaveBeenCalledWith(1)
-    expect(resetOpenAIQuota).not.toHaveBeenCalled()
-    expect(refreshOpenAIQuota).not.toHaveBeenCalled()
-    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('admin.accounts.openaiQuotaReset.resetSuccess')
     wrapper.unmount()
   })
 })

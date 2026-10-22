@@ -226,10 +226,9 @@ type UpdateAccountRequest struct {
 
 // AccountService 账号管理服务
 type AccountService struct {
-	accountRepo       AccountRepository
-	groupRepo         GroupRepository
-	proxyRepo         ProxyRepository
-	sharingRatePolicy SharingRatePolicy
+	accountRepo AccountRepository
+	groupRepo   GroupRepository
+	proxyRepo   ProxyRepository
 
 	// Optional deps for contributor self-use provisioning (set post-construction
 	// via SetSelfUseProvisioningDeps). When either is nil, self-use provisioning
@@ -241,16 +240,6 @@ type AccountService struct {
 
 type groupExistenceBatchChecker interface {
 	ExistsByIDs(ctx context.Context, ids []int64) (map[int64]bool, error)
-}
-
-// SharingRatePolicy is the narrow policy dependency AccountService needs for
-// the shared-account-rate marketplace: the admin-configurable dynamic
-// floor/cap an owner price change must additionally satisfy (on top of the
-// hard [0,5] range), and the minimum interval between two price changes on
-// the same account. Satisfied by *SettingService.
-type SharingRatePolicy interface {
-	GetSharingRateBounds(ctx context.Context) (floor, cap float64)
-	GetSharingRateOwnerCooldownMinutes(ctx context.Context) int
 }
 
 // NewAccountService 创建账号服务实例
@@ -265,52 +254,12 @@ func (s *AccountService) SetProxyRepository(proxyRepo ProxyRepository) {
 	s.proxyRepo = proxyRepo
 }
 
-// SetSharingRatePolicy injects the shared-account-rate marketplace policy.
-// Optional: when nil, sharing-rate updates fall back to the hard [0,5] range
-// and the default owner cooldown.
-func (s *AccountService) SetSharingRatePolicy(policy SharingRatePolicy) {
-	s.sharingRatePolicy = policy
-}
-
 // SetSelfUseProvisioningDeps injects the subscription + API-key services used to
 // provision a contributor's self-use group/subscription/key. Optional: when
 // unset, self-use provisioning is skipped and contribution is unchanged.
 func (s *AccountService) SetSelfUseProvisioningDeps(subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) {
 	s.subscriptionSvc = subscriptionSvc
 	s.apiKeyService = apiKeyService
-}
-
-func (s *AccountService) sharingRateBounds(ctx context.Context) (float64, float64) {
-	if s.sharingRatePolicy == nil {
-		return SharingRateFloorDefault, SharingRateCapDefault
-	}
-	return s.sharingRatePolicy.GetSharingRateBounds(ctx)
-}
-
-func (s *AccountService) sharingRateCooldownMinutes(ctx context.Context) int {
-	if s.sharingRatePolicy == nil {
-		return SharingRateOwnerCooldownMinutesDefault
-	}
-	return s.sharingRatePolicy.GetSharingRateOwnerCooldownMinutes(ctx)
-}
-
-func (s *AccountService) NormalizeSharingRateAcceptedRange(ctx context.Context, min, max *float64) (*float64, *float64, error) {
-	if err := ValidateSharingRateAcceptedRange(min, max); err != nil {
-		return nil, nil, err
-	}
-	if min != nil {
-		value := canonicalSharingRate(*min)
-		min = &value
-	}
-	if max != nil {
-		value := canonicalSharingRate(*max)
-		max = &value
-	}
-	_, capValue := s.sharingRateBounds(ctx)
-	if (min != nil && *min > capValue) || (max != nil && *max > capValue) {
-		return nil, nil, ErrSharingRateOutOfRange
-	}
-	return min, max, nil
 }
 
 // Create 创建账号

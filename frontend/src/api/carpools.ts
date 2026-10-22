@@ -52,6 +52,25 @@ interface CarpoolResponse {
   remaining_joinable_usd: number
   plus_equivalents: number
   avg_price_cny: number
+  // 列表接口随车返回的上游摘要（仅 GET /carpools 填充，其余响应不携带）。
+  upstream?: CarpoolUpstreamSummaryResponse
+}
+
+// 列表接口的上游摘要载荷（snake_case，mapper 转成 CarpoolUpstreamSummary）。
+interface CarpoolUpstreamSummaryResponse {
+  configured: boolean
+  used_percent: number | null
+  reset_at: string | null
+  expires_at: string | null
+}
+
+// 列表接口随车返回的上游摘要。configured=false 表示未配置 cpr 账号映射
+// （或功能未启用），此时其余字段均为 null。
+export interface CarpoolUpstreamSummary {
+  configured: boolean
+  usedPercent: number | null
+  resetAt: string | null
+  expiresAt: string | null
 }
 
 export interface Carpool {
@@ -94,6 +113,7 @@ export interface Carpool {
   remainingJoinableUsd: number
   plusEquivalents: number
   avgPriceCny: number
+  upstream: CarpoolUpstreamSummary | null
 }
 
 export interface CreateCarpoolRequest {
@@ -284,6 +304,14 @@ function mapCarpool(item: CarpoolResponse): Carpool {
     remainingJoinableUsd: item.remaining_joinable_usd,
     plusEquivalents: item.plus_equivalents,
     avgPriceCny: item.avg_price_cny,
+    upstream: item.upstream
+      ? {
+          configured: item.upstream.configured,
+          usedPercent: item.upstream.used_percent,
+          resetAt: item.upstream.reset_at,
+          expiresAt: item.upstream.expires_at,
+        }
+      : null,
   }
 }
 
@@ -591,6 +619,241 @@ export async function setJoinLocked(id: number, locked: boolean): Promise<void> 
   await apiClient.patch(`/carpools/${id}/join-lock`, { locked })
 }
 
+// ---------------------------------------------------------------------------
+// 上游周额度：cpr 账号维度的周窗口用量/估值 + 重置次数。configured=false 表示此车未配置
+// cpr 账号映射；weekly=null 或 available=false 表示 cpr 暂无比重数据；
+// resetCredits=null 表示 reset-credits 拉取失败（best-effort），不代表没有重置额度。
+// 功能整体未启用时后端直接返回错误码，由调用方按「不展示区块」处理。
+// ---------------------------------------------------------------------------
+
+export interface UpstreamQuotaWeekly {
+  available: boolean
+  unavailableReason: string | null
+  lowSample: boolean
+  usedPercent: number
+  usedPercentDisplay: string
+  observedAt: string
+  resetAt: string
+  tokensDisplay: string
+  usdDisplay: string
+  estimatedTokens: number
+  estimatedTokensDisplay: string
+  estimatedUsd: number
+  estimatedUsdDisplay: string
+}
+
+export interface UpstreamQuotaResetCredits {
+  availableCount: number
+  nextExpiresAt: string | null
+}
+
+// 上游账号订阅到期信息（cpr personal-info 的 subscription 块）。
+// willRenew=null 表示 cpr 未观测到续费状态；整块为 null 表示拉取失败或无订阅观测。
+export interface UpstreamQuotaAccountExpiry {
+  expiresAt: string
+  willRenew: boolean | null
+}
+
+export interface UpstreamQuota {
+  configured: boolean
+  carpoolId: number
+  cprAccountId: string
+  generatedAt: string
+  cached: boolean
+  weekly: UpstreamQuotaWeekly | null
+  // null 表示拉取失败（best-effort），不代表没有重置额度
+  resetCredits: UpstreamQuotaResetCredits | null
+  // null 表示拉取失败或账号无订阅观测
+  accountExpiry: UpstreamQuotaAccountExpiry | null
+  refreshCooldownSeconds: number
+}
+
+interface UpstreamQuotaWeeklyResponse {
+  available: boolean
+  unavailable_reason: string | null
+  low_sample: boolean
+  used_percent: number
+  used_percent_display: string
+  observed_at: string
+  reset_at: string
+  tokens_display: string
+  usd_display: string
+  estimated_tokens: number
+  estimated_tokens_display: string
+  estimated_usd: number
+  estimated_usd_display: string
+}
+
+export interface UpstreamQuotaResponse {
+  upstream_quota: {
+    configured: boolean
+    carpool_id: number
+    cpr_account_id: string
+    generated_at: string
+    cached: boolean
+    weekly: UpstreamQuotaWeeklyResponse | null
+    reset_credits: { available_count: number; next_expires_at: string | null } | null
+    account_expiry: { expires_at: string; will_renew: boolean | null } | null
+    refresh: { cooldown_seconds: number }
+  }
+}
+
+export function mapUpstreamQuota(data: UpstreamQuotaResponse): UpstreamQuota {
+  const payload = data.upstream_quota
+  return {
+    configured: payload.configured,
+    carpoolId: payload.carpool_id,
+    cprAccountId: payload.cpr_account_id,
+    generatedAt: payload.generated_at,
+    cached: payload.cached,
+    weekly: payload.weekly
+      ? {
+          available: payload.weekly.available,
+          unavailableReason: payload.weekly.unavailable_reason,
+          lowSample: payload.weekly.low_sample,
+          usedPercent: payload.weekly.used_percent,
+          usedPercentDisplay: payload.weekly.used_percent_display,
+          observedAt: payload.weekly.observed_at,
+          resetAt: payload.weekly.reset_at,
+          tokensDisplay: payload.weekly.tokens_display,
+          usdDisplay: payload.weekly.usd_display,
+          estimatedTokens: payload.weekly.estimated_tokens,
+          estimatedTokensDisplay: payload.weekly.estimated_tokens_display,
+          estimatedUsd: payload.weekly.estimated_usd,
+          estimatedUsdDisplay: payload.weekly.estimated_usd_display,
+        }
+      : null,
+    resetCredits: payload.reset_credits
+      ? {
+          availableCount: payload.reset_credits.available_count,
+          nextExpiresAt: payload.reset_credits.next_expires_at,
+        }
+      : null,
+    accountExpiry: payload.account_expiry
+      ? {
+          expiresAt: payload.account_expiry.expires_at,
+          willRenew: payload.account_expiry.will_renew,
+        }
+      : null,
+    refreshCooldownSeconds: payload.refresh?.cooldown_seconds ?? 0,
+  }
+}
+
+export async function upstreamQuota(id: number): Promise<UpstreamQuota> {
+  const { data } = await apiClient.get<UpstreamQuotaResponse>(`/carpools/${id}/upstream-quota`)
+  return mapUpstreamQuota(data)
+}
+
+// 手动刷新：绕过服务端缓存重新探测上游额度，后端按 cooldown_seconds 限流。
+export async function refreshUpstreamQuota(id: number): Promise<UpstreamQuota> {
+  const { data } = await apiClient.post<UpstreamQuotaResponse>(`/carpools/${id}/upstream-quota/refresh`)
+  return mapUpstreamQuota(data)
+}
+
+// ---------------------------------------------------------------------------
+// 本周用量摘要（拼车详情页「用量」卡片）：我的本周/保底/预计结算 + 全车合计。
+// 与订阅页用量面板同口径（user_subscriptions.weekly_usage_usd）；estimatedBillUsd =
+// max(reserved, actual)，老车（car_type 0/1 无保底）declared/reserved/estimatedBill
+// 为 null，前端按「按量计费」展示。weekStart/weekEnd 为 null 表示暂无窗口锚点
+// （车上无成员且查看者不在车上）。
+// ---------------------------------------------------------------------------
+
+export interface CarpoolUsageSummaryMe {
+  weekUsd: number
+  declaredUsd: number | null
+  reservedUsd: number | null
+  estimatedBillUsd: number | null
+}
+
+export interface CarpoolUsageSummaryTotal {
+  weekUsd: number
+  memberCount: number
+}
+
+export interface CarpoolUsageSummary {
+  weekStart: string | null
+  weekEnd: string | null
+  // null = 查看者不在车上（可见性闸已过的 public+recruiting 车）
+  me: CarpoolUsageSummaryMe | null
+  total: CarpoolUsageSummaryTotal
+  weeklyLimitUsd: number | null
+}
+
+interface CarpoolUsageSummaryMeResponse {
+  week_usd: number
+  declared_usd: number | null
+  reserved_usd: number | null
+  estimated_bill_usd: number | null
+}
+
+export interface CarpoolUsageSummaryResponse {
+  usage_summary: {
+    week_start: string | null
+    week_end: string | null
+    me: CarpoolUsageSummaryMeResponse | null
+    total: { week_usd: number; member_count: number }
+    weekly_limit_usd: number | null
+  }
+}
+
+export function mapUsageSummary(data: CarpoolUsageSummaryResponse): CarpoolUsageSummary {
+  const payload = data.usage_summary
+  return {
+    weekStart: payload.week_start,
+    weekEnd: payload.week_end,
+    me: payload.me
+      ? {
+          weekUsd: payload.me.week_usd,
+          declaredUsd: payload.me.declared_usd,
+          reservedUsd: payload.me.reserved_usd,
+          estimatedBillUsd: payload.me.estimated_bill_usd,
+        }
+      : null,
+    total: {
+      weekUsd: payload.total.week_usd,
+      memberCount: payload.total.member_count,
+    },
+    weeklyLimitUsd: payload.weekly_limit_usd,
+  }
+}
+
+export async function usageSummary(id: number): Promise<CarpoolUsageSummary> {
+  const { data } = await apiClient.get<CarpoolUsageSummaryResponse>(`/carpools/${id}/usage-summary`)
+  return mapUsageSummary(data)
+}
+
+// ---------------------------------------------------------------------------
+// 网页版会话（详情弹窗「打开网页版 ChatGPT」按钮）：后端幂等供给 desktop2web
+// Access 并签发 ES256 SSO ticket，前端拿到 {gateway_origin, ticket} 后构造
+// form POST 到 {gateway_origin}/auth/sso/redeem 兑换出网关会话 cookie。
+// 409 WEB_SESSION_NOT_CONFIGURED = 该车未开通（无账号/无邮箱/slot 未配置），
+// 503 DESKTOP2WEB_NOT_CONFIGURED = 功能未启用；两者都静默隐藏按钮。
+// ---------------------------------------------------------------------------
+
+export interface CarpoolWebSession {
+  gatewayOrigin: string
+  ticket: string
+}
+
+export interface CarpoolWebSessionResponse {
+  web_session: {
+    gateway_origin: string
+    ticket: string
+  }
+}
+
+export function mapWebSession(data: CarpoolWebSessionResponse): CarpoolWebSession {
+  return {
+    gatewayOrigin: data.web_session.gateway_origin,
+    ticket: data.web_session.ticket,
+  }
+}
+
+export async function webSession(id: number): Promise<CarpoolWebSession> {
+  const { data } = await apiClient.post<CarpoolWebSessionResponse>(`/carpools/${id}/web-session`)
+  return mapWebSession(data)
+}
+
 export default {
   list,
   create,
@@ -619,4 +882,8 @@ export default {
   unsettle,
   cancel,
   setJoinLocked,
+  upstreamQuota,
+  refreshUpstreamQuota,
+  usageSummary,
+  webSession,
 }

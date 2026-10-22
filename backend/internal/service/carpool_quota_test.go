@@ -373,6 +373,18 @@ func (s *carpoolRepoStub) ListSettlementMembers(ctx context.Context, carpoolID i
 func (s *carpoolRepoStub) GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (float64, int, error) {
 	panic("unexpected call")
 }
+func (s *carpoolRepoStub) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) GetWebSessionAccount(ctx context.Context, carpoolID int64) (*CarpoolWebSessionAccount, error) {
+	panic("unexpected call")
+}
+func (s *carpoolRepoStub) ListMemberWeekUsage(ctx context.Context, carpoolID int64) ([]CarpoolMemberWeekUsageRow, error) {
+	panic("unexpected call")
+}
 
 func settlementFixture() (*Carpool, []CarpoolSettlementMemberRow) {
 	owner := int64(11)

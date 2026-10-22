@@ -164,10 +164,8 @@ export default {
   // Navigation
   nav: {
     dashboard: '仪表盘',
-    chat: '对话',
     announcements: '公告',
     apiKeys: 'API 密钥',
-    accountPool: '账号池',
     carpool: '拼车',
     carpoolAdmin: '拼车管理',
     batchImage: '批量生图',
@@ -193,7 +191,6 @@ export default {
     redeemCodes: '兑换码',
     ops: '运维监控',
     promoCodes: '优惠码',
-    contributionWithdrawals: '贡献提现',
     settings: '系统设置',
     myAccount: '我的账户',
     lightMode: '浅色模式',
