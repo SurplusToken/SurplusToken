@@ -404,17 +404,46 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-// ProvideKasmClient builds the Kasm client from config. Returns nil (feature
-// disabled) when kasm.api_base is empty.
-func ProvideKasmClient(cfg *config.Config) *KasmClient {
-	return NewKasmClient(cfg)
+// ProvideCprClient builds the codex-proxy-rs admin client from config. Returns
+// nil (feature disabled) when cpr.admin_base_url is empty; the upstream-quota
+// endpoints then answer 503 CARPOOL_UPSTREAM_QUOTA_NOT_CONFIGURED.
+func ProvideCprClient(cfg *config.Config) *CprClient {
+	return NewCprClient(cfg)
 }
 
-// ProvideRemoteSessionService creates and starts the remote-browser ("远程连接")
-// service, including its ~30s reconciler goroutine.
-func ProvideRemoteSessionService(repo RemoteSessionRepository, accountSvc *AccountService, kasm *KasmClient) *RemoteSessionService {
-	svc := NewRemoteSessionService(repo, accountSvc, kasm, 30*time.Second)
-	svc.Start()
+// ProvideCarpoolUpstreamQuotaService 构造拼车周额度查询服务。cpr client 为 nil
+// （功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
+// 构造后回注 CarpoolService（列表接口的车级上游摘要走同一个服务/缓存）。
+func ProvideCarpoolUpstreamQuotaService(carpoolService *CarpoolService, repo CarpoolRepository, cpr *CprClient, cache CarpoolUpstreamQuotaCache, cfg *config.Config) *CarpoolUpstreamQuotaService {
+	svc := NewCarpoolUpstreamQuotaService(repo, cpr, cache, cfg)
+	carpoolService.SetUpstreamQuotaService(svc)
+	return svc
+}
+
+// ProvideCarpoolUsageSummaryService 构造拼车本周用量摘要服务（读自家库，无缓存）。
+func ProvideCarpoolUsageSummaryService(repo CarpoolRepository, subscriptionService *SubscriptionService) *CarpoolUsageSummaryService {
+	return NewCarpoolUsageSummaryService(repo, subscriptionService)
+}
+
+// ProvideD2wAdminClient builds the desktop2web gateway admin client. Returns
+// nil (feature disabled) when desktop2web.admin_base_url / admin_password is
+// empty; the web-session endpoint then answers 503 DESKTOP2WEB_NOT_CONFIGURED.
+func ProvideD2wAdminClient(cfg *config.Config) *D2wAdminClient {
+	return NewD2wAdminClient(cfg)
+}
+
+// ProvideD2wTicketSigner loads the ES256 SSO signing key. Returns nil (feature
+// disabled) when desktop2web.sso_private_key_file is empty or unreadable.
+func ProvideD2wTicketSigner(cfg *config.Config) *D2wTicketSigner {
+	return NewD2wTicketSigner(cfg)
+}
+
+// ProvideCarpoolWebSessionService 构造拼车网页版会话签发服务。admin/signer 为
+// nil（功能禁用）时照常构造，由 service 在请求期返回 503，handler 无需感知。
+// 构造后回注 CarpoolService：成员下车/被移出时据此即时吊销其网关 Access。
+func ProvideCarpoolWebSessionService(carpoolService *CarpoolService, repo CarpoolRepository, userRepo UserRepository, admin *D2wAdminClient, signer *D2wTicketSigner) *CarpoolWebSessionService {
+	svc := NewCarpoolWebSessionService(repo, userRepo, admin, signer)
+	carpoolService.SetWebSessionRevoker(svc)
 	return svc
 }
 
@@ -896,21 +925,15 @@ func ProvideAPIKeyService(
 	return svc
 }
 
-// ProvideAccountService wires AccountService with optional proxy lookup for user-owned
-// accounts and the shared-account-rate marketplace policy (admin-configurable dynamic
-// floor/cap + owner cooldown), read from SettingService.
-func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, settingService *SettingService, subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) *AccountService {
+// ProvideAccountService wires AccountService with the proxy repository used to
+// resolve account upstream proxies, plus the contributor self-use provisioning
+// deps. Proxy CRUD for admins runs through AdminService + ProxyRepository
+// (see admin_proxy.go); the user-facing ProxyService wrapper was removed with
+// the user account pool.
+func ProvideAccountService(accountRepo AccountRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, subscriptionSvc *SubscriptionService, apiKeyService *APIKeyService) *AccountService {
 	svc := NewAccountService(accountRepo, groupRepo)
 	svc.SetProxyRepository(proxyRepo)
-	svc.SetSharingRatePolicy(settingService)
 	svc.SetSelfUseProvisioningDeps(subscriptionSvc, apiKeyService)
-	return svc
-}
-
-// ProvideProxyService wires ProxyService with the shared proxy prober.
-func ProvideProxyService(proxyRepo ProxyRepository, proxyProber ProxyExitInfoProber) *ProxyService {
-	svc := NewProxyService(proxyRepo)
-	svc.SetProxyProber(proxyProber)
 	return svc
 }
 
@@ -931,7 +954,6 @@ var ProviderSet = wire.NewSet(
 	NewGroupService,
 	NewCompositeRouteResolver,
 	ProvideAccountService,
-	ProvideProxyService,
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,
@@ -1016,9 +1038,12 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAICodexVersionSyncService,
 	ProvideClaudeCodeVersionSyncService,
 	ProvideProxyExpiryService,
-	ProvideKasmClient,
-	ProvideRemoteSessionService,
-	NewAccountContributionService,
+	ProvideCprClient,
+	ProvideCarpoolUpstreamQuotaService,
+	ProvideCarpoolUsageSummaryService,
+	ProvideD2wAdminClient,
+	ProvideD2wTicketSigner,
+	ProvideCarpoolWebSessionService,
 	ProvideSubscriptionExpiryService,
 	ProvideCarpoolSettlementScheduler,
 	ProvideTimingWheelService,
@@ -1046,7 +1071,6 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaService,
 	NewContentModerationService,
 	NewAffiliateService,
-	NewContributionService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,

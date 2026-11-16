@@ -27,6 +27,11 @@ const {
   settleMock,
   unsettleMock,
   updateMemberQuotaMock,
+  upstreamQuotaMock,
+  refreshUpstreamQuotaMock,
+  usageSummaryMock,
+  webSessionMock,
+  showErrorMock,
   authState,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -51,6 +56,11 @@ const {
   settleMock: vi.fn(),
   unsettleMock: vi.fn(),
   updateMemberQuotaMock: vi.fn(),
+  upstreamQuotaMock: vi.fn(),
+  refreshUpstreamQuotaMock: vi.fn(),
+  usageSummaryMock: vi.fn(),
+  webSessionMock: vi.fn(),
+  showErrorMock: vi.fn(),
   authState: { isAdmin: false },
 }))
 
@@ -78,6 +88,10 @@ vi.mock('@/api/carpools', () => ({
     updateMemberQuota: updateMemberQuotaMock,
     cancel: vi.fn(),
     setJoinLocked: vi.fn(),
+    upstreamQuota: upstreamQuotaMock,
+    refreshUpstreamQuota: refreshUpstreamQuotaMock,
+    usageSummary: usageSummaryMock,
+    webSession: webSessionMock,
   },
 }))
 
@@ -100,7 +114,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     showSuccess,
-    showError: vi.fn(),
+    showError: showErrorMock,
     showWarning,
   }),
 }))
@@ -149,6 +163,7 @@ function makeCarpool(overrides: Record<string, unknown> = {}) {
     avgPriceCny: 90,
     pricingModel: 'quota',
     ruleNote: '',
+    upstream: null,
     ...overrides,
   }
 }
@@ -185,6 +200,12 @@ function findButton(wrapper: ReturnType<typeof mountView>, text: string) {
   const button = wrapper.findAll('button').find((item) => item.text().includes(text))
   if (!button) throw new Error(`button not found: ${text}`)
   return button
+}
+
+// fakeD2wWindow 给 window.open 打桩用：点击直接新开 launch 自动兑换页
+//（后端真实路由，页面自己换 ticket 并 POST 到网关），断言参数即可。
+function fakeD2wWindow() {
+  return { closed: false }
 }
 
 describe('CarpoolView', () => {
@@ -224,6 +245,18 @@ describe('CarpoolView', () => {
     settleMock.mockReset()
     unsettleMock.mockReset()
     updateMemberQuotaMock.mockReset()
+    // 默认未配置 cpr 账号映射：详情弹窗里的「上游周额度」区块保持隐藏
+    upstreamQuotaMock.mockReset()
+    upstreamQuotaMock.mockResolvedValue({ configured: false })
+    refreshUpstreamQuotaMock.mockReset()
+    refreshUpstreamQuotaMock.mockResolvedValue({ configured: false })
+    // 默认拉取失败：「本周用量」区块静默隐藏（与上游额度打开时失败的惯例一致）
+    usageSummaryMock.mockReset()
+    usageSummaryMock.mockRejectedValue(new Error('network down'))
+    // 默认未开通：「打开网页版 ChatGPT」按钮不渲染（409/503 都静默）
+    webSessionMock.mockReset()
+    webSessionMock.mockRejectedValue(Object.assign(new Error('WEB_SESSION_NOT_CONFIGURED'), { reason: 'WEB_SESSION_NOT_CONFIGURED' }))
+    showErrorMock.mockReset()
     authState.isAdmin = false
     URL.createObjectURL = vi.fn(() => 'blob:qr') as typeof URL.createObjectURL
     URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
@@ -1152,6 +1185,299 @@ describe('CarpoolView', () => {
     expect(wrapper.text()).not.toContain('carpool.fields.quotaProgress')
     expect(wrapper.text()).not.toContain('carpool.fields.carMonthlyFee')
     expect(wrapper.text()).not.toContain('carpool.fields.remainingJoinable')
+  })
+
+  // type 1（无保底老车）是 quota 模型但属于老车：额度池预约进度与卡片价格标
+  // 对它的迁移默认值没有意义，和 type 0 一样隐藏；type 2/3 保持现状。
+  it('hides the quota bar and weekly price badge on a legacy type-1 car', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      carType: 1,
+      status: 'active',
+      memberRole: 'member',
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+    const card = wrapper.get('article')
+
+    expect(card.text()).not.toContain('carpool.fields.quotaProgress')
+    expect(card.text()).not.toContain('$2,400')
+    // 也不是自定义规则车：不渲染规则说明块
+    expect(wrapper.find('[data-testid="carpool-custom-rule"]').exists()).toBe(false)
+  })
+
+  // 卡片时间行：上游账号有到期信息时优先展示到期与剩余天数。
+  it('shows the upstream account expiry on the card time row', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      upstream: { configured: true, usedPercent: 7, resetAt: '2026-10-13T10:00:00Z', expiresAt: '2027-10-15T00:00:00Z' },
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.cardExpires')
+    // 远未到 7 天内：不标「即将到期」
+    expect(timeRow.text()).not.toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 剩余 ≤7 天时标橙提醒「即将到期」。
+  it('flags the card time row when the account expires within 7 days', async () => {
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString()
+    listCarpools.mockResolvedValue([makeCarpool({
+      id: 10,
+      upstream: { configured: true, usedPercent: 7, resetAt: null, expiresAt: soon },
+    })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.cardExpires')
+    expect(timeRow.text()).toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 无到期信息（未配置映射/拉取失败）时时间行退回发车日期兜底。
+  it('falls back to the scheduled start date on the card time row', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, upstream: { configured: false, usedPercent: null, resetAt: null, expiresAt: null } })])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const timeRow = wrapper.get('[data-testid="carpool-card-time"]')
+    expect(timeRow.text()).not.toContain('carpool.upstreamQuota.cardExpires')
+    // zh 本地化输出「2026年8月1日」（scheduledStartAt = 2026-08-01）
+    expect(timeRow.text()).toContain('8月1日')
+  })
+
+  // 详情弹窗的周额度卡片：账号到期行 + 自动续费后缀 + ≤7 天橙字提醒。
+  it('shows the account expiry row inside the upstream quota section', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    const soon = new Date(Date.now() + 2 * 86400000).toISOString()
+    upstreamQuotaMock.mockResolvedValue({
+      configured: true,
+      carpoolId: 10,
+      cprAccountId: 'acct_1',
+      generatedAt: soon,
+      cached: false,
+      weekly: {
+        available: true, unavailableReason: null, lowSample: false,
+        usedPercent: 7, usedPercentDisplay: '7.0%', observedAt: soon,
+        resetAt: soon, tokensDisplay: '116.6M', usdDisplay: '$163.06',
+        estimatedTokens: 1536625298, estimatedTokensDisplay: '1.5B',
+        estimatedUsd: 2282.92, estimatedUsdDisplay: '$2282.92',
+      },
+      resetCredits: null,
+      accountExpiry: { expiresAt: soon, willRenew: true },
+      refreshCooldownSeconds: 60,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-upstream-quota"]')
+    expect(section.text()).toContain('carpool.upstreamQuota.accountExpires')
+    expect(section.text()).toContain('carpool.upstreamQuota.renewsAutomatically')
+    expect(section.text()).toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // willRenew 未观测到（null）时不显示「自动续费」后缀；到期很远时不提醒。
+  it('omits the renewal suffix when willRenew is unknown', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    upstreamQuotaMock.mockResolvedValue({
+      configured: true,
+      carpoolId: 10,
+      cprAccountId: 'acct_1',
+      generatedAt: '2026-10-12T08:30:00Z',
+      cached: false,
+      weekly: null,
+      resetCredits: null,
+      accountExpiry: { expiresAt: '2027-06-01T00:00:00Z', willRenew: null },
+      refreshCooldownSeconds: 60,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-upstream-quota"]')
+    expect(section.text()).toContain('carpool.upstreamQuota.accountExpires')
+    expect(section.text()).not.toContain('carpool.upstreamQuota.renewsAutomatically')
+    expect(section.text()).not.toContain('carpool.upstreamQuota.expiringSoon')
+  })
+
+  // 本周用量卡片（详情弹窗）：保底车成员看到 我的本周/保底/预计结算 + 全车合计。
+  it('shows the weekly usage summary for a quota car member', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member', status: 'active' })])
+    usageSummaryMock.mockResolvedValue({
+      weekStart: '2026-10-12T00:00:00Z',
+      weekEnd: '2026-10-19T00:00:00Z',
+      me: { weekUsd: 12, declaredUsd: 20, reservedUsd: 17, estimatedBillUsd: 17 },
+      total: { weekUsd: 46, memberCount: 4 },
+      weeklyLimitUsd: 2400,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-usage-summary"]')
+    expect(section.text()).toContain('carpool.usageSummary.me')
+    expect(section.text()).toContain('$12')
+    expect(section.text()).toContain('carpool.usageSummary.reserved')
+    expect(section.text()).toContain('carpool.usageSummary.estimatedBill')
+    expect(section.text()).toContain('$17')
+    expect(section.text()).toContain('carpool.usageSummary.total')
+    expect(section.text()).toContain('carpool.usageSummary.members')
+    expect(section.text()).toContain('carpool.usageSummary.weeklyLimit')
+    expect(section.text()).not.toContain('carpool.usageSummary.paygHint')
+  })
+
+  // 老车（无保底）：只出实际用量 + 按量计费小字，不出保底/预计结算行。
+  it('shows pay-as-you-go note for legacy cars without reserved floor', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member', status: 'active', carType: 1 })])
+    usageSummaryMock.mockResolvedValue({
+      weekStart: '2026-10-12T00:00:00Z',
+      weekEnd: '2026-10-19T00:00:00Z',
+      me: { weekUsd: 12, declaredUsd: null, reservedUsd: null, estimatedBillUsd: null },
+      total: { weekUsd: 46, memberCount: 4 },
+      weeklyLimitUsd: 2400,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('[data-testid="carpool-usage-summary"]')
+    expect(section.text()).toContain('carpool.usageSummary.me')
+    expect(section.text()).toContain('carpool.usageSummary.paygHint')
+    expect(section.text()).not.toContain('carpool.usageSummary.reserved')
+    expect(section.text()).not.toContain('carpool.usageSummary.estimatedBill')
+    expect(section.text()).toContain('carpool.usageSummary.total')
+  })
+
+  // 打开详情时的用量拉取失败静默隐藏区块（与上游额度打开时失败的惯例一致）。
+  it('hides the usage summary section when the fetch fails', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    // beforeEach 里 usageSummaryMock 默认 mockRejectedValue
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-usage-summary"]').exists()).toBe(false)
+  })
+
+  // 网页版会话：列表加载后对成员车按车探测，成功才渲染按钮；点击直接新开
+  // launch 自动兑换页（免鉴权路由，页面脚本自己带 token 换 ticket POST 到网关）。
+  it('opens the launch page in a new window when the probe succeeded', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeD2wWindow() as unknown as Window)
+
+    const wrapper = mountView()
+    await flushPromises()
+    // 列表加载时已对成员车探测过一次：卡片按钮此时已渲染。
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(true)
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    const button = wrapper.get('[data-testid="carpool-open-web-session"]')
+    await button.trigger('click')
+    await flushPromises()
+
+    // 点击本身不再调 API：换 ticket 由 launch 页内的脚本完成（列表探测共一次）。
+    expect(openSpy).toHaveBeenCalledWith('/api/v1/carpools/10/web-session/launch', '_blank')
+    expect(webSessionMock).toHaveBeenCalledTimes(1)
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    openSpy.mockRestore()
+  })
+
+  // 探测返回 409 WEB_SESSION_NOT_CONFIGURED（车未开通）：按钮不渲染、无报错 toast。
+  it('hides the web session button silently when not provisioned', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    // beforeEach 里 webSessionMock 默认以 WEB_SESSION_NOT_CONFIGURED reject
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-open-web-session"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
+  // 浏览器拦截弹窗（window.open 返回 null）：明确提示用户放行弹窗后重试。
+  it('toasts when the browser blocks the launch popup', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 10, memberRole: 'member' })])
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'carpool.actions.details').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="carpool-open-web-session"]').trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('/api/v1/carpools/10/web-session/launch', '_blank')
+    expect(showErrorMock).toHaveBeenCalledWith('carpool.webSession.popupBlocked')
+
+    openSpy.mockRestore()
+  })
+
+  // 探测按车隔离：A 车 409 不影响 B 车的卡片按钮；非成员车根本不发探测请求。
+  it('probes web session per car so one failing car does not hide another car button', async () => {
+    listCarpools.mockResolvedValue([
+      makeCarpool({ id: 10, memberRole: 'member' }),
+      makeCarpool({ id: 11, name: 'web-car', memberRole: 'member' }),
+      makeCarpool({ id: 12, name: 'public-car', memberRole: null }),
+    ])
+    webSessionMock.mockImplementation((id: number) => id === 11
+      ? Promise.resolve({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+      : Promise.reject(Object.assign(new Error('WEB_SESSION_NOT_CONFIGURED'), { reason: 'WEB_SESSION_NOT_CONFIGURED' })))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="carpool-card-web-session-10"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="carpool-card-web-session-11"]').exists()).toBe(true)
+    // 非成员的公开车不发探测（后端也会对非成员 403，纯属浪费）。
+    expect(webSessionMock).toHaveBeenCalledTimes(2)
+    expect(webSessionMock).toHaveBeenCalledWith(10)
+    expect(webSessionMock).toHaveBeenCalledWith(11)
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
+  // 卡片按钮点击：与弹窗按钮同一入口——直接新开 launch 自动兑换页，不再调 API。
+  it('opens the launch page from the card button', async () => {
+    listCarpools.mockResolvedValue([makeCarpool({ id: 11, memberRole: 'member' })])
+    webSessionMock.mockResolvedValue({ gatewayOrigin: 'http://d2w.test:4310', ticket: 'ticket-abc' })
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeD2wWindow() as unknown as Window)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="carpool-card-web-session-11"]').trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledWith('/api/v1/carpools/11/web-session/launch', '_blank')
+    // 仅列表探测一次；点击不再请求会话（launch 页内自取 ticket）。
+    expect(webSessionMock).toHaveBeenCalledTimes(1)
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    openSpy.mockRestore()
   })
 
   // 自定义规则车不接新成员：升级前遗留的招募中老车永远达不到发车区间，

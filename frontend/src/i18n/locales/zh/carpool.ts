@@ -248,6 +248,47 @@ export default {
       title: '拼车详情',
       runtime: '开车状态'
     },
+    // 上游周额度：详情弹窗里的 cpr 账号周窗口用量。未配置 cpr 映射或功能
+    // 未启用时整个区块不渲染；cpr 暂无比重数据时展示不可用说明。
+    upstreamQuota: {
+      title: '上游周额度',
+      loading: '正在加载上游额度…',
+      usedTokens: '本周已用 Tokens',
+      usedUsd: '本周已用估值',
+      estimatedWeekly: '预计整周用量',
+      lowSample: '样本不足，仅供参考',
+      resetCredits: '剩余重置 {count} 次',
+      resetCreditsExpires: '最近一张 {date} 到期',
+      accountExpires: '账号到期 {date}',
+      renewsAutomatically: '自动续费',
+      expiringSoon: '即将到期',
+      cardExpires: '到期 {date} · 还剩 {days} 天',
+      unavailable: '上游额度数据暂不可用',
+      updatedAgo: '更新于 {time}',
+      refreshFailed: '刷新上游额度失败，请稍后再试',
+      refreshTooFrequent: '刷新太频繁了，请稍后再试',
+      retry: '重试'
+    },
+    // 本周用量（详情弹窗「用量」卡片）：与订阅页用量面板同口径。
+    // 老车（无保底）只出实际用量，保底/预计结算为 null，前端展示「按量计费」。
+    usageSummary: {
+      title: '本周用量',
+      me: '我的本周',
+      reserved: '保底',
+      estimatedBill: '预计结算',
+      total: '全车本周',
+      members: '{count} 人',
+      weeklyLimit: '限额 {amount}',
+      paygHint: '按量计费，无保底'
+    },
+    // 网页版会话（desktop2web SSO）：进入详情弹窗时探测一次，后端确认开通才
+    // 渲染按钮；兑换失败/未开通的提示文案。
+    webSession: {
+      open: '打开网页版 ChatGPT',
+      openFailed: '打开网页版失败，请稍后再试',
+      notProvisioned: '该车未开通网页版',
+      popupBlocked: '浏览器拦截了新标签页，请允许弹窗后重试'
+    },
     settlement: {
       title: '月度结算单',
       period: '结算周期',

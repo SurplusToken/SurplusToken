@@ -159,19 +159,44 @@
                 <p class="mt-1 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-dark-300">{{ carpool.description }}</p>
               </div>
               <!-- 自定义规则车的 weekly_limit_usd 是迁移填的默认值，对它没有意义。
-                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2,400。 -->
+                   限额数值直接渲染（不走 i18n 插值），车型参数一目了然：type 3 是 $2,400。
+                   type 1（无保底老车）同样隐藏：价格标只服务现行 quota 车（type 2/3）。 -->
               <span
-                v-if="isQuotaCar(carpool)"
+                v-if="showsReservationProgress(carpool)"
                 class="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 dark:border-dark-600 dark:text-dark-200"
               >
                 {{ t('carpool.fields.weeklyLimitBadgePrefix') }} · {{ formatUsd(carpool.weeklyLimitUsd) }} USD/{{ t('carpool.fields.weeklyLimitBadgeUnit') }}
               </span>
               <span
-                v-else
+                v-else-if="!isQuotaCar(carpool)"
                 class="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
               >
                 {{ t('carpool.customRule.badge') }}
               </span>
+            </div>
+
+            <!--
+              时间行：上游账号到期优先展示（≤7 天标橙「即将到期」），无到期信息时
+              退回发车日期兜底，保证每张卡片都有时间锚点。
+            -->
+            <div class="mt-3 flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-300" data-testid="carpool-card-time">
+              <Icon name="clock" size="xs" />
+              <template v-if="carpool.upstream?.expiresAt">
+                <span
+                  :class="upstreamExpiringSoon(carpool.upstream.expiresAt)
+                    ? 'font-medium text-amber-600 dark:text-amber-400'
+                    : ''"
+                >
+                  {{ t('carpool.upstreamQuota.cardExpires', {
+                    date: formatMonthDay(carpool.upstream.expiresAt),
+                    days: daysUntilExpiry(carpool.upstream.expiresAt),
+                  }) }}
+                </span>
+                <span v-if="upstreamExpiringSoon(carpool.upstream.expiresAt)" class="badge badge-warning">
+                  {{ t('carpool.upstreamQuota.expiringSoon') }}
+                </span>
+              </template>
+              <span v-else>{{ formatDate(carpool.scheduledStartAt || carpool.createdAt.slice(0, 10)) }}</span>
             </div>
 
             <!--
@@ -189,7 +214,10 @@
               <p v-else class="mt-1">{{ t('carpool.customRule.noNote') }}</p>
             </div>
 
-            <div v-else class="mt-4">
+            <div
+              v-else-if="showsReservationProgress(carpool)"
+              class="mt-4"
+            >
               <div class="mb-2 flex items-center justify-between text-xs">
                 <span class="font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.fields.quotaProgress') }}</span>
                 <span class="text-gray-500 dark:text-dark-300">
@@ -228,8 +256,8 @@
                   <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.fields.carMonthlyFee') }}</dt>
                   <dd class="mt-1 font-medium text-gray-700 dark:text-dark-100">
                     {{ carMonthlyFeeText(carpool) }}
-                    <!-- 席位/用量拆分直接渲染数值：type 3 是"¥50/人 + ¥1,200"，type 2 是"¥400 + ¥1,000" -->
-                    <span class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                    <!-- 席位/用量拆分直接渲染数值：base-fee 车无拆分；type 3 是"¥50/人 + ¥1,200"，type 2 是"¥400 + ¥1,000" -->
+                    <span v-if="carMonthlyFeeBreakdownText(carpool)" class="block text-[10px] font-normal text-gray-400 dark:text-dark-400">
                       {{ carMonthlyFeeBreakdownText(carpool) }}
                     </span>
                   </dd>
@@ -275,6 +303,17 @@
                 <button type="button" class="btn btn-secondary h-9 px-3 py-2" @click="openDetails(carpool)">
                   <Icon name="eye" size="sm" />
                   <span>{{ t('carpool.actions.details') }}</span>
+                </button>
+                <!-- 网页版 ChatGPT：列表加载时按车探测过、确认开通才渲染（后端 409/503 静默） -->
+                <button
+                  v-if="webSessionAvailableByCar[carpool.id]"
+                  type="button"
+                  :data-testid="`carpool-card-web-session-${carpool.id}`"
+                  class="btn btn-secondary h-9 px-3 py-2"
+                  @click="openWebSession(carpool)"
+                >
+                  <Icon name="externalLink" size="sm" />
+                  <span>{{ t('carpool.webSession.open') }}</span>
                 </button>
                 <button
                   v-if="canInvite(carpool)"
@@ -807,7 +846,7 @@
           </div>
           <span :class="['badge', statusBadgeClass(selectedCarpool)]">{{ statusLabel(selectedCarpool) }}</span>
         </div>
-        <div>
+        <div v-if="showsReservationProgress(selectedCarpool)">
           <div class="mb-2 flex justify-between text-sm text-gray-600 dark:text-dark-200">
             <span>{{ t('carpool.fields.quotaProgress') }}</span>
             <span class="font-medium">
@@ -875,6 +914,196 @@
             </button>
             <input ref="replaceQrInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="handleReplaceQrFile" />
           </div>
+        </div>
+
+        <!--
+          上游周额度（cpr 账号维度）。未配置 cpr 映射 / 功能未启用时后端会返回
+          错误码或 configured=false，这两种情况都不渲染本区块；打开弹窗时的
+          加载失败静默隐藏，只有用户手动刷新失败才弹错误提示。
+        -->
+        <div
+          v-if="showUpstreamQuotaSection"
+          data-testid="carpool-upstream-quota"
+          class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.upstreamQuota.title') }}</div>
+            <button
+              type="button"
+              class="btn btn-secondary h-7 px-2 py-1 text-xs"
+              :disabled="upstreamQuotaLoading"
+              :title="t('common.refresh')"
+              @click="refreshUpstreamQuota"
+            >
+              <Icon name="refresh" size="xs" :class="{ 'animate-spin': upstreamQuotaLoading }" />
+              <span>{{ t('common.refresh') }}</span>
+            </button>
+          </div>
+
+          <!-- 加载骨架屏（仿 CarpoolUsagePanel）：只在还没有数据可展示时出现，
+               有数据时的手动刷新保留原内容、只禁用按钮。 -->
+          <div
+            v-if="upstreamQuotaLoading && !upstreamQuota"
+            class="mt-3 animate-pulse space-y-2"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <span class="sr-only">{{ t('carpool.upstreamQuota.loading') }}</span>
+            <div class="h-4 w-28 rounded bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-2 rounded-full bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-3 w-40 rounded bg-gray-200 dark:bg-dark-600"></div>
+          </div>
+
+          <!-- 手动刷新失败：错误块 + 重试 -->
+          <div
+            v-else-if="upstreamQuotaError"
+            class="mt-3 flex flex-col items-start gap-2"
+            role="alert"
+          >
+            <p class="break-words text-sm font-medium text-red-600 dark:text-red-400">
+              {{ upstreamQuotaError }}
+            </p>
+            <button
+              type="button"
+              class="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              :disabled="upstreamQuotaLoading"
+              @click="refreshUpstreamQuota"
+            >
+              {{ t('carpool.upstreamQuota.retry') }}
+            </button>
+          </div>
+
+          <template v-else-if="upstreamQuota">
+            <!-- cpr 暂无比重数据：展示不可用说明（优先用后端给的 reason） -->
+            <p v-if="!upstreamQuotaWeekly" class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-300">
+              {{ upstreamQuotaUnavailableText }}
+            </p>
+            <template v-else>
+              <div class="mt-2">
+                <UsageProgressBar
+                  :label="t('carpool.upstreamQuota.title')"
+                  :utilization="upstreamQuotaWeekly.usedPercent"
+                  :resets-at="upstreamQuotaWeekly.resetAt"
+                  color="emerald"
+                  label-width="auto"
+                />
+              </div>
+              <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.usedTokens') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">{{ upstreamQuotaWeekly.tokensDisplay }}</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.usedUsd') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">{{ upstreamQuotaWeekly.usdDisplay }}</dd>
+                </div>
+                <div class="col-span-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.upstreamQuota.estimatedWeekly') }}</dt>
+                  <dd class="mt-0.5 font-medium text-gray-800 dark:text-dark-100">
+                    {{ upstreamQuotaWeekly.estimatedUsdDisplay }}
+                    <span v-if="upstreamQuotaWeekly.lowSample" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.upstreamQuota.lowSample') }}
+                    </span>
+                  </dd>
+                </div>
+                <div v-if="upstreamQuota.resetCredits" class="col-span-2">
+                  <p class="text-xs leading-5 text-gray-700 dark:text-dark-100">
+                    {{ t('carpool.upstreamQuota.resetCredits', { count: upstreamQuota.resetCredits.availableCount }) }}
+                    <span v-if="upstreamQuota.resetCredits.nextExpiresAt" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                      {{ t('carpool.upstreamQuota.resetCreditsExpires', { date: formatDateTime(upstreamQuota.resetCredits.nextExpiresAt) }) }}
+                    </span>
+                  </p>
+                </div>
+              </dl>
+            </template>
+            <p
+              v-if="upstreamQuota.accountExpiry"
+              class="mt-2 text-xs leading-5"
+              :class="upstreamExpiringSoon(upstreamQuota.accountExpiry.expiresAt)
+                ? 'font-medium text-amber-600 dark:text-amber-400'
+                : 'text-gray-700 dark:text-dark-100'"
+            >
+              {{ t('carpool.upstreamQuota.accountExpires', { date: formatDateTime(upstreamQuota.accountExpiry.expiresAt) }) }}
+              <span v-if="upstreamQuota.accountExpiry.willRenew === true" class="ml-1 text-[10px] font-normal text-gray-400 dark:text-dark-400">
+                {{ t('carpool.upstreamQuota.renewsAutomatically') }}
+              </span>
+              <span v-if="upstreamExpiringSoon(upstreamQuota.accountExpiry.expiresAt)" class="ml-1 text-[10px] font-normal">
+                {{ t('carpool.upstreamQuota.expiringSoon') }}
+              </span>
+            </p>
+            <p class="mt-2 text-[10px] text-gray-400 dark:text-dark-400">{{ upstreamQuotaUpdatedAgo }}</p>
+          </template>
+        </div>
+
+        <!--
+          本周用量（成员视角）：我的本周用量 + 保底/预计结算 + 全车合计，数据与订阅页
+          用量面板同口径。打开弹窗时与上游额度一起静默拉取；失败时整个区块不渲染
+          （本地库读数，重开弹窗即重试）。
+        -->
+        <div
+          v-if="showUsageSummarySection"
+          data-testid="carpool-usage-summary"
+          class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600"
+        >
+          <div class="text-xs font-medium text-gray-700 dark:text-dark-100">{{ t('carpool.usageSummary.title') }}</div>
+
+          <div
+            v-if="usageSummaryLoading && !usageSummary"
+            class="mt-3 animate-pulse space-y-2"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <div class="h-4 w-28 rounded bg-gray-200 dark:bg-dark-600"></div>
+            <div class="h-3 w-40 rounded bg-gray-200 dark:bg-dark-600"></div>
+          </div>
+
+          <template v-else-if="usageSummary">
+            <dl class="mt-2 space-y-1.5">
+              <template v-if="usageSummary.me">
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.me') }}</dt>
+                  <dd class="font-medium tabular-nums text-gray-800 dark:text-dark-100">{{ formatUsd(usageSummary.me.weekUsd) }}</dd>
+                </div>
+                <div v-if="usageSummary.me.reservedUsd !== null" class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.reserved') }}</dt>
+                  <dd class="tabular-nums text-gray-700 dark:text-dark-100">{{ formatUsd(usageSummary.me.reservedUsd) }}</dd>
+                </div>
+                <div v-if="usageSummary.me.estimatedBillUsd !== null" class="flex items-baseline justify-between gap-2">
+                  <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.estimatedBill') }}</dt>
+                  <dd class="font-semibold tabular-nums text-gray-900 dark:text-dark-100">{{ formatUsd(usageSummary.me.estimatedBillUsd) }}</dd>
+                </div>
+                <!-- 老车（无保底）按量计费，不出保底/预计结算 -->
+                <p v-else class="text-[10px] text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.paygHint') }}</p>
+              </template>
+              <div class="flex items-baseline justify-between gap-2">
+                <dt class="text-xs text-gray-400 dark:text-dark-400">{{ t('carpool.usageSummary.total') }}</dt>
+                <dd class="tabular-nums text-gray-700 dark:text-dark-100">
+                  {{ formatUsd(usageSummary.total.weekUsd) }}
+                  · {{ t('carpool.usageSummary.members', { count: usageSummary.total.memberCount }) }}
+                  <template v-if="usageSummary.weeklyLimitUsd !== null">
+                    · {{ t('carpool.usageSummary.weeklyLimit', { amount: formatUsd(usageSummary.weeklyLimitUsd) }) }}
+                  </template>
+                </dd>
+              </div>
+            </dl>
+          </template>
+        </div>
+
+        <!--
+          「打开网页版 ChatGPT」：与广场卡片共用按车探测结果（webSessionAvailableByCar，
+          列表加载时已对成员车探过，409/503/其他失败静默隐藏）。点击直接新开 launch
+          自动兑换页（免鉴权路由），页面脚本自带 token 换 ticket 后 POST 到网关 redeem。
+        -->
+        <div v-if="selectedCarpool && webSessionAvailableByCar[selectedCarpool.id]" class="flex justify-end">
+          <button
+            type="button"
+            data-testid="carpool-open-web-session"
+            class="btn btn-primary h-8 px-3 py-1.5 text-xs"
+            @click="openWebSession(selectedCarpool)"
+          >
+            <Icon name="externalLink" size="xs" />
+            <span>{{ t('carpool.webSession.open') }}</span>
+          </button>
         </div>
       </div>
     </BaseDialog>
@@ -1027,25 +1256,30 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import carpoolAPI, {
   type Carpool,
   type CarpoolSettlement,
+  type CarpoolUsageSummary,
   type CarpoolVisibility,
   type CreateCarpoolRequest,
   type DeclarationRecommendation,
   type CarpoolRosterMember,
   type PendingLaunchCarpool,
+  type UpstreamQuota,
+  type UpstreamQuotaWeekly,
 } from '@/api/carpools'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { formatRelativeTime } from '@/utils/format'
 
 // 与后端 CarpoolForceLaunchMinRatio 对齐：降档发车允许的最低总申报比例。
 const FORCE_LAUNCH_MIN_RATIO = 0.8
@@ -1157,6 +1391,88 @@ const overduePendingCount = computed(() => pendingLaunches.value.filter((item) =
 let recommendationSeq = 0
 // 花名册同样要丢弃过期响应：连点两辆车会把 A 车的成员显示在 B 车的弹窗里。
 let rosterSeq = 0
+
+// —— 上游周额度（详情弹窗内的 cpr 账号周窗口用量）——
+const upstreamQuota = ref<UpstreamQuota | null>(null)
+const upstreamQuotaLoading = ref(false)
+const upstreamQuotaError = ref('')
+// 连点两辆车的「详情」时同样要丢弃过期响应，否则 A 车的额度会闪进 B 车的弹窗。
+let upstreamQuotaSeq = 0
+
+// 区块渲染条件：加载中、已有数据、或手动刷新失败（错误块 + 重试）。
+// 打开弹窗的 GET 失败会静默清空数据，区块随之消失（功能未启用时不打扰用户）。
+const showUpstreamQuotaSection = computed(() => (
+  upstreamQuotaLoading.value || upstreamQuota.value !== null || upstreamQuotaError.value !== ''
+))
+
+// weekly=null 或 available=false 都表示 cpr 暂无比重数据。
+const upstreamQuotaWeekly = computed<UpstreamQuotaWeekly | null>(() => {
+  const weekly = upstreamQuota.value?.weekly
+  return weekly && weekly.available ? weekly : null
+})
+
+const upstreamQuotaUnavailableText = computed(() => (
+  upstreamQuota.value?.weekly?.unavailableReason || t('carpool.upstreamQuota.unavailable')
+))
+
+// 「更新于 x 分钟前」：优先用实际上游观测时间，缺失时退回本次快照的生成时间。
+const upstreamQuotaUpdatedAgo = computed(() => {
+  const quota = upstreamQuota.value
+  if (!quota) return ''
+  const source = quota.weekly?.observedAt || quota.generatedAt
+  return t('carpool.upstreamQuota.updatedAgo', { time: formatRelativeTime(source) })
+})
+
+// —— 本周用量（详情弹窗内的成员视角用量摘要，与订阅页面板同口径）——
+const usageSummary = ref<CarpoolUsageSummary | null>(null)
+const usageSummaryLoading = ref(false)
+// 与 upstreamQuotaSeq 同理：连点两辆车的「详情」要丢弃过期响应。
+let usageSummarySeq = 0
+
+// 区块渲染条件：加载中或已有数据。打开弹窗的 GET 失败静默清空数据、区块随之
+// 消失（与上游额度区块同一惯例： ancillary 读数失败不打扰用户）。
+const showUsageSummarySection = computed(() => (
+  usageSummaryLoading.value || usageSummary.value !== null
+))
+
+// —— 网页版会话（「打开网页版 ChatGPT」，广场卡片 + 详情弹窗共用）——
+// 按车记录可用性：广场列表加载后对成员车逐个探测（POST 本身幂等，后端先读比
+// 再写 Access），成功才置 true；409（未开通）/503（未启用）/其他失败静默留空，
+// 与用量区块同一惯例。已探测过的车进 Set，列表轮询刷新不重复打网关。
+const webSessionAvailableByCar = reactive<Record<number, boolean>>({})
+const probedWebSessionCars = new Set<number>()
+
+async function probeWebSession(carpoolId: number): Promise<void> {
+  if (probedWebSessionCars.has(carpoolId)) return
+  probedWebSessionCars.add(carpoolId)
+  try {
+    await carpoolAPI.webSession(carpoolId)
+    webSessionAvailableByCar[carpoolId] = true
+  } catch {
+    // 未开通/未启用/网络失败：不渲染按钮，不打扰用户。
+  }
+}
+
+// 广场列表加载/刷新后：对本人是成员的车（owner/member）探测网页版会话可用性。
+// 非成员的车后端会 403，不浪费请求；探测结果按车记录，A 车失败不影响 B 车按钮。
+watch(carpools, (items) => {
+  for (const car of items) {
+    if (car.memberRole !== 'owner' && car.memberRole !== 'member') continue
+    probeWebSession(car.id)
+  }
+})
+
+// 点击：在用户手势里直接新开 launch 自动兑换页（GET 导航，弹窗拦截器友好）。
+// 页面（后端真实路由）自带放行 CSP，脚本用同源 localStorage 的 Bearer token
+// 调 POST web-session 拿 ticket，再原地 POST 到网关 redeem——站点全局 CSP
+// 禁止 inline script 且 form-action 限 'self'，任何写在主文档/about:blank
+// 弹窗里的兑换脚本都会被静默拦掉，所以只能交给服务端路由出的页面做。
+function openWebSession(carpool: Carpool): void {
+  const win = window.open(`/api/v1/carpools/${carpool.id}/web-session/launch`, '_blank')
+  if (!win) {
+    appStore.showError(t('carpool.webSession.popupBlocked'))
+  }
+}
 
 // carpoolErrorMessages 把后端错误码映射成中文提示。
 // 超额度、车满、私密车无权限这些都是核心拒绝路径，直接把英文原文抛给用户
@@ -1335,16 +1651,20 @@ const joinExceedsRemaining = computed(() => (
 const joinBelowFloor = computed(() => (
   joinForm.declaredQuota !== null && joinForm.declaredQuota > 0 && joinDeclaredUsd.value < MIN_DECLARED_USD
 ))
-// 整车月费主数值：type 3 的席位费按人固定收取，与按车计的用量池直接相加
-// 会得到"¥1,250/车"这类误导合计，所以 type 3 显示"用量池 + 席位/人"。
+// 整车月费主数值：base-fee 车（cpr 直连车，base_fee_cny 为准）直接展示整车月费；
+// type 3 的席位费按人固定收取，与按车计的用量池直接相加会得到"¥1,250/车"这类
+// 误导合计，所以 type 3 显示"用量池 + 席位/人"。
 function carMonthlyFeeText(carpool: Carpool): string {
+  if (carpool.baseFeeCny > 0) return formatCny(carpool.baseFeeCny)
   if (carpool.carType === 3) {
     return `${formatCny(carpool.usagePoolCny)} + ${formatCny(carpool.seatFeeCny)}/${t('carpool.fields.perPerson')}`
   }
   return formatCny(carpool.seatFeeCny + carpool.usagePoolCny)
 }
-// 月费拆分小字：type 3 的席位部分带"/人"后缀，type 2 维持"席位 + 用量"的整车口径。
+// 月费拆分小字：base-fee 车没有席位/用量池拆分，返回空串（模板侧 v-if 隐藏）；
+// type 3 的席位部分带"/人"后缀，type 2 维持"席位 + 用量"的整车口径。
 function carMonthlyFeeBreakdownText(carpool: Carpool): string {
+  if (carpool.baseFeeCny > 0) return ''
   const seat = `${t('carpool.fields.carMonthlyFeeSeat')} ${formatCny(carpool.seatFeeCny)}`
   const pool = `${t('carpool.fields.carMonthlyFeePool')} ${formatCny(carpool.usagePoolCny)}`
   return carpool.carType === 3 ? `${seat}/${t('carpool.fields.perPerson')} + ${pool}` : `${seat} + ${pool}`
@@ -1561,6 +1881,24 @@ function isQuotaCar(carpool: Pick<Carpool, 'pricingModel'>): boolean {
   return !carpool.pricingModel || carpool.pricingModel === 'quota'
 }
 
+// showsReservationProgress：只有现行额度预约制车（type 2/3）渲染「额度池预约进度」
+// 与卡片价格标。type 0（自定义规则）与 type 1（无保底老车）的 weekly_limit_usd 是
+// 历史遗留值，进度条与「$X/周」对它们没有参考意义，一律隐藏。
+function showsReservationProgress(carpool: Pick<Carpool, 'pricingModel' | 'carType'>): boolean {
+  return isQuotaCar(carpool) && carpool.carType !== 0 && carpool.carType !== 1
+}
+
+// 距上游账号到期的天数（向上取整、最低 0）：卡片时间行与详情到期提醒共用。
+function daysUntilExpiry(expiresAt: string): number {
+  const ms = new Date(expiresAt).getTime() - Date.now()
+  return Math.max(0, Math.ceil(ms / 86400000))
+}
+
+// 7 天内到期标橙提醒（纯展示阈值，与后端无关）。
+function upstreamExpiringSoon(expiresAt: string): boolean {
+  return daysUntilExpiry(expiresAt) <= 7
+}
+
 function canJoin(carpool: Carpool): boolean {
   // 自定义规则车不接新成员（后端同样拒绝）：它们不走申报制，而升级前遗留的
   // 招募中老车 Σ申报 恒为 0、永远达不到发车区间，再放人进去就是往开不走的
@@ -1678,6 +2016,14 @@ function formatDate(value: string): string {
   }).format(new Date(`${value}T12:00:00`))
 }
 
+// 「M月D日」短格式：卡片时间行的到期日（zh 输出「10月15日」，en 输出「October 15」）。
+function formatMonthDay(value: string): string {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'long', day: 'numeric'
+  }).format(new Date(value))
+}
+
 function formatDateTime(value: string): string {
   if (!value) return '-'
   return new Intl.DateTimeFormat(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
@@ -1781,6 +2127,69 @@ async function openInvite(carpool: Carpool, token = ''): Promise<void> {
 function openDetails(carpool: Carpool): void {
   selectedCarpool.value = carpool
   detailDialogOpen.value = true
+  loadUpstreamQuota(carpool.id)
+  loadUsageSummary(carpool.id)
+  probeWebSession(carpool.id)
+}
+
+// 打开详情弹窗时自动拉一次本周用量摘要（本地库读数，无缓存）。失败静默隐藏区块。
+async function loadUsageSummary(carpoolId: number): Promise<void> {
+  const seq = ++usageSummarySeq
+  usageSummaryLoading.value = true
+  try {
+    const summary = await carpoolAPI.usageSummary(carpoolId)
+    if (seq !== usageSummarySeq) return
+    usageSummary.value = summary
+  } catch {
+    if (seq !== usageSummarySeq) return
+    usageSummary.value = null
+  } finally {
+    if (seq === usageSummarySeq) usageSummaryLoading.value = false
+  }
+}
+
+// 打开详情弹窗时自动拉一次上游周额度。失败静默隐藏区块（功能未启用/未配置
+// 时后端会返回错误码，不算异常）；只有用户手动点过刷新才弹错误提示。
+async function loadUpstreamQuota(carpoolId: number): Promise<void> {
+  const seq = ++upstreamQuotaSeq
+  upstreamQuotaLoading.value = true
+  upstreamQuotaError.value = ''
+  try {
+    const quota = await carpoolAPI.upstreamQuota(carpoolId)
+    if (seq !== upstreamQuotaSeq) return
+    // configured=false 表示此车未配置 cpr 账号映射：整个区块不渲染，不算错误。
+    upstreamQuota.value = quota.configured ? quota : null
+  } catch {
+    if (seq !== upstreamQuotaSeq) return
+    upstreamQuota.value = null
+  } finally {
+    if (seq === upstreamQuotaSeq) upstreamQuotaLoading.value = false
+  }
+}
+
+// 手动刷新：调 POST refresh 并整体替换数据。失败保留区块、展示错误块，
+// 并给出友好提示（429 限流单独文案）。
+async function refreshUpstreamQuota(): Promise<void> {
+  const carpool = selectedCarpool.value
+  if (!carpool || upstreamQuotaLoading.value) return
+  const seq = ++upstreamQuotaSeq
+  upstreamQuotaLoading.value = true
+  upstreamQuotaError.value = ''
+  try {
+    const quota = await carpoolAPI.refreshUpstreamQuota(carpool.id)
+    if (seq !== upstreamQuotaSeq) return
+    upstreamQuota.value = quota.configured ? quota : null
+  } catch (error) {
+    if (seq !== upstreamQuotaSeq) return
+    const status = (error as { status?: number } | null)?.status
+    const message = status === 429
+      ? t('carpool.upstreamQuota.refreshTooFrequent')
+      : carpoolError(error, 'carpool.upstreamQuota.refreshFailed')
+    upstreamQuotaError.value = message
+    appStore.showError(message)
+  } finally {
+    if (seq === upstreamQuotaSeq) upstreamQuotaLoading.value = false
+  }
 }
 
 function inviteURL(_carpool: Carpool): string {

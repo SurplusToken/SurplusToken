@@ -166,6 +166,18 @@ func (s *launchFlowRepoStub) ListExpiredUnsettled(ctx context.Context) ([]int64,
 func (s *launchFlowRepoStub) GetRecentWeeklyUsageStats(ctx context.Context, userID int64) (float64, int, error) {
 	panic("unexpected call")
 }
+func (s *launchFlowRepoStub) GetCprAccountID(ctx context.Context, carpoolID int64) (string, error) {
+	panic("unexpected call")
+}
+func (s *launchFlowRepoStub) ListCprAccountIDs(ctx context.Context, carpoolIDs []int64) (map[int64]string, error) {
+	panic("unexpected call")
+}
+func (s *launchFlowRepoStub) GetWebSessionAccount(ctx context.Context, carpoolID int64) (*CarpoolWebSessionAccount, error) {
+	panic("unexpected call")
+}
+func (s *launchFlowRepoStub) ListMemberWeekUsage(ctx context.Context, carpoolID int64) ([]CarpoolMemberWeekUsageRow, error) {
+	panic("unexpected call")
+}
 
 // recordingSender 记录发送尝试，可配置为永远失败以验证优雅降级。
 type recordingSender struct {

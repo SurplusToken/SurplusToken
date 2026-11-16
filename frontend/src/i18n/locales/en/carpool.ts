@@ -248,6 +248,51 @@ export default {
       title: 'Carpool details',
       runtime: 'Launch status'
     },
+    // Upstream weekly quota: the cpr account's weekly-window usage inside the
+    // detail dialog. The whole section stays hidden when the car has no cpr
+    // account mapping or the feature is disabled; when cpr has no usage data
+    // yet, an unavailability notice is shown instead.
+    upstreamQuota: {
+      title: 'Upstream weekly quota',
+      loading: 'Loading upstream quota…',
+      usedTokens: 'Tokens used this week',
+      usedUsd: 'Spend this week (est.)',
+      estimatedWeekly: 'Projected full-week usage',
+      lowSample: 'Small sample; for reference only',
+      resetCredits: '{count} resets left',
+      resetCreditsExpires: 'Next one expires {date}',
+      accountExpires: 'Account expires {date}',
+      renewsAutomatically: 'Renews automatically',
+      expiringSoon: 'Expiring soon',
+      cardExpires: 'Expires {date} · {days} days left',
+      unavailable: 'Upstream quota data is temporarily unavailable',
+      updatedAgo: 'Updated {time}',
+      refreshFailed: 'Failed to refresh the upstream quota. Please try again later.',
+      refreshTooFrequent: 'Refreshing too often. Please try again in a moment.',
+      retry: 'Retry'
+    },
+    // Weekly usage (the "Usage" card in the detail dialog): same accounting as
+    // the subscriptions page usage panel. Legacy cars (no reserved floor) only
+    // report actual usage; reserved/estimated bill are null and the card shows
+    // the pay-as-you-go note instead.
+    usageSummary: {
+      title: 'Weekly usage',
+      me: 'My usage this week',
+      reserved: 'Reserved floor',
+      estimatedBill: 'Estimated bill',
+      total: 'Whole car this week',
+      members: '{count} members',
+      weeklyLimit: 'limit {amount}',
+      paygHint: 'Pay-as-you-go; no reserved floor'
+    },
+    // Web ChatGPT session (desktop2web SSO): probed when the detail dialog opens;
+    // the button only renders when the backend confirms provisioning.
+    webSession: {
+      open: 'Open web ChatGPT',
+      openFailed: 'Failed to open the web session; please try again later',
+      notProvisioned: 'Web ChatGPT is not enabled for this car',
+      popupBlocked: 'The browser blocked the new tab; please allow popups and retry'
+    },
     settlement: {
       title: 'Monthly settlement',
       period: 'Billing period',

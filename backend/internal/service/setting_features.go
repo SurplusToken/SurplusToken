@@ -187,6 +187,33 @@ func (s *SettingService) GetContributionRewardFreezeHours(ctx context.Context) i
 	return normalizeContributionFreezeHours(hours)
 }
 
+// clampContributionRewardRate constrains a contribution reward rate to the
+// supported [min, max] range; non-finite input falls back to the default.
+func clampContributionRewardRate(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return ContributionRewardRateDefault
+	}
+	if value < ContributionRewardRateMin {
+		return ContributionRewardRateMin
+	}
+	if value > ContributionRewardRateMax {
+		return ContributionRewardRateMax
+	}
+	return value
+}
+
+// normalizeContributionFreezeHours clamps the freeze window; negative input
+// falls back to the default and over-large values cap at the maximum.
+func normalizeContributionFreezeHours(hours int) int {
+	if hours < 0 {
+		return ContributionRewardFreezeHoursDefault
+	}
+	if hours > ContributionRewardFreezeHoursMax {
+		return ContributionRewardFreezeHoursMax
+	}
+	return hours
+}
+
 // IsPasswordResetEnabled 检查是否启用密码重置功能
 // 要求：必须同时开启邮件验证
 func (s *SettingService) IsPasswordResetEnabled(ctx context.Context) bool {

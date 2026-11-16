@@ -128,9 +128,6 @@ func RegisterAdminRoutes(
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
 
-		// 贡献收益提现审核
-		registerContributionWithdrawalRoutes(admin, h)
-
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
 	}
@@ -158,15 +155,6 @@ func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, _ middl
 		auditLogs.GET("", h.Admin.AuditLog.List)
 		auditLogs.GET("/:id", h.Admin.AuditLog.Get)
 		auditLogs.POST("/clear", h.Admin.AuditLog.Clear)
-	}
-}
-
-func registerContributionWithdrawalRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	withdrawals := admin.Group("/contribution-withdrawals")
-	{
-		withdrawals.GET("", h.Admin.ContributionWithdrawal.List)
-		withdrawals.GET("/:id/qr-code", h.Admin.ContributionWithdrawal.GetQRCode)
-		withdrawals.PUT("/:id/status", h.Admin.ContributionWithdrawal.Review)
 	}
 }
 

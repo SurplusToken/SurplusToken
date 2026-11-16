@@ -164,10 +164,8 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
-    chat: 'Chat',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
-    accountPool: 'Account Pool',
     carpool: 'Carpools',
     carpoolAdmin: 'Carpool admin',
     batchImage: 'Batch Images',
@@ -193,7 +191,6 @@ export default {
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
     promoCodes: 'Promo Codes',
-    contributionWithdrawals: 'Contribution Withdrawals',
     settings: 'Settings',
     myAccount: 'My Account',
     lightMode: 'Light Mode',

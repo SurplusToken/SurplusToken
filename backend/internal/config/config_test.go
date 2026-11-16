@@ -97,6 +97,88 @@ func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	require.Equal(t, "app-user", cfg.Redis.Username)
 }
 
+func TestLoadCprDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	// 空 admin_base_url = 整个拼车周额度功能禁用（接口答 503）。
+	require.Empty(t, cfg.Cpr.AdminBaseURL)
+	require.Empty(t, cfg.Cpr.AdminKey)
+	require.Equal(t, 300, cfg.Cpr.CacheTTLSeconds)
+	require.Equal(t, 600, cfg.Cpr.RefreshCooldownSeconds)
+}
+
+func TestLoadCprFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("CPR_ADMIN_BASE_URL", "http://cpr:8321")
+	t.Setenv("CPR_ADMIN_KEY", "cpr-secret")
+	t.Setenv("CPR_CACHE_TTL_SECONDS", "120")
+	t.Setenv("CPR_REFRESH_COOLDOWN_SECONDS", "30")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "http://cpr:8321", cfg.Cpr.AdminBaseURL)
+	require.Equal(t, "cpr-secret", cfg.Cpr.AdminKey)
+	require.Equal(t, 120, cfg.Cpr.CacheTTLSeconds)
+	require.Equal(t, 30, cfg.Cpr.RefreshCooldownSeconds)
+}
+
+func TestLoadDesktop2WebDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	// 默认 origin/issuer/key id 开箱即用；admin 侧三项为空 = 功能禁用（接口答 503）。
+	require.Equal(t, "http://100.118.150.10:4310", cfg.Desktop2Web.PublicOrigin)
+	require.Equal(t, "https://surplustoken.com", cfg.Desktop2Web.SsoIssuer)
+	require.Equal(t, "sub2api-v1", cfg.Desktop2Web.SsoKeyID)
+	require.Empty(t, cfg.Desktop2Web.SsoPrivateKeyFile)
+	require.Empty(t, cfg.Desktop2Web.AdminBaseURL)
+	require.Empty(t, cfg.Desktop2Web.AdminPassword)
+}
+
+func TestLoadDesktop2WebFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("DESKTOP2WEB_PUBLIC_ORIGIN", "https://d2w.example.com/")
+	t.Setenv("DESKTOP2WEB_SSO_ISSUER", "https://st.example.com")
+	t.Setenv("DESKTOP2WEB_SSO_KEY_ID", "key-9")
+	t.Setenv("DESKTOP2WEB_SSO_PRIVATE_KEY_FILE", "/secrets/d2w.pem")
+	t.Setenv("DESKTOP2WEB_ADMIN_BASE_URL", "https://d2w-admin.example.com/")
+	t.Setenv("DESKTOP2WEB_ADMIN_PASSWORD", "d2w-secret")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	// 末尾斜杠被剔除，避免和网关的精确 Origin 比较错位。
+	require.Equal(t, "https://d2w.example.com", cfg.Desktop2Web.PublicOrigin)
+	require.Equal(t, "https://st.example.com", cfg.Desktop2Web.SsoIssuer)
+	require.Equal(t, "key-9", cfg.Desktop2Web.SsoKeyID)
+	require.Equal(t, "/secrets/d2w.pem", cfg.Desktop2Web.SsoPrivateKeyFile)
+	require.Equal(t, "https://d2w-admin.example.com", cfg.Desktop2Web.AdminBaseURL)
+	require.Equal(t, "d2w-secret", cfg.Desktop2Web.AdminPassword)
+}
+
+func TestLoadDesktop2WebAdminPasswordFromFile(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	passwordFile := filepath.Join(t.TempDir(), "d2w-password.txt")
+	require.NoError(t, os.WriteFile(passwordFile, []byte(" d2w-file-secret\n"), 0o600))
+	t.Setenv("DESKTOP2WEB_ADMIN_PASSWORD_FILE", passwordFile)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "d2w-file-secret", cfg.Desktop2Web.AdminPassword)
+}
+
+func TestLoadDesktop2WebAdminPasswordEnvBeatsFile(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	passwordFile := filepath.Join(t.TempDir(), "d2w-password.txt")
+	require.NoError(t, os.WriteFile(passwordFile, []byte("from-file"), 0o600))
+	t.Setenv("DESKTOP2WEB_ADMIN_PASSWORD_FILE", passwordFile)
+	t.Setenv("DESKTOP2WEB_ADMIN_PASSWORD", "from-env")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "from-env", cfg.Desktop2Web.AdminPassword)
+}
+
 func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

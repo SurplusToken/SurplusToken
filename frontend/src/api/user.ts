@@ -16,11 +16,6 @@ import type {
   UserAuthProvider,
   UserAffiliateDetail,
   AffiliateTransferResponse,
-  UserContributionSummary,
-  ContributionWithdrawal,
-  CreateContributionWithdrawalRequest,
-  PaginatedResponse,
-  ContributionTransferResponse,
   PlatformQuotasResponse,
 } from '@/types'
 
@@ -217,45 +212,6 @@ export async function transferAffiliateQuota(): Promise<AffiliateTransferRespons
   return data
 }
 
-export async function getContributionSummary(): Promise<UserContributionSummary> {
-  const { data } = await apiClient.get<UserContributionSummary>('/user/contribution')
-  return data
-}
-
-export async function transferContributionQuota(): Promise<ContributionTransferResponse> {
-  const { data } = await apiClient.post<ContributionTransferResponse>('/user/contribution/transfer')
-  return data
-}
-
-export async function listContributionWithdrawals(page = 1, pageSize = 20): Promise<PaginatedResponse<ContributionWithdrawal>> {
-  const { data } = await apiClient.get<PaginatedResponse<ContributionWithdrawal>>('/user/contribution/withdrawals', {
-    params: { page, page_size: pageSize },
-  })
-  return data
-}
-
-export async function createContributionWithdrawal(
-  request: CreateContributionWithdrawalRequest,
-  idempotencyKey: string,
-): Promise<ContributionWithdrawal> {
-  const { data } = await apiClient.post<ContributionWithdrawal>('/user/contribution/withdrawals', request, {
-    headers: { 'Idempotency-Key': idempotencyKey },
-  })
-  return data
-}
-
-export async function cancelContributionWithdrawal(id: number): Promise<ContributionWithdrawal> {
-  const { data } = await apiClient.post<ContributionWithdrawal>(`/user/contribution/withdrawals/${id}/cancel`)
-  return data
-}
-
-export async function getContributionWithdrawalQRCode(id: number): Promise<Blob> {
-  const { data } = await apiClient.get<Blob>(`/user/contribution/withdrawals/${id}/qr-code`, {
-    responseType: 'blob',
-  })
-  return data
-}
-
 /**
  * 获取当前用户的平台限额 + 用量。
  */
@@ -281,12 +237,6 @@ export const userAPI = {
   startOAuthBinding,
   getAffiliateDetail,
   transferAffiliateQuota,
-  getContributionSummary,
-  transferContributionQuota,
-  listContributionWithdrawals,
-  createContributionWithdrawal,
-  cancelContributionWithdrawal,
-  getContributionWithdrawalQRCode,
   getMyPlatformQuotas,
 }
 

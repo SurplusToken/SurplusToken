@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"net/http"
-
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -47,12 +45,8 @@ func RegisterUserRoutes(
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)
 			user.POST("/aff/transfer", h.User.TransferAffiliateQuota)
-			user.GET("/contribution", h.User.GetContribution)
-			user.POST("/contribution/transfer", h.User.TransferContributionQuota)
-			user.GET("/contribution/withdrawals", h.User.ListContributionWithdrawals)
-			user.GET("/contribution/withdrawals/:id/qr-code", h.User.GetContributionWithdrawalQRCode)
-			user.POST("/contribution/withdrawals", h.User.CreateContributionWithdrawal)
-			user.POST("/contribution/withdrawals/:id/cancel", h.User.CancelContributionWithdrawal)
+			// 用户贡献账号体系已下线（产品决定，2026-10）：贡献余额/提现端点不再注册，
+			// ContributionService/Handler 源文件已删除。历史对账数据保留在 user_contributions 等表中。
 			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)
 			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)
@@ -104,46 +98,8 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
-		// 服务端持久化 Chat。completion 路由先由 JWT 识别用户，再将用户选择且
-		// 确认归属的 API Key 注入现有网关中间件链，复用计费、限流和平台分流。
-		chat := authenticated.Group("/chat")
-		{
-			chat.GET("/conversations", h.Chat.ListConversations)
-			chat.POST("/conversations", h.Chat.CreateConversation)
-			chat.PATCH("/conversations/:id", h.Chat.UpdateConversation)
-			chat.DELETE("/conversations/:id", h.Chat.DeleteConversation)
-			chat.GET("/conversations/:id/messages", h.Chat.ListMessages)
-
-			bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
-			clientRequestID := middleware.ClientRequestID()
-			opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
-			endpointNorm := handler.InboundEndpointMiddleware()
-			requireGroup := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
-			chat.POST("/conversations/:id/completions",
-				bodyLimit,
-				clientRequestID,
-				opsErrorLogger,
-				h.Chat.PrepareCompletion,
-				h.Chat.CaptureCompletion,
-				endpointNorm,
-				gin.HandlerFunc(apiKeyAuth),
-				requireGroup,
-				func(c *gin.Context) {
-					switch getGroupPlatform(c) {
-					case service.PlatformOpenAI, service.PlatformGrok:
-						h.OpenAIGateway.Responses(c)
-					case service.PlatformKimi:
-						h.OpenAIGateway.Messages(c)
-					case service.PlatformZhipu:
-						h.OpenAIGateway.Messages(c)
-					case service.PlatformAnthropic, service.PlatformGemini, service.PlatformAntigravity:
-						h.Gateway.Messages(c)
-					default:
-						c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "chat_error", "message": "Unsupported chat platform"}})
-					}
-				},
-			)
-		}
+		// 聊天功能已全站下线（产品决定，2026-10）：/chat 路由组不再注册，
+		// ChatHandler/ChatService/ChatRepository 源文件保留以便回滚。
 
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
@@ -158,56 +114,10 @@ func RegisterUserRoutes(
 			channels.GET("/available", h.AvailableChannel.List)
 		}
 
-		// 用户 OAuth 账号池
-		accounts := authenticated.Group("/accounts")
-		{
-			accounts.GET("/pool", h.AccountPool.ListPool)
-			accounts.GET("/pool/dynamic-groups", h.AccountPool.ListDynamicPools)
-			accounts.PUT("/pool/dynamic-groups/:group_id/sharing-rate-range", h.AccountPool.UpdateDynamicPoolSharingRateRange)
-			accounts.GET("/proxies", h.AccountPool.ListProxies)
-			accounts.POST("/proxies/:id/test", h.AccountPool.TestProxy)
-			accounts.POST("/oauth/auth-url", h.AccountPool.GenerateOAuthAuthURL)
-			accounts.POST("/oauth/exchange-code", h.AccountPool.ExchangeOAuthCode)
-			accounts.POST("/oauth/refresh-token", h.AccountPool.RefreshOpenAIToken)
-			accounts.POST("/oauth/import/codex-session", h.AccountPool.ImportCodexSession)
-			accounts.POST("/oauth", h.AccountPool.CreateOAuth)
-			accounts.GET("/:id/models", h.AccountPool.GetAvailableModels)
-			accounts.POST("/:id/test", h.AccountPool.Test)
-			accounts.POST("/:id/refresh", h.AccountPool.Refresh)
-			accounts.POST("/:id/recover-state", h.AccountPool.RecoverState)
-			accounts.POST("/:id/set-privacy", h.AccountPool.SetPrivacy)
-			accounts.POST("/:id/apply-oauth-credentials", h.AccountPool.ApplyOAuthCredentials)
-			accounts.GET("/:id/scheduled-test-plans", h.AccountPool.ListScheduledTestPlans)
-			accounts.GET("/:id/stats", h.AccountPool.GetStats)
-			accounts.PATCH("/:id/schedulable", h.AccountPool.SetSchedulable)
-			accounts.PATCH("/:id/scope", h.AccountPool.UpdateScope)
-			accounts.DELETE("/:id", h.AccountPool.Delete)
-
-			// 远程连接（远程浏览器 / Kasm）— 仅 Pro 账号 + owner/co-owner。
-			accounts.POST("/pool/:id/remote-session/setup", h.AccountPool.RemoteSessionSetup)
-			accounts.POST("/pool/:id/remote-session", h.AccountPool.RemoteSessionConnect)
-			accounts.GET("/pool/:id/remote-session/status", h.AccountPool.RemoteSessionStatus)
-			accounts.POST("/pool/:id/remote-session/keepalive", h.AccountPool.RemoteSessionKeepalive)
-			accounts.POST("/pool/:id/remote-session/disconnect", h.AccountPool.RemoteSessionDisconnect)
-
-			// 贡献奖励池（账号级)— 仅主 owner 可查看/分发给 owner 集合。
-			accounts.GET("/pool/:id/contribution-pool", h.AccountPool.GetContributionPool)
-			accounts.POST("/pool/:id/contribution-pool/distribute", h.AccountPool.DistributeContributionPool)
-
-			// OAuth 额度自助（仅 owner，OpenAI OAuth 生效）：
-			//   查询上游 5h/7d 限流窗口、查看/消费限流重置额度（对齐管理端 7d 下的三按钮）。
-			accounts.GET("/pool/:id/usage", h.AccountPool.GetOwnerAccountUsage)
-			accounts.GET("/pool/:id/openai-quota", h.AccountPool.QueryOwnerOpenAIQuota)
-			accounts.POST("/pool/:id/openai-quota/reset", h.AccountPool.ResetOwnerOpenAIQuota)
-		}
-
-		scheduledTests := authenticated.Group("/scheduled-test-plans")
-		{
-			scheduledTests.POST("", h.AccountPool.CreateScheduledTestPlan)
-			scheduledTests.PUT("/:id", h.AccountPool.UpdateScheduledTestPlan)
-			scheduledTests.DELETE("/:id", h.AccountPool.DeleteScheduledTestPlan)
-			scheduledTests.GET("/:id/results", h.AccountPool.ListScheduledTestResults)
-		}
+		// 用户侧 OAuth 账号池已整体下线（产品决定，2026-10）：/accounts 与
+		// /scheduled-test-plans 路由组不再注册，任何调用一律 404。
+		// AccountPoolHandler/AccountPoolService 源文件已删除；管理端 /admin/accounts
+		// 与 /admin/scheduled-test-plans 不受影响。
 
 		// 使用记录（聚合统计属重查询，叠加更严格的按用户限流）
 		usage := authenticated.Group("/usage")
@@ -271,6 +181,16 @@ func RegisterUserRoutes(
 			carpools.GET("/:id/qr-code", h.Carpool.GroupQRCode)
 			carpools.PUT("/:id/qr-code", middleware.RequestBodyLimit(carpoolCreateMaxBodyBytes), h.Carpool.ReplaceGroupQRCode)
 			carpools.GET("/:id/roster", h.Carpool.Roster)
+			// 上游 cpr 账号周额度（服务端代理 + Redis 缓存；refresh 有服务端冷却）。
+			carpools.GET("/:id/upstream-quota", h.UpstreamQuota.Get)
+			carpools.POST("/:id/upstream-quota/refresh", h.UpstreamQuota.Refresh)
+			// 本周用量摘要（订阅页同口径 + 全车合计，读自家库直出）。可见性与
+			// upstream-quota 同一道闸（成员/admin，未上车者仅 public 且招募中可读）。
+			carpools.GET("/:id/usage-summary", h.UsageSummary.Get)
+			// 「打开网页版 ChatGPT」：幂等供给 desktop2web Access + 签发 ES256
+			// SSO ticket。可见性与 upstream-quota 同一道闸；未配置 503、车无
+			// 账号/邮箱 409（前端据此隐藏按钮）。
+			carpools.POST("/:id/web-session", h.WebSession.Create)
 			carpools.POST("/:id/launch", h.Carpool.Launch)
 			carpools.GET("/:id/settlement", h.Carpool.Settlement)
 			carpools.POST("/:id/settlement/settle", h.Carpool.Settle)
@@ -306,4 +226,9 @@ func RegisterUserRoutes(
 			monitorV2.GET("/users", h.ChannelMonitorV2.Users)
 		}
 	}
+
+	// 「打开网页版 ChatGPT」launch 自动兑换页：浏览器弹窗直接导航（window.open
+	// 带不了 Authorization 头），故注册为免鉴权路由；页面不含敏感数据，ticket 仍
+	// 由页面脚本带同源 localStorage 的 Bearer token 调 POST web-session 才拿得到。
+	v1.GET("/carpools/:id/web-session/launch", h.WebSession.Launch)
 }

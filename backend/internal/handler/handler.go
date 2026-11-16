@@ -43,7 +43,6 @@ type AdminHandlers struct {
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
-	ContributionWithdrawal *admin.ContributionWithdrawalHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -58,8 +57,10 @@ type Handlers struct {
 	Chat             *ChatHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
 	ChannelMonitorV2 *ChannelMonitorV2Handler
-	AccountPool      *AccountPoolHandler
 	Carpool          *CarpoolHandler
+	UpstreamQuota    *CarpoolUpstreamQuotaHandler
+	UsageSummary     *CarpoolUsageSummaryHandler
+	WebSession       *CarpoolWebSessionHandler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
