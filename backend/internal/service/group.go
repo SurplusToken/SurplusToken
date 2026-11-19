@@ -19,6 +19,7 @@ type Group struct {
 	ID             int64
 	Name           string
 	Description    string
+	I18n           GroupI18n // 名称与描述的界面语言译文；缺失的语言沿用 Name/Description
 	Platform       string
 	RateMultiplier float64
 	// DynamicSharingPool marks a standard balance group whose candidate set is
@@ -51,6 +52,7 @@ type Group struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool
+	ImageCountBilling            bool
 	ImageRateIndependent         bool
 	ImageRateMultiplier          float64
 	ImagePrice1K                 *float64

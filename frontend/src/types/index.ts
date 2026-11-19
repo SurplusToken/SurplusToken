@@ -297,6 +297,8 @@ export interface PublicSettings {
   sharing_rate_cap: number
   sharing_rate_cooldown_minutes: number
   allow_user_view_error_requests?: boolean
+  /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
+  mcp_enabled?: boolean
 }
 
 export interface AuthResponse {
@@ -574,6 +576,16 @@ export interface ReasoningEffortMapping {
   model?: string
 }
 
+/** 分组名称与描述在某个语言下的译文；字段为空表示沿用分组自身的 name/description。 */
+export interface GroupLocaleText {
+  name?: string
+  description?: string
+}
+
+/** 以语言代码（en、zh…）为键的分组文案译文。 */
+export type GroupI18n = Record<string, GroupLocaleText>
+
+// 用户侧接口返回的 name / description 已由后端按请求语言（Accept-Language）选好
 export interface Group {
   id: number
   name: string
@@ -595,6 +607,7 @@ export interface Group {
   // 图片生成计费配置
   allow_image_generation: boolean
   allow_batch_image_generation: boolean
+  image_count_billing: boolean
   image_rate_independent: boolean
   image_rate_multiplier: number
   batch_image_discount_multiplier: number
@@ -638,6 +651,8 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  // 管理端的 name / description 始终是原字段，各语言译文另放在 i18n 里
+  i18n?: GroupI18n
   force_openai_fast: boolean
   free_openai_fast: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
@@ -804,6 +819,7 @@ export interface UpdateApiKeyRequest {
 export interface CreateGroupRequest {
   name: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   dynamic_sharing_pool?: boolean
@@ -818,6 +834,7 @@ export interface CreateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -870,6 +887,7 @@ export interface CreateGroupRequest {
 export interface UpdateGroupRequest {
   name?: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   dynamic_sharing_pool?: boolean
@@ -885,6 +903,7 @@ export interface UpdateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -1023,6 +1042,7 @@ export interface ProxyQualityCheckResult {
 export interface GeminiCredentials {
   // API Key authentication
   api_key?: string
+  base_url?: string
 
   // OAuth authentication
   access_token?: string
@@ -1047,11 +1067,15 @@ export interface GeminiCredentials {
   model_mapping?: Record<string, string>
 }
 
+export type TempUnschedulableScope = 'account' | 'model'
+
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
   duration_minutes: number
   description: string
+  // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型；缺省时 401 按 account、其余按 model 处理。
+  scope?: TempUnschedulableScope
 }
 
 export interface TempUnschedulableState {
@@ -1059,6 +1083,8 @@ export interface TempUnschedulableState {
   triggered_at_unix: number
   status_code: number
   matched_keyword: string
+  scope?: TempUnschedulableScope
+  model?: string
   rule_index: number
   error_message: string
   trigger_count?: number
@@ -1218,6 +1244,37 @@ export interface OpenCodeGoUsageSettings {
   debounce_minutes: number
 }
 
+export interface GrokCatalogScope {
+  account_id: number
+  account_type: string
+  endpoint: string
+  fingerprint: string
+}
+
+export interface GrokCatalogAttempt {
+  started_at: string
+  finished_at: string
+  status: string
+  error_code?: string
+  scope?: GrokCatalogScope
+}
+
+export interface GrokModelDiagnosticItem {
+  requested: string
+  upstream?: string
+  status: string
+}
+
+export interface GrokModelDiagnostics {
+  state: string
+  endpoint?: string
+  fetched_at?: string
+  expires_at?: string
+  models: string[]
+  last_attempt?: GrokCatalogAttempt
+  mappings: GrokModelDiagnosticItem[]
+}
+
 export interface Account {
   id: number
   name: string
@@ -1363,6 +1420,8 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+
+  grok_model_diagnostics?: GrokModelDiagnostics
 }
 
 // The admin account list may return this compact shape when lite=1. Detail
@@ -1398,6 +1457,19 @@ export interface UsageProgress {
 }
 
 // Antigravity 单个模型的配额信息
+export interface AntigravityQuotaWindow {
+  window: string // '5h' or 'weekly'
+  utilization: number // 0-100
+  resets_at: string | null
+}
+
+export interface AntigravityQuotaGroup {
+  key: string // bucket prefix: 'gemini' or '3p' (Claude and GPT)
+  name: string
+  description?: string
+  windows: AntigravityQuotaWindow[]
+}
+
 export interface AntigravityModelQuota {
   utilization: number // 使用率 0-100
   reset_time: string  // 重置时间 ISO8601
@@ -1461,6 +1533,8 @@ export interface AccountUsageInfo {
   gemini_pro_minute?: UsageProgress | null
   gemini_flash_minute?: UsageProgress | null
   antigravity_quota?: Record<string, AntigravityModelQuota> | null
+  // Per-group 5-hour and weekly windows (retrieveUserQuotaSummary); every model of a group shares them.
+  antigravity_quota_groups?: AntigravityQuotaGroup[] | null
   grok_request_quota?: GrokQuotaWindow | null
   grok_token_quota?: GrokQuotaWindow | null
   grok_retry_after_seconds?: number | null
@@ -1781,6 +1855,8 @@ export interface UsageLog {
   cache_read_tokens: number
   cache_creation_5m_tokens: number
   cache_creation_1h_tokens: number
+  cache_creation_30m_tokens?: number
+  cache_creation_12h_tokens?: number
 
   input_cost: number
   output_cost: number

@@ -247,6 +247,43 @@
         </div>
       </div>
 
+      <!-- OpenAI images: size tier routing -->
+      <div
+        v-if="allOpenAIPassthroughCapable"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between gap-4">
+          <label
+            id="bulk-edit-openai-image-size-tiers-label"
+            class="input-label mb-0"
+            for="bulk-edit-openai-image-size-tiers-enabled"
+          >
+            {{ t('admin.accounts.openai.imageSizeTiers') }}
+          </label>
+          <input
+            v-model="enableOpenAIImageSizeTiers"
+            id="bulk-edit-openai-image-size-tiers-enabled"
+            data-testid="bulk-edit-openai-image-size-tiers-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-image-size-tiers-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-openai-image-size-tiers-body"
+          :class="!enableOpenAIImageSizeTiers && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-openai-image-size-tiers-label"
+        >
+          <OpenAIImageSizeTiersField
+            v-model="openAIImageSizeTiers"
+            :disabled="!enableOpenAIImageSizeTiers"
+            hide-label
+            test-id-prefix="bulk-edit-openai-image-size-tier"
+          />
+        </div>
+      </div>
+
       <!-- Base URL (API Key only) -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1562,6 +1599,13 @@ import {
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import {
+  OPENAI_IMAGE_SIZE_TIERS,
+  OPENAI_IMAGE_SIZE_TIERS_EXTRA_KEY,
+  openAIImageSizeTiersPayload,
+  type OpenAIImageSizeTier
+} from '@/components/account/openaiImageSizeTiers'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -1716,6 +1760,7 @@ const enableOpenAIPassthrough = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
 const enableOpenAILongContextBilling = ref(false)
 const enableOpenAITestStoreFalse = ref(false)
+const enableOpenAIImageSizeTiers = ref(false)
 const enableOpenAIEndpointCapabilities = ref(false)
 const enableOpenAIResponsesMode = ref(false)
 const enableOpenAIWSMode = ref(false)
@@ -1753,6 +1798,7 @@ const openaiPassthroughEnabled = ref(false)
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
 const openAITestStoreFalseEnabled = ref(false)
+const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>([
   'chat_completions',
   'embeddings'
@@ -2059,6 +2105,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     extra.openai_test_store_false = openAITestStoreFalseEnabled.value
   }
 
+  if (enableOpenAIImageSizeTiers.value && allOpenAIPassthroughCapable.value) {
+    // extra 按 JSONB 合并写入，不限档位用空列表覆盖旧值。
+    ensureExtra()[OPENAI_IMAGE_SIZE_TIERS_EXTRA_KEY] = openAIImageSizeTiersPayload(openAIImageSizeTiers.value) ?? []
+  }
+
   if (applyOpenAIEndpointCapabilities) {
     credentials.openai_capabilities =
       openAIEndpointCapabilities.value.length === 2 && !openAIEndpointCapabilities.value.includes('seedance')
@@ -2270,6 +2321,7 @@ const handleSubmit = async () => {
     enableOpenAIFlattenNamespaces.value ||
     (enableOpenAILongContextBilling.value && allOpenAIPassthroughCapable.value) ||
     (enableOpenAITestStoreFalse.value && allOpenAIPassthroughCapable.value) ||
+    (enableOpenAIImageSizeTiers.value && allOpenAIPassthroughCapable.value) ||
     (enableOpenAIEndpointCapabilities.value && allOpenAIAPIKey.value) ||
     (enableOpenAIResponsesMode.value && allOpenAIAPIKey.value) ||
     enableModelRestriction.value ||
@@ -2433,6 +2485,7 @@ watch(
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAILongContextBilling.value = false
       enableOpenAITestStoreFalse.value = false
+      enableOpenAIImageSizeTiers.value = false
       enableOpenAIEndpointCapabilities.value = false
       enableOpenAIResponsesMode.value = false
       enableOpenAIWSMode.value = false
@@ -2452,6 +2505,7 @@ watch(
       openaiFlattenNamespacesEnabled.value = false
       openAILongContextBillingEnabled.value = false
       openAITestStoreFalseEnabled.value = false
+      openAIImageSizeTiers.value = [...OPENAI_IMAGE_SIZE_TIERS]
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openAIResponsesMode.value = 'auto'
       modelRestrictionMode.value = 'whitelist'

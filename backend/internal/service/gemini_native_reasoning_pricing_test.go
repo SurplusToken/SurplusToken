@@ -169,15 +169,12 @@ func TestGeminiChatCompatReasoningPricingMatchesForwardedEffort(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, recorder.Code)
 				require.Len(t, upstream.requestBodies, 1)
-				expectedCost := 1.0
-				if effort == "high" {
-					require.Equal(t, "high", gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig.thinkingLevel").String())
-					require.Equal(t, "high", optionalStringValue(result.ReasoningEffort))
-					expectedCost = 2.0
-				} else {
-					require.False(t, gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig").Exists())
-					require.Nil(t, result.ReasoningEffort)
-				}
+				// xhigh is normalized to the supported high level upstream. Bill the
+				// actual forwarded level, and expose thoughts only in streaming mode.
+				expectedCost := 2.0
+				require.Equal(t, "high", gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig.thinkingLevel").String())
+				require.Equal(t, stream, gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig.includeThoughts").Bool())
+				require.Equal(t, "high", optionalStringValue(result.ReasoningEffort))
 
 				billing := NewBillingService(&config.Config{}, nil)
 				cost, err := billing.CalculateTokenCostForRequest(TokenCostRequest{

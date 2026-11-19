@@ -182,6 +182,10 @@ func (s *modelsListAccountRepoStub) ListSchedulableByGroupID(ctx context.Context
 	return out, nil
 }
 
+func (s *modelsListAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	return s.ListSchedulableByGroupID(ctx, *groupID)
+}
+
 func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Account, error) {
 	s.listAllCalls.Add(1)
 	if s.err != nil {
@@ -586,6 +590,7 @@ func TestResolveCompositeModelOwnershipUsesModelsCacheInvalidation(t *testing.T)
 			groupID: {{
 				ID:          1,
 				Platform:    PlatformDeepseek,
+				Type:        AccountTypeAPIKey,
 				Credentials: map[string]any{"model_mapping": map[string]any{"company-model": "deepseek-v4-pro"}},
 			}},
 		},
@@ -604,6 +609,7 @@ func TestResolveCompositeModelOwnershipUsesModelsCacheInvalidation(t *testing.T)
 	repo.byGroup[groupID] = []Account{{
 		ID:          2,
 		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
 		Credentials: map[string]any{"model_mapping": map[string]any{"company-model": "gpt-5"}},
 	}}
 	cached, err := svc.resolveCompositeModelOwnership(context.Background(), groupID, "company-model")
@@ -683,6 +689,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 				{
 					ID:          1,
 					Platform:    PlatformOpenAI,
+					Type:        AccountTypeAPIKey,
 					Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "upstream-model"}},
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
@@ -697,11 +704,13 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 				{
 					ID:          2,
 					Platform:    PlatformOpenAI,
+					Type:        AccountTypeAPIKey,
 					Credentials: map[string]any{"model_mapping": map[string]any{"configured-model": "configured-upstream"}},
 				},
 				{
 					ID:          3,
 					Platform:    PlatformOpenAI,
+					Type:        AccountTypeAPIKey,
 					Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "upstream-model"}},
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
@@ -714,6 +723,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 				{
 					ID:          4,
 					Platform:    PlatformOpenAI,
+					Type:        AccountTypeAPIKey,
 					Credentials: map[string]any{"model_mapping": map[string]any{"configured-model": "configured-upstream"}},
 				},
 			},

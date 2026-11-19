@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -207,61 +206,6 @@ func selfUseAPIKeyNameFor(platform string) string {
 	return fmt.Sprintf("%s [%s]", selfUseAPIKeyName, platform)
 }
 
-// teardownSelfUseAccessIfEmpty revokes the user's self-use subscription, deletes
-// the self-use API key(s), and soft-deletes the self-use group once the user has
-// no remaining (non-deleted) contributed accounts in it. No-op otherwise, and
-// idempotent. Best-effort: callers log but do not fail the delete on error.
-func (s *AccountService) teardownSelfUseAccessIfEmpty(ctx context.Context, userID int64, platform string) error {
-	if !s.selfUseProvisioningEnabled() || userID <= 0 {
-		return nil
-	}
-	groupID, found, err := s.findUserSelfUseGroupID(ctx, userID, platform)
-	if err != nil {
-		return fmt.Errorf("lookup self-use group: %w", err)
-	}
-	if !found {
-		return nil
-	}
-	// total counts only non-deleted accounts bound to the group, so a just
-	// soft-deleted account is already excluded here.
-	total, _, err := s.groupRepo.GetAccountCount(ctx, groupID)
-	if err != nil {
-		return fmt.Errorf("count self-use group accounts: %w", err)
-	}
-	if total > 0 {
-		return nil // other contributed accounts remain — keep the self-use setup
-	}
-
-	// No live accounts left. Revoking the subscription alone already makes the key
-	// inert (auth returns SUBSCRIPTION_NOT_FOUND); we still delete the key and drop
-	// the group for hygiene.
-	if sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, userID, groupID); err == nil && sub != nil {
-		if err := s.subscriptionSvc.RevokeSubscription(ctx, sub.ID); err != nil {
-			return fmt.Errorf("revoke self-use subscription: %w", err)
-		}
-	}
-	if err := s.deleteSelfUseAPIKeys(ctx, userID, groupID); err != nil {
-		return fmt.Errorf("delete self-use api keys: %w", err)
-	}
-	if err := s.groupRepo.Delete(ctx, groupID); err != nil {
-		return fmt.Errorf("delete self-use group: %w", err)
-	}
-	return nil
-}
-
-func (s *AccountService) deleteSelfUseAPIKeys(ctx context.Context, userID, groupID int64) error {
-	keys, _, err := s.apiKeyService.List(ctx, userID, pagination.PaginationParams{Page: 1, PageSize: 100}, APIKeyListFilters{GroupID: &groupID})
-	if err != nil {
-		return err
-	}
-	for i := range keys {
-		if err := s.apiKeyService.Delete(ctx, keys[i].ID, userID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // BackfillSelfUseForUser provisions self-use access for a contributor's EXISTING
 // accounts — those contributed before this feature shipped, which never ran
 // through the on-contribution hook. Idempotent (reuses ensureSelfUseAccess), so it
@@ -291,16 +235,4 @@ func (s *AccountService) BackfillSelfUseForUser(ctx context.Context, ownerUserID
 		}
 	}
 	return provisioned, nil
-}
-
-// logSelfUseProvisioningError records a non-fatal provisioning failure. Account
-// contribution succeeds regardless — the account still serves the marketplace;
-// only the owner's private self-use path is (temporarily) unavailable and will
-// be re-attempted on the owner's next contribution.
-func logSelfUseProvisioningError(userID, accountID int64, err error) {
-	slog.Warn("contributor self-use provisioning failed; account still contributed",
-		"user_id", userID,
-		"account_id", accountID,
-		"error", err,
-	)
 }

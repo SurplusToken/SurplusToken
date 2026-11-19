@@ -449,7 +449,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "quota_auto_pause"
 		}
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+	if requestedModel != "" && !supportsOpenAIRequestModel(account, requestedModel, requireCompact) {
 		return "model_not_supported"
 	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
@@ -461,6 +461,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return "compact_unsupported"
+	}
+	if vetoed, reason := openAIImageSizeVetoReason(ctx, account); vetoed {
+		return reason
 	}
 	return ""
 }
@@ -1001,6 +1004,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if _, excluded := excludedIDs[accountID]; excluded {
 		return nil
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, accountID)
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil {
@@ -1187,6 +1191,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			stickyAccountID = accountID
 		}
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, stickyAccountID)
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		localExcluded := make(map[int64]struct{}, len(excludedIDs))
 		for id := range excludedIDs {

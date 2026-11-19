@@ -288,39 +288,6 @@ func TestBackfillSelfUseForUser_RepairsOpenAIAndKimiAPIKeySkipsLegacyKimiOAuth(t
 	require.Equal(t, []int64{44}, groupRepo.bound[groupRepo.createdAll[1].ID])
 }
 
-func TestTeardownSelfUseAccess_EmptyGroupRevokesEverything(t *testing.T) {
-	gr := &selfUseGroupRepoFake{
-		byID:         map[int64]*Group{900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true}},
-		accountCount: 0, // no live accounts left
-	}
-	sub := &selfUseSubFake{
-		active:       []UserSubscription{{ID: 1, UserID: 7, GroupID: 900}},
-		getActiveSub: &UserSubscription{ID: 1, UserID: 7, GroupID: 900},
-	}
-	key := &selfUseKeyFake{existing: []APIKey{{ID: 5}}}
-	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: key}
-
-	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7, PlatformOpenAI))
-	require.Equal(t, []int64{1}, sub.revokedIDs)
-	require.Equal(t, []int64{5}, key.deletedIDs)
-	require.Equal(t, []int64{900}, gr.deletedIDs)
-}
-
-func TestTeardownSelfUseAccess_KeepsWhenAccountsRemain(t *testing.T) {
-	gr := &selfUseGroupRepoFake{
-		byID:         map[int64]*Group{900: {ID: 900, Platform: PlatformOpenAI, AutoSelfUse: true}},
-		accountCount: 2, // other contributed accounts remain
-	}
-	sub := &selfUseSubFake{active: []UserSubscription{{ID: 1, UserID: 7, GroupID: 900}}}
-	key := &selfUseKeyFake{existing: []APIKey{{ID: 5}}}
-	svc := &AccountService{groupRepo: gr, subscriptionSvc: sub, apiKeyService: key}
-
-	require.NoError(t, svc.teardownSelfUseAccessIfEmpty(context.Background(), 7, PlatformOpenAI))
-	require.Empty(t, sub.revokedIDs)
-	require.Empty(t, key.deletedIDs)
-	require.Empty(t, gr.deletedIDs)
-}
-
 func TestEnsureSelfUseAccess_InertWithoutDeps(t *testing.T) {
 	gr := &selfUseGroupRepoFake{}
 	// No subscription / api-key deps wired.

@@ -386,6 +386,7 @@ export const useAppStore = defineStore('app', () => {
         sharing_rate_cap: 5,
         sharing_rate_cooldown_minutes: 10,
         allow_user_view_error_requests: false,
+        mcp_enabled: false,
       })
     }
 

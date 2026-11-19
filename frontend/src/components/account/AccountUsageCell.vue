@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" v-if="showUsageWindows">
+  <div ref="rootRef" v-if="showUsageWindows" :aria-busy="loading || activeQueryLoading">
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -8,7 +8,7 @@
       "
     >
       <!-- Loading state -->
-      <div v-if="loading" class="space-y-1.5">
+      <div v-if="loading && !usageInfo" class="space-y-1.5">
         <!-- OAuth: 3 rows, Setup Token: 1 row -->
         <div class="flex items-center gap-1">
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -99,12 +99,12 @@
           <button
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="activeQueryLoading"
+            :disabled="activeQueryLoading || loading"
             @click="loadActiveUsage"
           >
             <svg
               class="h-2.5 w-2.5"
-              :class="{ 'animate-spin': activeQueryLoading }"
+              :class="{ 'animate-spin': activeQueryLoading || loading }"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -157,12 +157,12 @@
             <button
               type="button"
               class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="activeQueryLoading"
+              :disabled="activeQueryLoading || loading"
               @click="loadActiveUsage"
             >
               <svg
                 class="h-2.5 w-2.5"
-                :class="{ 'animate-spin': activeQueryLoading }"
+                :class="{ 'animate-spin': activeQueryLoading || loading }"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -297,6 +297,23 @@
         {{ error }}
       </div>
 
+      <!-- Real 5-hour and weekly windows per quota group (retrieveUserQuotaSummary) -->
+      <div v-else-if="antigravityQuotaGroupBars.length > 0" class="space-y-1">
+        <UsageProgressBar
+          v-for="bar in antigravityQuotaGroupBars"
+          :key="bar.key"
+          :label="bar.label"
+          :title="bar.title"
+          :utilization="bar.utilization"
+          :resets-at="bar.resetsAt"
+          :color="bar.color"
+        />
+
+        <div v-if="aiCreditsDisplay" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+          💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+        </div>
+      </div>
+
       <!-- Usage data from API -->
       <div v-else-if="hasAntigravityQuotaFromAPI" class="space-y-1">
         <!-- Gemini 3 Pro -->
@@ -343,6 +360,37 @@
         💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
       </div>
       <div v-else class="text-xs text-gray-400">-</div>
+
+      <!--
+        Query the upstream now, bypassing the server's usage cache (force=true), like the Claude
+        and OpenAI cells: an account upgraded or reset upstream otherwise shows old figures for
+        the cache TTL. Shown in every state, including errors, where a retry matters most.
+      -->
+      <div v-if="!loading" class="mt-1">
+        <button
+          type="button"
+          class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="antigravity-active-query"
+          :disabled="activeQueryLoading"
+          @click="loadActiveUsage"
+        >
+          <svg
+            class="h-2.5 w-2.5"
+            :class="{ 'animate-spin': activeQueryLoading }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          {{ t('admin.accounts.usageWindow.activeQuery') }}
+        </button>
+      </div>
     </template>
 
     <!-- Grok OAuth accounts: passive xAI quota headers + local Sub2API usage -->
@@ -492,6 +540,7 @@
         </span>
         <!-- Help icon -->
         <span
+          v-if="showGeminiQuotaPolicy"
           class="group relative cursor-help"
         >
           <svg
@@ -556,6 +605,29 @@
           <div class="h-3 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
           <div class="h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         </div>
+        <!-- Vertex 设置了配额上限：显示配额进度条 -->
+        <template v-if="isGeminiVertex">
+          <UsageProgressBar
+            v-if="quotaDailyBar"
+            label="1d"
+            :utilization="quotaDailyBar.utilization"
+            :resets-at="quotaDailyBar.resetsAt"
+            color="indigo"
+          />
+          <UsageProgressBar
+            v-if="quotaWeeklyBar"
+            label="7d"
+            :utilization="quotaWeeklyBar.utilization"
+            :resets-at="quotaWeeklyBar.resetsAt"
+            color="emerald"
+          />
+          <UsageProgressBar
+            v-if="quotaTotalBar"
+            label="total"
+            :utilization="quotaTotalBar.utilization"
+            color="purple"
+          />
+        </template>
         <div v-if="loading" class="space-y-1">
           <div class="flex items-center gap-1">
             <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -582,7 +654,7 @@
           </p>
         </div>
         <!-- AI Studio Client OAuth: show unlimited flow (no usage tracking) -->
-        <div v-else class="text-xs text-gray-400">
+        <div v-else-if="!showGeminiTodayStats" class="text-xs text-gray-400">
           {{ t('admin.accounts.gemini.rateLimit.unlimited') }}
         </div>
       </div>
@@ -597,7 +669,7 @@
   <!-- Non-OAuth/Setup-Token accounts -->
   <div ref="rootRef" v-else>
     <!-- Gemini API Key accounts: show quota info -->
-    <AccountQuotaInfo v-if="account.platform === 'gemini'" :account="account" />
+    <AccountQuotaInfo v-if="account.platform === 'gemini' && !isGeminiThirdPartyApiKey" :account="account" />
     <!-- Key/Bedrock accounts: show today stats + optional quota bars -->
     <div v-else class="space-y-1">
       <OllamaCloudUsageCell
@@ -685,6 +757,8 @@ import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
+import { isOfficialGeminiBaseUrl } from '@/utils/geminiExplicitCache'
+import { supportsAccountQuota } from '@/utils/accountQuota'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import ClaudeResetCreditsCell from './ClaudeResetCreditsCell.vue'
@@ -756,10 +830,22 @@ let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
+// Gemini 第三方上游 API Key：没有 AI Studio 等级与本地模拟配额
+const isGeminiThirdPartyApiKey = computed(() => {
+  if (props.account.platform !== 'gemini' || props.account.type !== 'apikey') return false
+  const creds = props.account.credentials as GeminiCredentials | undefined
+  return !isOfficialGeminiBaseUrl(creds?.base_url)
+})
+
+const isGeminiVertex = computed(() => {
+  return props.account.platform === 'gemini' && props.account.type === 'service_account'
+})
+
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
-  if (props.account.platform === 'gemini') return true
+  // 第三方上游 API Key 没有模拟配额，按普通 Key 账号展示今日统计与额度进度条。
+  if (props.account.platform === 'gemini') return !isGeminiThirdPartyApiKey.value
   // 多协议 API Key 供应商：apikey 账号也有滚动用量窗口（coding plan / 订阅）或余额，
   // 由 CNProviderQuotaCell / CNProviderBalanceCell 自行探测与展示。
   if (isMultiProtocolApiKeyPlatform(props.account.platform)) {
@@ -773,7 +859,7 @@ const shouldFetchUsage = computed(() => {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
   if (props.account.platform === 'gemini') {
-    return true
+    return !isGeminiThirdPartyApiKey.value && !isGeminiVertex.value
   }
   if (props.account.platform === 'antigravity') {
     return props.account.type === 'oauth'
@@ -797,8 +883,9 @@ const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account
 
 const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
 
+// Vertex 没有本地模拟配额，用量窗口展示今日统计
 const showGeminiTodayStats = computed(() => {
-  return props.account.platform === 'gemini' && props.account.type === 'service_account'
+  return isGeminiVertex.value
 })
 
 const geminiUsageAvailable = computed(() => {
@@ -851,6 +938,42 @@ interface AntigravityUsageResult {
   utilization: number
   resetTime: string | null
 }
+
+// ===== Antigravity quota groups (usageInfo.antigravity_quota_groups) =====
+// The summary reports each group's real 5-hour and weekly window. When present it replaces the
+// per-model bars below, which show only whichever window is tighter for each model.
+const antigravityQuotaGroupBars = computed(() => {
+  const groups = usageInfo.value?.antigravity_quota_groups
+  if (!groups || groups.length === 0) return []
+  const bars: Array<{
+    key: string
+    label: string
+    title: string
+    utilization: number
+    resetsAt: string | null
+    color: 'indigo' | 'emerald' | 'purple' | 'amber'
+  }> = []
+  for (const group of groups) {
+    // 'gemini' = Gemini models, 'gemini-argon-wtu' = the separate Argon quota of Pro plans,
+    // '3p' (or anything else) = Antigravity's Claude and GPT models.
+    const family = group.key === 'gemini' ? 'Gemini' : group.key.startsWith('gemini-argon') ? 'Argon' : 'Other'
+    for (const window of group.windows || []) {
+      const weekly = window.window === 'weekly'
+      const labelKey = `admin.accounts.usageWindow.antigravity${family}${weekly ? 'Weekly' : '5h'}`
+      const color: 'indigo' | 'emerald' | 'purple' | 'amber' =
+        family === 'Gemini' ? (weekly ? 'indigo' : 'emerald') : family === 'Argon' ? 'indigo' : weekly ? 'purple' : 'amber'
+      bars.push({
+        key: `${group.key}-${window.window}`,
+        label: t(labelKey),
+        title: group.name,
+        utilization: Math.round(window.utilization ?? 0),
+        resetsAt: window.resets_at ?? null,
+        color
+      })
+    }
+  }
+  return bars
+})
 
 // ===== Antigravity quota from API (usageInfo.antigravity_quota) =====
 
@@ -962,6 +1085,10 @@ const geminiOAuthType = computed(() => {
   return (creds?.oauth_type || '').trim() || null
 })
 
+const showGeminiQuotaPolicy = computed(() => {
+  return !isGeminiVertex.value
+})
+
 // Gemini 是否为 Code Assist OAuth
 const isGeminiCodeAssist = computed(() => {
   if (props.account.platform !== 'gemini') return false
@@ -969,9 +1096,10 @@ const isGeminiCodeAssist = computed(() => {
   return creds?.oauth_type === 'code_assist' || (!creds?.oauth_type && !!creds?.project_id)
 })
 
-const geminiChannelShort = computed((): 'ai studio' | 'gcp' | 'google one' | 'client' | null => {
+const geminiChannelShort = computed((): 'ai studio' | 'vertex' | 'gcp' | 'google one' | 'client' | null => {
   if (props.account.platform !== 'gemini') return null
 
+  if (isGeminiVertex.value) return 'vertex'
   // API Key accounts are AI Studio.
   if (props.account.type === 'apikey') return 'ai studio'
 
@@ -985,6 +1113,7 @@ const geminiChannelShort = computed((): 'ai studio' | 'gcp' | 'google one' | 'cl
 
 const geminiUserLevel = computed((): string | null => {
   if (props.account.platform !== 'gemini') return null
+  if (isGeminiVertex.value) return null
 
   const tier = (geminiTier.value || '').toString().trim()
   const tierLower = tier.toLowerCase()
@@ -1042,7 +1171,7 @@ const geminiTierClass = computed(() => {
   const channel = geminiChannelShort.value
   const level = geminiUserLevel.value
 
-  if (channel === 'client' || channel === 'ai studio') {
+  if (channel === 'client' || channel === 'ai studio' || channel === 'vertex') {
     return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
   }
 
@@ -1557,7 +1686,7 @@ const makeQuotaBar = (
 }
 
 const hasApiKeyQuota = computed(() => {
-  if (props.account.type !== 'apikey' && props.account.type !== 'bedrock') return false
+  if (!supportsAccountQuota(props.account.type)) return false
   return (
     (props.account.quota_daily_limit ?? 0) > 0 ||
     (props.account.quota_weekly_limit ?? 0) > 0 ||

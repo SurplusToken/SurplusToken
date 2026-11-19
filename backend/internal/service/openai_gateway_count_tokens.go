@@ -104,7 +104,7 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 			return nil
 		}
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, prepared.UpstreamModel)
 		}
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
@@ -346,7 +346,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 		}
 
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, prepared.UpstreamModel)
 		}
 
 		if isOpenAIInputTokensUnsupported(resp.StatusCode, respBody) {
@@ -406,7 +406,9 @@ func prepareOpenAIInputTokensCountRequest(
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, strings.TrimSpace(defaultMappedModel))
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 
-	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
+	responsesReq, err := apicompat.AnthropicToResponsesWithOptions(&anthropicReq, apicompat.AnthropicToResponsesOptions{
+		DeferReasoningEffortValidation: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic request to responses: %w", err)
 	}
