@@ -34,7 +34,7 @@ type usageBillingRequestKey struct {
 //   - 认领用一条多行 INSERT，未认领的命令按已有指纹判定为重复（Applied=false）或指纹冲突；
 //     认领后在归档表命中的命令同样判定，并删除本事务插入的认领行。
 //   - 同一行的多次累加合并为一条语句，累加值取各命令金额之和。同一事务内 NOW() 不变，
-//     窗口重置类表达式的合并结果与逐条执行相同。
+//     窗口重置类表达式的合并结果与逐条执行相同。订阅逐条计算拼车公共池增量。
 //   - 逐条命令的扣费后余额、是否透支、Key 额度是否在该条耗尽、账号额度状态，
 //     由合并语句返回的累加后值按命令顺序推算。
 //
@@ -77,7 +77,7 @@ func (r *usageBillingRepository) ApplyBatch(ctx context.Context, cmds []*service
 		}
 	}
 
-	if err := applyUsageBillingBatchSubscriptions(ctx, tx, cmds, applied); err != nil {
+	if err := applyUsageBillingBatchSubscriptions(ctx, tx, cmds, applied, outcomes); err != nil {
 		return nil, err
 	}
 	if err := applyUsageBillingBatchBalance(ctx, tx, userID, cmds, applied, outcomes); err != nil {
@@ -88,6 +88,16 @@ func (r *usageBillingRepository) ApplyBatch(ctx context.Context, cmds []*service
 	}
 	if err := applyUsageBillingBatchAccountQuotas(ctx, tx, cmds, applied, outcomes); err != nil {
 		return nil, err
+	}
+
+	for i, cmd := range cmds {
+		result := outcomes[i].Result
+		if !applied[i] || cmd.BalanceCost <= 0 || result.BalanceOverdrafted {
+			continue
+		}
+		if err := accrueUsageBillingContribution(ctx, tx, cmd); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -324,7 +334,7 @@ func groupUsageBillingAmounts(cmds []*service.UsageBillingCommand, applied []boo
 	return groups, ids
 }
 
-func applyUsageBillingBatchSubscriptions(ctx context.Context, tx *sql.Tx, cmds []*service.UsageBillingCommand, applied []bool) error {
+func applyUsageBillingBatchSubscriptions(ctx context.Context, tx *sql.Tx, cmds []*service.UsageBillingCommand, applied []bool, outcomes []service.UsageBillingBatchOutcome) error {
 	groups, ids := groupUsageBillingAmounts(cmds, applied, func(cmd *service.UsageBillingCommand) (int64, float64, bool) {
 		if cmd.SubscriptionID == nil {
 			return 0, 0, false
@@ -332,8 +342,14 @@ func applyUsageBillingBatchSubscriptions(ctx context.Context, tx *sql.Tx, cmds [
 		return *cmd.SubscriptionID, cmd.SubscriptionCost, true
 	})
 	for _, id := range ids {
-		if err := incrementUsageBillingSubscription(ctx, tx, id, groups[id].sum.InexactFloat64()); err != nil {
-			return err
+		// The carpool threshold can be crossed by a charge partway through the
+		// batch. Preserve each request's increment for its cache update.
+		for _, i := range groups[id].indexes {
+			delta, err := incrementUsageBillingSubscription(ctx, tx, id, cmds[i].SubscriptionCost)
+			if err != nil {
+				return err
+			}
+			outcomes[i].Result.CarpoolCommonsDelta = delta
 		}
 	}
 	return nil

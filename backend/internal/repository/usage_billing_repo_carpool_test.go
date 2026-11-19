@@ -104,3 +104,45 @@ func TestApplyUsageBillingEffects_ComputesCarpoolCommonsDelta(t *testing.T) {
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }
+
+func TestApplyUsageBillingBatchSubscriptions_PreservesCarpoolCommonsDeltaPerCharge(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	subscriptionID := int64(101)
+	groupID := int64(91)
+	windowStart := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	columns := []string{"weekly_usage_usd", "weekly_window_start", "weekly_reserved_usd", "group_id"}
+	mock.ExpectQuery("UPDATE user_subscriptions").WithArgs(20.0, subscriptionID).
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(970.0, windowStart, 960.0, groupID))
+	mock.ExpectQuery("UPDATE user_subscriptions").WithArgs(30.0, subscriptionID).
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(1000.0, windowStart, 960.0, groupID))
+	mock.ExpectCommit()
+
+	cmds := []*service.UsageBillingCommand{
+		{SubscriptionID: &subscriptionID, SubscriptionCost: 20},
+		{SubscriptionID: &subscriptionID, SubscriptionCost: 100},
+		{SubscriptionID: &subscriptionID, SubscriptionCost: 30},
+	}
+	outcomes := []service.UsageBillingBatchOutcome{
+		{Result: &service.UsageBillingApplyResult{Applied: true}},
+		{Result: &service.UsageBillingApplyResult{Applied: false}},
+		{Result: &service.UsageBillingApplyResult{Applied: true}},
+	}
+	require.NoError(t, applyUsageBillingBatchSubscriptions(ctx, tx, cmds, []bool{true, false, true}, outcomes))
+	require.NoError(t, tx.Commit())
+
+	require.Equal(t, &service.CarpoolCommonsUsageDelta{GroupID: groupID, WindowStart: windowStart, DeltaUSD: 10},
+		outcomes[0].Result.CarpoolCommonsDelta)
+	require.Nil(t, outcomes[1].Result.CarpoolCommonsDelta)
+	require.Equal(t, &service.CarpoolCommonsUsageDelta{GroupID: groupID, WindowStart: windowStart, DeltaUSD: 30},
+		outcomes[2].Result.CarpoolCommonsDelta)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

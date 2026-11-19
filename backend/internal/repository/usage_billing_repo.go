@@ -215,15 +215,19 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
-	// Contribution reward accrual (same transaction). Model B: hold the reward in the
-	// account's pool (account_contribution_pools) for later manual distribution. The
-	// legacy per-owner-split / single-contributor user accruals are kept as a fallback
-	// for back-compat (no longer set by buildUsageBillingCommand).
-	if balanceCollected && cmd.ContributionPoolAccountID > 0 && cmd.ContributionPoolAmount > 0 {
-		if err := accrueUsageBillingContributionPool(ctx, tx, cmd); err != nil {
-			return err
-		}
-	} else if balanceCollected && len(cmd.ContributionRewardShares) > 0 {
+	if balanceCollected {
+		return accrueUsageBillingContribution(ctx, tx, cmd)
+	}
+	return nil
+}
+
+// accrueUsageBillingContribution uses the same reward rules for single and
+// batched charges. Call it only after collecting the full balance charge.
+func accrueUsageBillingContribution(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd.ContributionPoolAccountID > 0 && cmd.ContributionPoolAmount > 0 {
+		return accrueUsageBillingContributionPool(ctx, tx, cmd)
+	}
+	if len(cmd.ContributionRewardShares) > 0 {
 		for _, share := range cmd.ContributionRewardShares {
 			if share.UserID <= 0 || share.Amount <= 0 {
 				continue
@@ -232,12 +236,9 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 				return err
 			}
 		}
-	} else if balanceCollected && cmd.ContributionRewardAmount > 0 && cmd.ContributorUserID > 0 {
-		if err := accrueUsageBillingContributionReward(ctx, tx, cmd.ContributorUserID, cmd.ContributionRewardAmount, cmd); err != nil {
-			return err
-		}
+	} else if cmd.ContributorUserID > 0 && cmd.ContributionRewardAmount > 0 {
+		return accrueUsageBillingContributionReward(ctx, tx, cmd.ContributorUserID, cmd.ContributionRewardAmount, cmd)
 	}
-
 	return nil
 }
 
